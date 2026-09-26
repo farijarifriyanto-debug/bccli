@@ -4,6 +4,40 @@ import { defineTool } from './types'
 
 const HALF = 15_000
 
+type Spawn = typeof spawn
+
+/** Kill a command and everything it started. Never throws (e.g. taskkill missing on Windows). */
+export function killProcessTree(pid: number, platform: NodeJS.Platform = process.platform, spawnFn: Spawn = spawn): void {
+  if (platform === 'win32') {
+    const killer = spawnFn('taskkill', ['/pid', String(pid), '/T', '/F'])
+    killer.on('error', () => {
+      try {
+        process.kill(pid)
+      } catch {
+        // already gone
+      }
+    })
+    return
+  }
+  try {
+    process.kill(-pid, 'SIGKILL')
+  } catch {
+    try {
+      process.kill(pid, 'SIGKILL')
+    } catch {
+      // already gone
+    }
+  }
+}
+
+// Commands run detached in their own process group, so Ctrl+C on bccli would leave them running.
+const active = new Set<() => void>()
+let exitHookInstalled = false
+
+export function killAllCommands(): void {
+  for (const kill of active) kill()
+}
+
 export interface CommandResult {
   output: string
   exitCode: number | null
@@ -22,13 +56,19 @@ export function runCommand(
       detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     })
+    if (!exitHookInstalled) {
+      process.on('exit', killAllCommands)
+      exitHookInstalled = true
+    }
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
     let head = ''
     let tail = ''
     let dropped = 0
     let timedOut = false
     let aborted = false
-    const onData = (data: Buffer) => {
-      let s = data.toString()
+    const onData = (data: string) => {
+      let s = data
       if (head.length < HALF) {
         const take = s.slice(0, HALF - head.length)
         head += take
@@ -45,16 +85,13 @@ export function runCommand(
     child.stdout.on('data', onData)
     child.stderr.on('data', onData)
     const kill = () => {
-      if (child.pid === undefined) return
-      if (process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'])
-      else {
-        try {
-          process.kill(-child.pid, 'SIGKILL')
-        } catch {
-          child.kill('SIGKILL')
-        }
-      }
+      if (child.pid !== undefined) killProcessTree(child.pid)
     }
+    const killAsAborted = () => {
+      aborted = true
+      kill()
+    }
+    active.add(killAsAborted)
     const timer = setTimeout(() => {
       timedOut = true
       kill()
@@ -66,6 +103,7 @@ export function runCommand(
     if (opts.signal.aborted) onAbort()
     opts.signal.addEventListener('abort', onAbort, { once: true })
     const finish = (exitCode: number | null, extra = '') => {
+      active.delete(killAsAborted)
       clearTimeout(timer)
       opts.signal.removeEventListener('abort', onAbort)
       const output = dropped ? `${head}\n… [${dropped} karakter dipotong] …\n${tail}` : head + tail

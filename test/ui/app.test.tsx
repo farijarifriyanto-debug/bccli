@@ -98,3 +98,25 @@ test('whitespace-only assistant text before a tool call is not rendered as an em
   await waitFor(() => frames.some((f) => f.includes('● ok')))
   expect(frames.join('\n')).not.toMatch(/● *\n/)
 })
+
+test('Esc cancels a running /compact', async () => {
+  const rt = makeRuntime([])
+  rt.agent.provider = {
+    chat: (req) =>
+      new Promise((_resolve, reject) => {
+        req.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+      }),
+    async listModels() {
+      return []
+    },
+  }
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('/compact')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('Berpikir')))
+  stdin.write('\u001B')
+  await waitFor(() => frames.some((f) => f.includes('Gagal meringkas')))
+  expect(frames.join('\n')).toContain('Gagal meringkas')
+})

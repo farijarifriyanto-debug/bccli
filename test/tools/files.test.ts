@@ -76,3 +76,11 @@ test('edit preview is a diff and does not touch the file', async () => {
   expect(preview).toContain('+ new')
   expect(readFileSync(file('p.txt'), 'utf8')).toBe('keep\nold\n')
 })
+
+test('edit works in the LF part of a file with mixed line endings', async () => {
+  writeFileSync(file('m.txt'), 'a\r\nb\nc\n')
+  await readTool.run({ path: 'm.txt' }, ctx)
+  const r = await editTool.run({ path: 'm.txt', old_string: 'b\nc', new_string: 'B\nC' }, ctx)
+  expect(r.isError).toBeFalsy()
+  expect(readFileSync(file('m.txt'), 'utf8')).toBe('a\r\nB\nC\n')
+})

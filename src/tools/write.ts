@@ -15,6 +15,10 @@ export const writeTool = defineTool({
   }),
   kind: 'edit',
   target: (input) => input.path,
+  async validate(input, ctx) {
+    const abs = resolvePath(ctx.cwd, input.path)
+    return existsSync(abs) && !ctx.readFiles.has(abs) ? `${input.path} sudah ada. Baca dulu dengan read sebelum menimpanya.` : undefined
+  },
   async preview(input, ctx) {
     const abs = resolvePath(ctx.cwd, input.path)
     const old = existsSync(abs) ? await readFile(abs, 'utf8') : ''

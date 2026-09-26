@@ -176,3 +176,31 @@ test('compacting mid-turn restates the task so the next request ends with a user
   const after = provider.requests[2].messages
   expect(after.at(-1)).toEqual({ role: 'user', content: expect.stringContaining('perbaiki bug login') })
 })
+
+test('an edit that cannot succeed is rejected before asking for permission', async () => {
+  const { cwd, provider, agent } = setup([
+    { text: '', toolCalls: [call('edit', { path: 'u.txt', old_string: 'a', new_string: 'b' })] },
+    reply('ok'),
+  ])
+  writeFileSync(join(cwd, 'u.txt'), 'a')
+  let asked = false
+  agent.askPermission = async () => {
+    asked = true
+    return 'yes'
+  }
+  await agent.run('x', new AbortController().signal)
+  expect(asked).toBe(false)
+  expect((provider.requests[1].messages.find((m) => m.role === 'tool') as { content: string }).content).toMatch(/Baca u\.txt dulu/)
+})
+
+test('the compaction request still declares the tools', async () => {
+  const { provider, agent } = setup([
+    { ...reply('first'), usage: { inputTokens: 900, outputTokens: 10 } },
+    reply('RINGKASAN'),
+    reply('second'),
+  ])
+  ;(agent as unknown as { contextWindow: number }).contextWindow = 1000
+  await agent.run('satu', new AbortController().signal)
+  await agent.run('dua', new AbortController().signal)
+  expect(provider.requests[1].tools?.length).toBe(7)
+})

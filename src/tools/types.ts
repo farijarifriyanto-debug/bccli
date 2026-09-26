@@ -24,6 +24,8 @@ export interface Tool<S extends z.ZodType = z.ZodType> {
   kind: PermissionKind
   target(input: z.infer<S>): string
   preview?(input: z.infer<S>, ctx: ToolContext): Promise<string | undefined>
+  /** Cheap pre-check run before asking permission; returns an error message when the call cannot succeed. */
+  validate?(input: z.infer<S>, ctx: ToolContext): Promise<string | undefined>
   run(input: z.infer<S>, ctx: ToolContext): Promise<ToolResult>
 }
 

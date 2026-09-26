@@ -7,6 +7,17 @@ const server = createServer((req, res) => {
   if (req.url === '/html') {
     res.setHeader('content-type', 'text/html')
     res.end('<html><head><style>x{}</style><script>evil()</script></head><body><h1>Hi &amp; bye</h1><p>para</p></body></html>')
+  } else if (req.url === '/big') {
+    res.setHeader('content-type', 'text/plain')
+    res.end('x'.repeat(10 * 1024 * 1024))
+  } else if (req.url === '/away') {
+    res.statusCode = 302
+    res.setHeader('location', `http://localhost:${(server.address() as AddressInfo).port}/html`)
+    res.end()
+  } else if (req.url === '/same') {
+    res.statusCode = 302
+    res.setHeader('location', '/html')
+    res.end()
   } else {
     res.statusCode = 404
     res.end('missing')
@@ -34,4 +45,18 @@ test('fetch reports HTTP errors', async () => {
   const r = await fetchTool.run({ url: `${base}/nope` }, ctx)
   expect(r.isError).toBe(true)
   expect(r.output).toContain('404')
+})
+
+test('fetch stops reading huge responses', async () => {
+  const r = await fetchTool.run({ url: `${base}/big` }, ctx)
+  expect(r.output.length).toBeLessThan(60_000)
+  expect(r.output).toContain('[dipotong]')
+  expect(r.display).toMatch(/lebih dari 5 MB/)
+})
+
+test('fetch follows same-host redirects but not redirects to another host', async () => {
+  expect((await fetchTool.run({ url: `${base}/same` }, ctx)).output).toContain('Hi & bye')
+  const away = await fetchTool.run({ url: `${base}/away` }, ctx)
+  expect(away.isError).toBe(true)
+  expect(away.output).toContain('localhost')
 })
