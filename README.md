@@ -40,6 +40,10 @@ Mode `-p` tidak pernah bertanya: alat yang butuh izin ditolak, kecuali memakai
 }
 ```
 
+`.bccli/config.json` di dalam project hanya boleh memilih `model` dan menambah provider baru tanpa API key —
+izin (`permissionMode`, `allow`) dan provider yang sudah ada hanya diatur dari `~/.bccli/config.json`,
+supaya repo yang kamu clone tidak bisa memberi dirinya izin penuh atau mencuri API key.
+
 Instruksi project dibaca dari `AGENTS.md` dan `BCCLI.md`.
 
 ## Pengembangan

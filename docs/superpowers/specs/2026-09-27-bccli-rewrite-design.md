@@ -127,7 +127,7 @@ Error:
 
 ## Config, provider, sesi
 
-`~/.bccli/config.json` (ditimpa per project oleh `.bccli/config.json`):
+`~/.bccli/config.json`. `.bccli/config.json` di project dianggap tidak tepercaya (datang dari repo yang di-clone): hanya boleh memilih `model` dan menambah provider baru tanpa `apiKeyEnv`; `permissionMode`, `allow`, dan provider yang sudah ada diabaikan.
 
 ```json
 {
