@@ -1,10 +1,10 @@
 import { homedir } from 'node:os'
 import { Box, Static, Text, useApp, useInput } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AgentEvent, PermissionAnswer } from '../agent'
+import type { AgentEvent, PermissionAnswer, PermissionAsk } from '../agent'
 import { parseSlash, SLASH_COMMANDS } from '../commands'
 import type { PermissionMode } from '../config'
-import { nextMode, type PermissionRequest } from '../permissions'
+import { nextMode } from '../permissions'
 import type { Runtime } from '../setup'
 import { Markdown } from './Markdown'
 import { ModelPicker } from './ModelPicker'
@@ -43,7 +43,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [startedAt, setStartedAt] = useState(0)
   const [mode, setMode] = useState<PermissionMode>(runtime.agent.permissions.mode)
   const [tokens, setTokens] = useState(runtime.agent.totalUsage.inputTokens + runtime.agent.totalUsage.outputTokens)
-  const [pending, setPending] = useState<{ request: PermissionRequest & { preview?: string }; resolve(a: PermissionAnswer): void } | null>(
+  const [pending, setPending] = useState<{ request: PermissionAsk; resolve(a: PermissionAnswer): void } | null>(
     null,
   )
   const [picker, setPicker] = useState<string[] | null>(null)
