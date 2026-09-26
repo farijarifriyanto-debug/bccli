@@ -165,8 +165,8 @@ Vitest:
 - `ci.yml` (PR & push): typecheck, lint, test, build — Linux, macOS, Windows.
 - `release.yml` (tag `v*`): build, smoke Cloud, `npm publish --provenance` ke
   `@botconnector/bccli` via OIDC trusted publishing, GitHub Release.
-- Pengembangan: kode di-push ke branch; hasil dibaca dari Actions. Tidak ada
-  `npm install` atau build di VPS.
+- Pengembangan (diputuskan user 2026-09-27): test cepat di VPS dalam satu folder
+  `~/bccli`; CI 3 OS dan rilis tetap di Actions; `node_modules` dihapus setelah selesai.
 
 ## Migrasi
 
