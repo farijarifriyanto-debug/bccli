@@ -30,6 +30,8 @@ export interface AgentOptions {
   onReset?: () => void
 }
 
+const estimateTokens = (text: string) => Math.ceil(text.length / 4)
+
 const COMPACT_PROMPT =
   'Summarize the conversation so far for yourself so you can continue the work with no other context. Include: the user goals, decisions made, files touched and their current state, commands run and results, the task in progress and the next step. Be concise but complete.'
 
@@ -94,12 +96,16 @@ export class Agent {
           signal,
           onText: (delta) => this.onEvent({ type: 'text', delta }),
         })
-        if (completion.usage) {
-          this.totalUsage.inputTokens += completion.usage.inputTokens
-          this.totalUsage.outputTokens += completion.usage.outputTokens
-          this.lastInputTokens = completion.usage.inputTokens
-          this.onEvent({ type: 'usage', ...this.totalUsage })
+        // Some gateways (incl. BotConnector) omit usage; estimate ~4 chars/token so /cost and compaction still work.
+        const usage = completion.usage ?? {
+          inputTokens: estimateTokens(this.opts.systemPrompt) + estimateTokens(JSON.stringify(this.messages)),
+          outputTokens:
+            estimateTokens(completion.text) + (completion.toolCalls.length ? estimateTokens(JSON.stringify(completion.toolCalls)) : 0),
         }
+        this.totalUsage.inputTokens += usage.inputTokens
+        this.totalUsage.outputTokens += usage.outputTokens
+        this.lastInputTokens = usage.inputTokens
+        this.onEvent({ type: 'usage', ...this.totalUsage })
         this.push({
           role: 'assistant',
           content: completion.text || null,
