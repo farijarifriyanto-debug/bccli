@@ -15,6 +15,8 @@ export interface Runtime {
   agent: Agent
   session: Session
   setModel(ref: string): void
+  /** Continue an earlier session: load its history and append new messages to its file. */
+  resume(session: Session): void
 }
 
 const TOOL_RULES: Record<string, string> = { bash: 'bash', edit: 'edit', write: 'edit', fetch: 'fetch' }
@@ -68,7 +70,13 @@ export function createRuntime(opts: {
       return modelRef
     },
     agent,
-    session,
+    get session() {
+      return session
+    },
+    resume(previous: Session) {
+      session = previous
+      agent.messages = previous.load()
+    },
     setModel(ref: string) {
       agent.provider = makeProvider(ref)
       modelRef = ref

@@ -79,3 +79,15 @@ test('missing API key surfaces as a ConfigError from createRuntime', () => {
     createRuntime({ cwd: tmpdir(), args: parseCliArgs(['-p', 'go']), env: { BCCLI_HOME: mkdtempSync(join(tmpdir(), 'bccli-nk-')) } }),
   ).toThrow(/bccli login/)
 })
+
+test('resume switches the session file so new messages extend the resumed history', async () => {
+  const e = env()
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-r-'))
+  const first = createRuntime({ cwd, args: parseCliArgs(['-p', 'a']), env: e, provider: provider([{ text: 'satu', toolCalls: [] }]) })
+  await runPrint(first, 'pertama', io().io)
+  const second = createRuntime({ cwd, args: parseCliArgs([]), env: e, provider: provider([{ text: 'dua', toolCalls: [] }]) })
+  second.resume(first.session)
+  await runPrint(second, 'kedua', io().io)
+  expect(second.session.file).toBe(first.session.file)
+  expect(first.session.load().map((m) => m.content)).toEqual(['pertama', 'satu', 'kedua', 'dua'])
+})
