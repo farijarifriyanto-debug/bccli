@@ -47,14 +47,28 @@ function readJson(path: string): Partial<Config> {
   }
 }
 
+/**
+ * The project file comes from whatever repo the user cloned, so it is untrusted: it may pick the model and
+ * add providers without a key, but it cannot grant permissions, override known providers, or bind an env key.
+ */
+function untrustedProviders(project: Partial<Config>, known: Record<string, ProviderConfig>): Record<string, ProviderConfig> {
+  const out: Record<string, ProviderConfig> = {}
+  for (const [id, provider] of Object.entries(project.providers ?? {})) {
+    if (known[id] || typeof provider?.baseURL !== 'string') continue
+    out[id] = { baseURL: provider.baseURL }
+  }
+  return out
+}
+
 export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): Config {
   const global = readJson(join(bccliHome(env), 'config.json'))
   const project = readJson(join(cwd, '.bccli', 'config.json'))
+  const known = { ...DEFAULT_CONFIG.providers, ...global.providers }
   return {
     model: project.model ?? global.model ?? DEFAULT_CONFIG.model,
-    permissionMode: project.permissionMode ?? global.permissionMode ?? DEFAULT_CONFIG.permissionMode,
-    providers: { ...DEFAULT_CONFIG.providers, ...global.providers, ...project.providers },
-    allow: [...(global.allow ?? []), ...(project.allow ?? [])],
+    permissionMode: global.permissionMode ?? DEFAULT_CONFIG.permissionMode,
+    providers: { ...known, ...untrustedProviders(project, known) },
+    allow: [...(global.allow ?? [])],
   }
 }
 
