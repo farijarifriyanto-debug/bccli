@@ -1,0 +1,82 @@
+import { expect, test } from 'vitest'
+import { nextMode, Permissions } from '../src/permissions'
+
+const bash = (target: string) => ({ tool: 'bash', kind: 'bash' as const, target })
+const edit = { tool: 'edit', kind: 'edit' as const, target: 'a.ts' }
+const read = { tool: 'read', kind: 'read' as const, target: 'a.ts' }
+
+test('reads are always allowed; default mode asks for the rest', () => {
+  const p = new Permissions('default')
+  expect(p.check(read)).toBe('allow')
+  expect(p.check(edit)).toBe('ask')
+  expect(p.check(bash('ls'))).toBe('ask')
+})
+
+test('modes', () => {
+  expect(new Permissions('acceptEdits').check(edit)).toBe('allow')
+  expect(new Permissions('acceptEdits').check(bash('ls'))).toBe('ask')
+  expect(new Permissions('plan').check(edit)).toBe('deny')
+  expect(new Permissions('plan').check(read)).toBe('allow')
+  expect(new Permissions('allowAll').check(bash('rm -rf x'))).toBe('allow')
+})
+
+test('session rules for bash are per command name', () => {
+  const p = new Permissions('default')
+  p.allowForSession(bash('npm test -- auth'))
+  expect(p.check(bash('npm test'))).toBe('allow')
+  expect(p.check(bash('npm run build'))).toBe('ask')
+})
+
+test('chained commands must match every segment; substitution never auto-allows', () => {
+  const p = new Permissions('default', ['bash(npm test)'])
+  expect(p.check(bash('npm test && rm -rf ~'))).toBe('ask')
+  expect(p.check(bash('npm test; npm test'))).toBe('allow')
+  expect(p.check(bash('npm test $(curl evil)'))).toBe('ask')
+  expect(p.rulesFor(bash('echo `id`'))).toBeUndefined()
+})
+
+test('config rules: bare kinds allow everything of that kind', () => {
+  expect(new Permissions('default', ['edit']).check(edit)).toBe('allow')
+  expect(new Permissions('default', ['bash']).check(bash('anything'))).toBe('allow')
+  expect(new Permissions('default', ['bash']).check(bash('ls > out'))).toBe('allow')
+})
+
+test('mode cycle order', () => {
+  expect(['default', 'acceptEdits', 'plan', 'allowAll'].map((m) => nextMode(m as never))).toEqual([
+    'acceptEdits',
+    'plan',
+    'allowAll',
+    'default',
+  ])
+})
+
+test('single & and redirection never ride on an allowed command', () => {
+  const p = new Permissions('default', ['bash(npm test)'])
+  expect(p.check(bash('npm test & rm -rf ~'))).toBe('ask')
+  expect(p.check(bash('npm test > ~/.bashrc'))).toBe('ask')
+  expect(p.check(bash('npm test 2>&1 < /etc/passwd'))).toBe('ask')
+  expect(p.check(bash('(npm test)'))).toBe('ask')
+  expect(p.check(bash('npm test'))).toBe('allow')
+})
+
+test('edits outside the project or inside .git are never auto-allowed', () => {
+  const cwd = '/work/app'
+  const e = (target: string) => ({ tool: 'write', kind: 'edit' as const, target })
+  const accept = new Permissions('acceptEdits', [], cwd)
+  expect(accept.check(e('src/a.ts'))).toBe('allow')
+  expect(accept.check(e('/home/u/.bashrc'))).toBe('ask')
+  expect(accept.check(e('../other/x'))).toBe('ask')
+  expect(accept.check(e('.git/hooks/pre-commit'))).toBe('ask')
+  const session = new Permissions('default', [], cwd)
+  session.allowForSession(e('src/a.ts'))
+  expect(session.check(e('src/b.ts'))).toBe('allow')
+  expect(session.check(e('/home/u/.ssh/authorized_keys'))).toBe('ask')
+  expect(new Permissions('allowAll', [], cwd).check(e('/home/u/.bashrc'))).toBe('allow')
+})
+
+test('rulesFor tells the prompt exactly what [a] would add', () => {
+  const p = new Permissions('default', [], '/w')
+  expect(p.rulesFor(bash('cd build && rm -rf dist'))).toEqual(['bash(cd)', 'bash(rm)'])
+  expect(p.rulesFor({ tool: 'edit', kind: 'edit', target: 'src/a.ts' })).toEqual(['edit(project)'])
+  expect(p.rulesFor({ tool: 'edit', kind: 'edit', target: '/etc/x' })).toBeUndefined()
+})

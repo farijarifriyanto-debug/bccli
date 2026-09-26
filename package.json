@@ -1,0 +1,33 @@
+{
+  "name": "@botconnector/bccli",
+  "version": "0.2.0-beta.1",
+  "description": "BCCLI — BotConnector AI coding agent for the terminal",
+  "type": "module",
+  "bin": { "bccli": "dist/cli.js" },
+  "files": ["dist"],
+  "engines": { "node": ">=22" },
+  "repository": { "type": "git", "url": "git+https://github.com/farijarifriyanto-debug/bccli.git" },
+  "license": "MIT",
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint src test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "diff": "^9.0.0",
+    "fast-glob": "^3.3.3",
+    "ink": "^7.1.1",
+    "react": "^19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "ink-testing-library": "^4.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  }
+}

@@ -1,0 +1,44 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest
+      - run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - run: npm run typecheck && npm run lint && npm test && npm run build
+      - name: Tag matches package version
+        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+      - name: Smoke test against BotConnector Cloud
+        env:
+          BOTCONNECTOR_API_KEY: ${{ secrets.BOTCONNECTOR_API_KEY }}
+        run: |
+          if [ -z "$BOTCONNECTOR_API_KEY" ]; then
+            echo "::warning::BOTCONNECTOR_API_KEY secret not set; skipping live smoke test"
+          else
+            scripts/smoke.sh
+          fi
+      - name: Publish
+        env:
+          # Works with an NPM_BBCLI / NPM_TOKEN repo secret or npm trusted publishing (OIDC) for this repo.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BBCLI || secrets.NPM_TOKEN }}
+        run: |
+          [ -n "$NODE_AUTH_TOKEN" ] || unset NODE_AUTH_TOKEN
+          version=$(node -p "require('./package.json').version")
+          # Prereleases go to "next" so the existing "beta" (0.1.0-beta.x, old CLI) is left untouched.
+          tag=latest; case "$version" in *-*) tag=next;; esac
+          npm publish --provenance --access public --tag "$tag"
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes $(case "$GITHUB_REF_NAME" in *-*) echo --prerelease;; esac)
