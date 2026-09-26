@@ -44,7 +44,7 @@ test('runs read then answers; sends system prompt and tools', async () => {
   const toolMsg = provider.requests[1].messages.find((m) => m.role === 'tool')
   expect(toolMsg).toMatchObject({ role: 'tool', tool_call_id: 'id_read' })
   expect((toolMsg as { content: string }).content).toContain('hello')
-  expect(events.map((e) => e.type)).toEqual(['toolStart', 'toolEnd', 'text', 'done'])
+  expect(events.map((e) => e.type).filter((t) => t !== 'usage')).toEqual(['toolStart', 'toolEnd', 'text', 'done'])
 })
 
 test('asks permission for edits; "no" is reported to the model', async () => {
@@ -153,4 +153,14 @@ test('compacts when the last prompt used most of the context window', async () =
   await agent.run('dua', new AbortController().signal)
   expect(events.some((e) => e.type === 'compacted')).toBe(true)
   expect(provider.requests[2].messages[1]).toEqual({ role: 'user', content: expect.stringContaining('RINGKASAN') })
+})
+
+test('estimates usage when the provider sends none, so compaction still triggers', async () => {
+  const { events, agent } = setup([reply('x'.repeat(400)), reply('RINGKASAN'), reply('after')])
+  ;(agent as unknown as { contextWindow: number }).contextWindow = 100
+  await agent.run('y'.repeat(400), new AbortController().signal)
+  expect(agent.totalUsage.inputTokens).toBeGreaterThan(90)
+  expect(agent.totalUsage.outputTokens).toBe(100)
+  await agent.run('next', new AbortController().signal)
+  expect(events.some((e) => e.type === 'compacted')).toBe(true)
 })
