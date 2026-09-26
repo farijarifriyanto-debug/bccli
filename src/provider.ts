@@ -99,19 +99,26 @@ async function readStream(res: Response, onText?: (delta: string) => void): Prom
   let text = ''
   let usage: Usage | undefined
   let finishReason: string | undefined
-  const calls = new Map<number, ToolCall>()
+  const calls: ToolCall[] = []
+  const byIndex = new Map<number, ToolCall>()
+  let current: ToolCall | undefined
   const decoder = new TextDecoder()
   let buffer = ''
   const handle = (line: string) => {
     if (!line.startsWith('data:')) return
     const data = line.slice(5).trim()
     if (!data || data === '[DONE]') return
-    let event: { choices?: { delta?: { content?: string; tool_calls?: RawToolCall[] }; finish_reason?: string }[]; usage?: RawUsage }
+    let event: {
+      choices?: { delta?: { content?: string; tool_calls?: RawToolCall[] }; finish_reason?: string }[]
+      usage?: RawUsage
+      error?: { message?: string }
+    }
     try {
       event = JSON.parse(data)
     } catch {
       return
     }
+    if (event.error) throw new ProviderError(`Error dari provider: ${event.error.message ?? JSON.stringify(event.error)}`)
     if (event.usage) usage = toUsage(event.usage)
     const choice = event.choices?.[0]
     if (!choice) return
@@ -122,12 +129,17 @@ async function readStream(res: Response, onText?: (delta: string) => void): Prom
       onText?.(delta.content)
     }
     for (const tc of delta.tool_calls ?? []) {
-      const index = tc.index ?? 0
-      const current = calls.get(index) ?? { id: '', name: '', arguments: '' }
-      if (tc.id) current.id = tc.id
-      if (tc.function?.name && !current.name) current.name = tc.function.name
-      if (tc.function?.arguments) current.arguments += tc.function.arguments
-      calls.set(index, current)
+      // Fragments are grouped by index; providers that omit index start a new call with a new id.
+      let target = tc.index !== undefined ? byIndex.get(tc.index) : current
+      if (!target || (tc.index === undefined && tc.id && target.id && target.id !== tc.id)) {
+        target = { id: '', name: '', arguments: '' }
+        calls.push(target)
+        if (tc.index !== undefined) byIndex.set(tc.index, target)
+      }
+      current = target
+      if (tc.id) target.id = tc.id
+      if (tc.function?.name && !target.name) target.name = tc.function.name
+      if (tc.function?.arguments) target.arguments += tc.function.arguments
     }
   }
   for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
@@ -140,9 +152,7 @@ async function readStream(res: Response, onText?: (delta: string) => void): Prom
     }
   }
   handle(buffer.trim())
-  const toolCalls = [...calls.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([index, call]) => ({ ...call, id: call.id || `call_${index}` }))
+  const toolCalls = calls.map((call, index) => ({ ...call, id: call.id || `call_${index}` }))
   return { text, toolCalls, usage, finishReason }
 }
 

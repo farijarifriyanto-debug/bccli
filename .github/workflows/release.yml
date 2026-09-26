@@ -24,9 +24,14 @@ jobs:
           BOTCONNECTOR_API_KEY: ${{ secrets.BOTCONNECTOR_API_KEY }}
         run: scripts/smoke.sh
       - name: Publish
+        env:
+          # Works with either an NPM_TOKEN repo secret or npm trusted publishing (OIDC) for this repo.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          [ -n "$NODE_AUTH_TOKEN" ] || unset NODE_AUTH_TOKEN
           version=$(node -p "require('./package.json').version")
-          tag=latest; case "$version" in *-*) tag=beta;; esac
+          # Prereleases go to "next" so the existing "beta" (0.1.0-beta.x, old CLI) is left untouched.
+          tag=latest; case "$version" in *-*) tag=next;; esac
           npm publish --provenance --access public --tag "$tag"
       - name: GitHub Release
         env:

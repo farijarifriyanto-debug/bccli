@@ -95,11 +95,13 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'compact': {
           setBusy(true)
           setStartedAt(Date.now())
+          controller.current = new AbortController() // so Esc can cancel it
           try {
-            await runtime.agent.compact(new AbortController().signal)
+            await runtime.agent.compact(controller.current.signal)
           } catch (error) {
             notice(`Gagal meringkas: ${(error as Error).message}`, 'error')
           }
+          controller.current = null
           setBusy(false)
           return
         }

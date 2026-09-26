@@ -4,7 +4,7 @@ Agent AI coding dari BotConnector yang bekerja di terminal: membaca kode, menged
 dan menjalankan perintah — dengan izin kamu.
 
 ```bash
-npm i -g @botconnector/bccli    # butuh Node.js 22+
+npm i -g @botconnector/bccli@next    # v0.2 beta, butuh Node.js 22+
 bccli login                     # simpan API key BotConnector Cloud
 cd project-kamu && bccli
 ```

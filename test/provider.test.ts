@@ -75,3 +75,22 @@ test('listModels returns sorted ids', async () => {
   const f = vi.fn(async () => new Response(JSON.stringify({ data: [{ id: 'b' }, { id: 'a' }] })))
   expect(await createProvider({ baseURL: 'http://x', model: 'm', fetch: f }).listModels()).toEqual(['a', 'b'])
 })
+
+test('parallel tool calls without index stay separate when their ids differ', async () => {
+  const f = vi.fn(async () =>
+    sse([
+      chunk({ tool_calls: [{ id: 'a', function: { name: 'read', arguments: '{"path":"x"}' } }] }),
+      chunk({ tool_calls: [{ id: 'b', function: { name: 'glob', arguments: '{"pattern":"*"}' } }] }),
+    ]),
+  )
+  const c = await createProvider({ baseURL: 'http://x', model: 'm', fetch: f }).chat({ messages: [] })
+  expect(c.toolCalls).toEqual([
+    { id: 'a', name: 'read', arguments: '{"path":"x"}' },
+    { id: 'b', name: 'glob', arguments: '{"pattern":"*"}' },
+  ])
+})
+
+test('an error event inside the stream becomes a ProviderError', async () => {
+  const f = vi.fn(async () => sse([chunk({ content: 'x' }), { error: { message: 'upstream exploded' } }]))
+  await expect(createProvider({ baseURL: 'http://x', model: 'm', fetch: f }).chat({ messages: [] })).rejects.toThrow(/upstream exploded/)
+})

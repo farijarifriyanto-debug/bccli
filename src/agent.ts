@@ -77,6 +77,8 @@ export class Agent {
   async compact(signal: AbortSignal): Promise<void> {
     const completion = await this.provider.chat({
       messages: [{ role: 'system', content: this.opts.systemPrompt }, ...this.messages, { role: 'user', content: COMPACT_PROMPT }],
+      // Some gateways reject tool_calls in history when no tools are declared.
+      tools: this.definitions,
       signal,
     })
     this.clear()
@@ -181,6 +183,12 @@ export class Agent {
     const target = tool.target(input)
     const ctx: ToolContext = { cwd: this.opts.cwd, signal, readFiles: this.readFiles }
     this.onEvent({ type: 'toolStart', id: call.id, tool: tool.name, target })
+    // Don't ask the user to approve something that is going to fail anyway.
+    const invalid = await tool.validate?.(input, ctx).catch((error: Error) => error.message)
+    if (invalid) {
+      this.onEvent({ type: 'toolEnd', id: call.id, tool: tool.name, output: invalid, isError: true })
+      return invalid
+    }
     const request: PermissionRequest = { tool: tool.name, kind: tool.kind, target }
     let decision = this.permissions.check(request)
     if (decision === 'ask') {

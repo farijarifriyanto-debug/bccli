@@ -1,8 +1,9 @@
+import { EventEmitter } from 'node:events'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
-import { bashTool, runCommand } from '../../src/tools/bash'
+import { bashTool, killAllCommands, killProcessTree, runCommand } from '../../src/tools/bash'
 
 const cwd = mkdtempSync(join(tmpdir(), 'bccli-bash-'))
 const node = (code: string) => `node -e "${code}"`
@@ -38,4 +39,26 @@ test('huge output keeps head and tail', async () => {
   expect(r.output.length).toBeLessThan(31000)
   expect(r.output).toContain('karakter dipotong')
   expect(r.output.endsWith('END')).toBe(true)
+})
+
+test('multibyte characters split across chunks survive', async () => {
+  const r = await runCommand(
+    node('process.stdout.write(Buffer.from([0xe2])); setTimeout(() => process.stdout.write(Buffer.from([0x82, 0xac])), 100)'),
+    { cwd, timeoutMs: 20000, signal: new AbortController().signal },
+  )
+  expect(r.output).toBe('€')
+})
+
+test('killAllCommands stops every running command (used on exit / Ctrl+C)', async () => {
+  const running = runCommand(node('setTimeout(()=>{}, 60000)'), { cwd, timeoutMs: 60000, signal: new AbortController().signal })
+  setTimeout(() => killAllCommands(), 300)
+  const started = Date.now()
+  await running
+  expect(Date.now() - started).toBeLessThan(10000)
+})
+
+test('killProcessTree survives a missing taskkill on Windows', () => {
+  const fake = new EventEmitter()
+  expect(() => killProcessTree(123, 'win32', () => fake as never)).not.toThrow()
+  expect(() => fake.emit('error', new Error('spawn taskkill ENOENT'))).not.toThrow()
 })
