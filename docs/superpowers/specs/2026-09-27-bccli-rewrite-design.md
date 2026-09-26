@@ -18,7 +18,7 @@ Seluruh build, test, dan rilis berjalan di GitHub Actions. Tidak ada build di VP
 | Bentuk | Inline di terminal (bukan layar penuh), seperti Claude Code |
 | Provider | Semua OpenAI-compatible; BotConnector Cloud default |
 | Hubungan dengan BCCLI lama | Pengganti penuh: paket `@botconnector/bccli`, perintah `bccli`, versi `0.2.0-beta.1`; repo lama diarsipkan setelah rilis dicoba |
-| Stack | TypeScript + Ink di Node.js ≥ 20 |
+| Stack | TypeScript + Ink di Node.js ≥ 22 (Ink 7 butuh Node 22; Node 20 sudah EOL April 2026) |
 | Repo | `farijarifriyanto-debug/bccli`, public (Actions tanpa limit, npm provenance) |
 
 ## Lingkup v0.2.0-beta.1
@@ -26,7 +26,7 @@ Seluruh build, test, dan rilis berjalan di GitHub Actions. Tidak ada build di VP
 Masuk:
 - `bccli` (interaktif) dan `bccli -p "tugas"` (non-interaktif, untuk skrip/CI).
 - 7 alat: `read`, `write`, `edit`, `bash`, `grep`, `glob`, `fetch`.
-- Izin sebelum menulis/mengedit/menjalankan; baca & cari bebas.
+- Izin sebelum menulis/mengedit/menjalankan dan sebelum `fetch` (akses internet bisa dipakai membocorkan data); baca & cari file bebas.
 - Mode izin: `default`, `acceptEdits`, `plan`, `allowAll`.
 - Provider OpenAI-compatible lewat config; `bc-cloud` bawaan.
 - Instruksi project dari `AGENTS.md` / `BCCLI.md`.
@@ -40,7 +40,7 @@ BotConnector Local (tetap bisa via URL OpenAI-compatible), web UI, desktop.
 Kriteria berhasil:
 1. Dari folder project mana pun, `bccli` bisa diminta "perbaiki bug X": membaca
    kode, mengusulkan edit (dengan diff), menunggu izin, menjalankan test, melapor.
-2. `npm i -g @botconnector/bccli` berfungsi di Linux, macOS, Windows.
+2. `npm i -g @botconnector/bccli` berfungsi di Linux, macOS, Windows (Node.js ≥ 22).
 3. CI dan rilis sepenuhnya di GitHub Actions.
 
 ## Arsitektur
@@ -49,7 +49,7 @@ Kriteria berhasil:
 src/
   cli.ts          argumen: interaktif vs -p, --continue, --resume, --model, --allow-all, --allowed-tools
   config.ts       ~/.bccli/config.json + .bccli/config.json + env
-  provider.ts     klien OpenAI-compatible (SDK `openai`): chat streaming + tool calls
+  provider.ts     klien OpenAI-compatible (fetch bawaan Node + parser SSE): chat streaming + tool calls
   agent.ts        loop agent; memancarkan event, tidak tahu soal UI
   tools/          satu file per alat: { name, schema (zod), needsPermission, run }
   permissions.ts  mode izin + aturan allow (sesi & permanen)
@@ -65,7 +65,7 @@ Batas antar modul:
 - `provider.ts` satu-satunya yang bicara ke API.
 - Alat baru = satu file baru di `tools/`.
 
-Dependensi: `ink`, `react`, `openai`, `zod`, `fast-glob`, `diff`. Grep memakai
+Dependensi: `ink`, `react`, `zod`, `fast-glob`, `diff`. Tanpa SDK `openai`: protokolnya stabil dan cukup ditulis dengan `fetch`. Grep memakai
 `rg` bila tersedia, fallback ke pencarian JS.
 
 ## Loop agent
@@ -95,7 +95,7 @@ Izin:
 Error:
 - API 429/5xx/jaringan: retry 3× dengan backoff, lalu pesan jelas.
 - Error alat dikirim ke model sebagai hasil, tidak membuat CLI crash.
-- Model tanpa dukungan tool calling: diberitahu di awal, sarankan model lain.
+- Model tanpa dukungan tool calling: saat provider menolak (400 soal tools), pesan error menyarankan ganti model lewat `/model`.
 - Konteks hampir penuh: ringkas otomatis (seperti `/compact`) dan beri tahu user.
 
 ## Tampilan
@@ -121,7 +121,7 @@ Error:
 - Jawaban streaming dengan markdown sederhana.
 - Alat tampil ringkas `⎿ Nama target`; output panjang dipotong, ctrl+o untuk lengkap.
 - Diff berwarna dengan nomor baris.
-- Input: multi-baris (shift+enter), riwayat panah atas/bawah, saran `/` dan `@file`.
+- Input: multi-baris (`\` + enter; Ink tidak bisa mendeteksi shift+enter di semua terminal), riwayat panah atas/bawah, saran `/` dan `@file`.
 - Status bar: mode, token, pintasan. `allowAll` = status bar merah `⏵⏵ allow all`.
 - Spinner dengan waktu berjalan. Satu warna aksen (hijau BotConnector); hormati `NO_COLOR`.
 
