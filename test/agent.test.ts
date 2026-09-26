@@ -164,3 +164,15 @@ test('estimates usage when the provider sends none, so compaction still triggers
   await agent.run('next', new AbortController().signal)
   expect(events.some((e) => e.type === 'compacted')).toBe(true)
 })
+
+test('compacting mid-turn restates the task so the next request ends with a user message', async () => {
+  const { provider, agent } = setup([
+    { text: '', toolCalls: [call('glob', { pattern: '*' })], usage: { inputTokens: 900, outputTokens: 1 } },
+    reply('RINGKASAN'),
+    reply('selesai'),
+  ])
+  ;(agent as unknown as { contextWindow: number }).contextWindow = 1000
+  await agent.run('perbaiki bug login', new AbortController().signal)
+  const after = provider.requests[2].messages
+  expect(after.at(-1)).toEqual({ role: 'user', content: expect.stringContaining('perbaiki bug login') })
+})

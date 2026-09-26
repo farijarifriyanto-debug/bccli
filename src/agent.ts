@@ -90,7 +90,11 @@ export class Agent {
       if (this.lastInputTokens > this.contextWindow * 0.8) await this.compact(signal)
       this.push({ role: 'user', content: text })
       for (let step = 0; step < this.maxSteps; step++) {
-        if (step > 0 && this.lastInputTokens > this.contextWindow * 0.8) await this.compact(signal)
+        if (step > 0 && this.lastInputTokens > this.contextWindow * 0.8) {
+          await this.compact(signal)
+          // The summary ends with an assistant turn; restate the task so the model has something to answer.
+          this.push({ role: 'user', content: `Lanjutkan tugas ini sesuai ringkasan di atas: ${text}` })
+        }
         const completion = await this.provider.chat({
           messages: [{ role: 'system', content: this.opts.systemPrompt }, ...this.messages],
           tools: this.definitions,
