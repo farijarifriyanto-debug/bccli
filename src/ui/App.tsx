@@ -14,18 +14,8 @@ import { Spinner } from './Spinner'
 import { StatusBar } from './StatusBar'
 import { ACCENT, color } from './theme'
 import { ToolBlock } from './ToolBlock'
+import { applyEvent, type Entry, endTurn, entry, type Transcript } from './transcript'
 
-type Entry = { id: number } & (
-  | { kind: 'header' }
-  | { kind: 'user'; text: string }
-  | { kind: 'assistant'; text: string }
-  | { kind: 'tool'; callId: string; tool: string; target: string; output?: string; display?: string; isError?: boolean; done: boolean }
-  | { kind: 'notice'; text: string; tone: 'info' | 'warn' | 'error' }
-)
-
-let nextId = 0
-type EntryInput = Entry extends infer E ? (E extends { id: number } ? Omit<E, 'id'> : never) : never
-const entry = (e: EntryInput): Entry => ({ ...e, id: nextId++ }) as Entry
 
 const HELP = [
   ...SLASH_COMMANDS.map((c) => `/${c.name.padEnd(8)} ${c.description}`),
@@ -37,8 +27,7 @@ const HELP = [
 
 export function App({ runtime, initialPrompt, version }: { runtime: Runtime; initialPrompt?: string; version: string }) {
   const { exit } = useApp()
-  const [done, setDone] = useState<Entry[]>(() => [entry({ kind: 'header' })])
-  const [live, setLive] = useState<Entry[]>([])
+  const [transcript, setTranscript] = useState<Transcript>(() => ({ done: [entry({ kind: 'header' })], live: [] }))
   const [busy, setBusy] = useState(false)
   const [startedAt, setStartedAt] = useState(0)
   const [mode, setMode] = useState<PermissionMode>(runtime.agent.permissions.mode)
@@ -50,48 +39,19 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [history, setHistory] = useState<string[]>([])
   const controller = useRef<AbortController | null>(null)
   const lastTool = useRef<{ tool: string; target: string; output: string } | null>(null)
+  const toolTargets = useRef(new Map<string, string>())
 
   const notice = useCallback((text: string, tone: 'info' | 'warn' | 'error' = 'info') => {
-    setDone((d) => [...d, entry({ kind: 'notice', text, tone })])
+    setTranscript((t) => ({ ...t, done: [...t.done, entry({ kind: 'notice', text, tone })] }))
   }, [])
 
   const onEvent = useCallback((event: AgentEvent) => {
-    switch (event.type) {
-      case 'text':
-        setLive((l) => {
-          const last = l.at(-1)
-          if (last?.kind === 'assistant') return [...l.slice(0, -1), { ...last, text: last.text + event.delta }]
-          return [...l, entry({ kind: 'assistant', text: event.delta })]
-        })
-        break
-      case 'toolStart':
-        setLive((l) => [...l, entry({ kind: 'tool', callId: event.id, tool: event.tool, target: event.target, done: false })])
-        break
-      case 'toolEnd':
-        setLive((l) =>
-          l.map((e) => {
-            if (e.kind !== 'tool' || e.callId !== event.id) return e
-            lastTool.current = { tool: event.tool, target: e.target, output: event.output }
-            return { ...e, output: event.output, display: event.display, isError: event.isError, done: true }
-          }),
-        )
-        break
-      case 'usage':
-        setTokens(event.inputTokens + event.outputTokens)
-        break
-      case 'compacted':
-        setLive((l) => [...l, entry({ kind: 'notice', text: 'Percakapan diringkas agar muat di konteks model.', tone: 'info' })])
-        break
-      case 'stepLimit':
-        setLive((l) => [...l, entry({ kind: 'notice', text: 'Batas 50 langkah tercapai. Ketik "lanjut" untuk meneruskan.', tone: 'warn' })])
-        break
-      case 'aborted':
-        setLive((l) => [...l, entry({ kind: 'notice', text: 'Dibatalkan.', tone: 'warn' })])
-        break
-      case 'error':
-        setLive((l) => [...l, entry({ kind: 'notice', text: `Error: ${event.message}`, tone: 'error' })])
-        break
+    if (event.type === 'toolStart') toolTargets.current.set(event.id, event.target)
+    if (event.type === 'toolEnd') {
+      lastTool.current = { tool: event.tool, target: toolTargets.current.get(event.id) ?? '', output: event.output }
     }
+    if (event.type === 'usage') setTokens(event.inputTokens + event.outputTokens)
+    setTranscript((t) => applyEvent(t, event))
   }, [])
 
   useEffect(() => {
@@ -101,16 +61,13 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
 
   const runTurn = useCallback(
     async (text: string) => {
-      setDone((d) => [...d, entry({ kind: 'user', text })])
+      setTranscript((t) => ({ ...t, done: [...t.done, entry({ kind: 'user', text })] }))
       setBusy(true)
       setStartedAt(Date.now())
       controller.current = new AbortController()
       await runtime.agent.run(text, controller.current.signal)
       controller.current = null
-      setLive((l) => {
-        setDone((d) => [...d, ...l])
-        return []
-      })
+      setTranscript(endTurn)
       setBusy(false)
     },
     [runtime],
@@ -254,8 +211,8 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
 
   return (
     <Box flexDirection="column">
-      <Static items={done}>{renderEntry}</Static>
-      {live.map(renderEntry)}
+      <Static items={transcript.done}>{renderEntry}</Static>
+      {transcript.live.map(renderEntry)}
       {busy && !pending ? (
         <Box marginTop={1}>
           <Spinner label="Berpikir" startedAt={startedAt} />
