@@ -16,7 +16,7 @@ export async function startInteractive(rt: Runtime, opts: { initialPrompt?: stri
       const answer = Number(await rl.question('Nomor sesi (enter = baru): '))
       rl.close()
       const chosen = list[answer - 1]
-      if (chosen) rt.agent.messages.push(...chosen.session.load())
+      if (chosen) rt.resume(chosen.session)
     }
   }
   const instance = render(<App runtime={rt} initialPrompt={opts.initialPrompt} version={opts.version} />, { exitOnCtrlC: true })
