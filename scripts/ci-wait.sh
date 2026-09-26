@@ -6,7 +6,8 @@ sha=$(git rev-parse HEAD)
 git push -q -u origin "$branch"
 id=""
 for _ in $(seq 1 60); do
-  id=$(gh run list --branch "$branch" --commit "$sha" --workflow ci.yml --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+  # --workflow needs the file on the default branch; filter by name instead.
+  id=$(gh run list --branch "$branch" --commit "$sha" --limit 20 --json databaseId,workflowName --jq '[.[] | select(.workflowName == "ci")][0].databaseId // empty')
   [ -n "$id" ] && break
   sleep 5
 done
