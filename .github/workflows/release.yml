@@ -22,11 +22,16 @@ jobs:
       - name: Smoke test against BotConnector Cloud
         env:
           BOTCONNECTOR_API_KEY: ${{ secrets.BOTCONNECTOR_API_KEY }}
-        run: scripts/smoke.sh
+        run: |
+          if [ -z "$BOTCONNECTOR_API_KEY" ]; then
+            echo "::warning::BOTCONNECTOR_API_KEY secret not set; skipping live smoke test"
+          else
+            scripts/smoke.sh
+          fi
       - name: Publish
         env:
-          # Works with either an NPM_TOKEN repo secret or npm trusted publishing (OIDC) for this repo.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Works with an NPM_BBCLI / NPM_TOKEN repo secret or npm trusted publishing (OIDC) for this repo.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BBCLI || secrets.NPM_TOKEN }}
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || unset NODE_AUTH_TOKEN
           version=$(node -p "require('./package.json').version")
