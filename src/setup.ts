@@ -37,7 +37,7 @@ export function createRuntime(opts: {
   const provider = makeProvider(modelRef)
   const mode = opts.args.allowAll ? 'allowAll' : (opts.args.permissionMode ?? config.permissionMode)
   const rules = [...config.allow, ...opts.args.allowedTools.map((t) => TOOL_RULES[t] ?? t)]
-  const permissions = new Permissions(mode, rules)
+  const permissions = new Permissions(mode, rules, opts.cwd)
 
   let session = Session.create(home, opts.cwd)
   let history = opts.history

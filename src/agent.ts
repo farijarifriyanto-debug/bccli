@@ -15,7 +15,8 @@ export type AgentEvent =
   | { type: 'done' }
 
 export type PermissionAnswer = 'yes' | 'session' | 'no'
-export type AskPermission = (req: PermissionRequest & { preview?: string }) => Promise<PermissionAnswer>
+export type PermissionAsk = PermissionRequest & { preview?: string; sessionRules?: string[] }
+export type AskPermission = (req: PermissionAsk) => Promise<PermissionAnswer>
 
 export interface AgentOptions {
   provider: Provider
@@ -180,7 +181,7 @@ export class Agent {
     let decision = this.permissions.check(request)
     if (decision === 'ask') {
       const preview = await tool.preview?.(input, ctx).catch(() => undefined)
-      const answer = await this.askPermission({ ...request, preview })
+      const answer = await this.askPermission({ ...request, preview, sessionRules: this.permissions.rulesFor(request) })
       if (answer === 'session') this.permissions.allowForSession(request)
       decision = answer === 'no' ? 'deny' : 'allow'
     }

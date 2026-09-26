@@ -30,7 +30,7 @@ function setup(steps: Completion[], mode: 'default' | 'plan' | 'allowAll' = 'def
   const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-'))
   const provider = scripted(steps)
   const events: AgentEvent[] = []
-  const agent = new Agent({ provider, tools: ALL_TOOLS, permissions: new Permissions(mode), systemPrompt: 'SYS', cwd })
+  const agent = new Agent({ provider, tools: ALL_TOOLS, permissions: new Permissions(mode, [], cwd), systemPrompt: 'SYS', cwd })
   agent.onEvent = (e) => events.push(e)
   return { cwd, provider, events, agent }
 }
@@ -54,11 +54,11 @@ test('asks permission for edits; "no" is reported to the model', async () => {
   ])
   const asked: string[] = []
   agent.askPermission = async (req) => {
-    asked.push(`${req.tool}:${req.target}`)
+    asked.push(`${req.tool}:${req.target}:${req.sessionRules?.join(',')}`)
     return 'no'
   }
   await agent.run('tulis', new AbortController().signal)
-  expect(asked).toEqual(['write:n.txt'])
+  expect(asked).toEqual(['write:n.txt:edit(project)'])
   expect(() => readFileSync(join(cwd, 'n.txt'))).toThrow()
   const toolMsg = provider.requests[1].messages.find((m) => m.role === 'tool') as { content: string }
   expect(toolMsg.content).toMatch(/menolak/)

@@ -13,15 +13,27 @@ test('permission prompt answers y / a / n', async () => {
   for (const [key, answer] of [['y', 'yes'], ['a', 'session'], ['n', 'no']] as const) {
     const onAnswer = vi.fn()
     const { stdin, lastFrame } = render(
-      <PermissionPrompt request={{ tool: 'bash', kind: 'bash', target: 'npm test' }} onAnswer={onAnswer} />,
+      <PermissionPrompt request={{ tool: 'bash', kind: 'bash', target: 'npm test', sessionRules: ['bash(npm test)'] }} onAnswer={onAnswer} />,
     )
     expect(lastFrame()).toContain('npm test')
-    expect(lastFrame()).toContain('[a] ya untuk sesi ini')
+    expect(lastFrame()).toContain('[a] ya sesi ini untuk bash(npm test)')
     await tick()
     stdin.write(key)
     await tick()
     expect(onAnswer).toHaveBeenCalledWith(answer)
   }
+})
+
+test('without session rules there is no [a] option and "a" does nothing', async () => {
+  const onAnswer = vi.fn()
+  const { stdin, lastFrame } = render(
+    <PermissionPrompt request={{ tool: 'bash', kind: 'bash', target: 'ls > out' }} onAnswer={onAnswer} />,
+  )
+  expect(lastFrame()).not.toContain('[a]')
+  await tick()
+  stdin.write('a')
+  await tick()
+  expect(onAnswer).not.toHaveBeenCalled()
 })
 
 test('permission prompt shows the edit preview', () => {
