@@ -15,23 +15,53 @@ export interface PromptInputProps {
 export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }: PromptInputProps) {
   const [value, setValue] = useState('')
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
+  const [selected, setSelected] = useState(0)
+
+  const all = [...SLASH_COMMANDS, ...(extraCommands ?? []).filter((c) => !SLASH_COMMANDS.some((b) => b.name === c.name))]
+  const suggestions = value.startsWith('/') && !/\s/.test(value) ? all.filter((c) => c.name.startsWith(value.slice(1))).slice(0, 8) : []
+  const highlighted = Math.min(selected, Math.max(0, suggestions.length - 1))
+  const edit = (next: string | ((v: string) => string)) => {
+    setValue(next)
+    setSelected(0)
+  }
 
   useInput(
     (input, key) => {
+      // While slash suggestions are open, arrows pick one, Enter runs it, Tab completes it.
+      if (suggestions.length) {
+        if (key.upArrow) {
+          setSelected(Math.max(0, highlighted - 1))
+          return
+        }
+        if (key.downArrow) {
+          setSelected(Math.min(suggestions.length - 1, highlighted + 1))
+          return
+        }
+        if (key.tab && !key.shift) {
+          edit(`/${suggestions[highlighted].name} `)
+          return
+        }
+        if (key.return) {
+          edit('')
+          setHistoryIndex(null)
+          onSubmit(`/${suggestions[highlighted].name}`)
+          return
+        }
+      }
       if (key.return) {
         if (value.endsWith('\\')) {
-          setValue(`${value.slice(0, -1)}\n`)
+          edit(`${value.slice(0, -1)}\n`)
           return
         }
         const text = value.trim()
         if (!text) return
-        setValue('')
+        edit('')
         setHistoryIndex(null)
         onSubmit(text)
         return
       }
       if (key.backspace || key.delete) {
-        setValue((v) => v.slice(0, -1))
+        edit((v) => v.slice(0, -1))
         return
       }
       if (key.upArrow) {
@@ -49,17 +79,14 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }:
         return
       }
       if (key.tab && !key.shift) {
-        setValue((v) => completeFile(v, cwd))
+        edit((v) => completeFile(v, cwd))
         return
       }
       if (key.ctrl || key.meta || key.escape || key.tab || key.leftArrow || key.rightArrow) return
-      setValue((v) => v + input.replace(/\r/g, '\n'))
+      edit((v) => v + input.replace(/\r/g, '\n'))
     },
     { isActive: !disabled },
   )
-
-  const all = [...SLASH_COMMANDS, ...(extraCommands ?? []).filter((c) => !SLASH_COMMANDS.some((b) => b.name === c.name))]
-  const suggestions = value.startsWith('/') && !/\s/.test(value) ? all.filter((c) => c.name.startsWith(value.slice(1))).slice(0, 8) : []
 
   return (
     <Box flexDirection="column">
@@ -70,8 +97,10 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }:
           {disabled ? '' : <Text inverse> </Text>}
         </Text>
       </Box>
-      {suggestions.map((s) => (
-        <Text key={s.name} dimColor>{`  /${s.name}  ${s.description}`}</Text>
+      {suggestions.map((s, i) => (
+        <Text key={s.name} color={i === highlighted ? color('green') : undefined} dimColor={i !== highlighted}>
+          {`${i === highlighted ? '›' : ' '} /${s.name}  ${s.description}`}
+        </Text>
       ))}
     </Box>
   )
