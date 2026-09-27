@@ -275,7 +275,37 @@ test('/new, /session and /resume move between sessions', async () => {
   stdin.write('\r')
   await waitFor(() => rt.session.file === first)
   expect(rt.agent.messages.map((m) => m.content)).toEqual(['pertanyaan satu', 'jawab satu'])
-  expect(frames.join('\n')).toContain('Melanjutkan sesi (2 pesan)')
+  const resumed = frames.join('\n')
+  expect(resumed).toContain('> pertanyaan satu')
+  expect(resumed).toContain('● jawab satu')
+})
+
+
+test('/resume replays the complete user/assistant chat instead of only the last three messages', async () => {
+  const rt = makeRuntime([])
+  const first = rt.session
+  const history = [
+    { role: 'user' as const, content: 'pesan satu' },
+    { role: 'assistant' as const, content: 'jawaban satu' },
+    { role: 'user' as const, content: 'pesan dua' },
+    { role: 'assistant' as const, content: 'jawaban dua' },
+    { role: 'user' as const, content: 'pesan tiga' },
+    { role: 'assistant' as const, content: 'jawaban tiga' },
+  ]
+  for (const message of history) first.append(message)
+  rt.newSession()
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  await slash(stdin, '/resume ')
+  await waitFor(() => frames.some((f) => f.includes('Lanjutkan sesi')))
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => rt.session.file === first.file)
+  const all = frames.join('\n')
+  for (const text of ['pesan satu', 'jawaban satu', 'pesan dua', 'jawaban dua', 'pesan tiga', 'jawaban tiga']) {
+    expect(all).toContain(text)
+  }
+  expect(rt.agent.messages).toHaveLength(6)
 })
 
 test('/resume with no other sessions says so', async () => {
