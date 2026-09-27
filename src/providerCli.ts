@@ -1,5 +1,5 @@
 import type { CliArgs } from './args'
-import { type Config, loadConfig, saveCredential } from './config'
+import { loadConfig, saveCredential } from './config'
 import { listAllModels } from './models'
 import { PRESETS } from './presets'
 import { hasKey, providerName, removeGlobalProvider, writeGlobalConfig } from './providers'
@@ -13,18 +13,14 @@ export interface CliDeps {
   fetch?: typeof fetch
 }
 
-function keyEnv(config: Config, id: string, key: string): Record<string, string> {
-  const name = config.providers[id]?.apiKeyEnv
-  return name && key ? { [name]: key } : {}
-}
-
 export async function addProviderKey(
   providerId: string,
   key: string,
   deps: CliDeps,
 ): Promise<{ ok: true; models: number } | { ok: false; error: string }> {
   const config = loadConfig(deps.cwd, deps.env)
-  const [group] = await listAllModels(config, { ...deps.env, ...keyEnv(config, providerId, key) }, { only: providerId, fetch: deps.fetch })
+  // Verify the candidate key itself, not whatever is already stored or in the environment.
+  const [group] = await listAllModels(config, deps.env, { only: providerId, fetch: deps.fetch, keyOverride: key || undefined })
   if (!group || group.error) return { ok: false, error: `API key ditolak atau ${providerName(config, providerId)} tidak bisa dihubungi.` }
   if (key) saveCredential(providerId, key, deps.env)
   return { ok: true, models: group.models.length }

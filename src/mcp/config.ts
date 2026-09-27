@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { ConfigError } from '../config'
@@ -45,16 +46,20 @@ export function removeGlobalServer(home: string, name: string): void {
   writePrivate(globalMcpPath(home), { mcpServers: rest })
 }
 
-type TrustFile = Record<string, Record<string, boolean>>
+// A decision is bound to the exact server config: if a pull changes the command, the user is asked again.
+type TrustFile = Record<string, Record<string, { allowed: boolean; hash: string }>>
 
-export function projectTrust(home: string, cwd: string, name: string): boolean | undefined {
-  return readJson<TrustFile>(trustPath(home), {})[resolve(cwd)]?.[name]
+const configHash = (config: McpServerConfig) => createHash('sha256').update(JSON.stringify(config)).digest('hex')
+
+export function projectTrust(home: string, cwd: string, name: string, config: McpServerConfig): boolean | undefined {
+  const decision = readJson<TrustFile>(trustPath(home), {})[resolve(cwd)]?.[name]
+  return decision?.hash === configHash(config) ? decision.allowed : undefined
 }
 
-export function setProjectTrust(home: string, cwd: string, name: string, allowed: boolean): void {
+export function setProjectTrust(home: string, cwd: string, name: string, allowed: boolean, config: McpServerConfig): void {
   const all = readJson<TrustFile>(trustPath(home), {})
   const key = resolve(cwd)
-  writePrivate(trustPath(home), { ...all, [key]: { ...all[key], [name]: allowed } })
+  writePrivate(trustPath(home), { ...all, [key]: { ...all[key], [name]: { allowed, hash: configHash(config) } } })
 }
 
 /** Global servers always; project servers only after a recorded yes. A project server never shadows a global one. */
@@ -64,7 +69,7 @@ export function serversToStart(home: string, cwd: string): { start: McpServerSpe
   const needTrust: McpServerSpec[] = []
   for (const [name, config] of Object.entries(readMcpFile(projectMcpPath(cwd)))) {
     if (global[name]) continue
-    const trust = projectTrust(home, cwd, name)
+    const trust = projectTrust(home, cwd, name, config)
     if (trust === true) start.push({ name, config, source: 'project' })
     else if (trust === undefined) needTrust.push({ name, config, source: 'project' })
   }

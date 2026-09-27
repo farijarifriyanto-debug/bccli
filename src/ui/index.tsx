@@ -27,7 +27,7 @@ export async function startInteractive(rt: Runtime, opts: { initialPrompt?: stri
     for (const s of plan.needTrust) {
       const what = s.config.type === 'http' ? s.config.url : [s.config.command, ...(s.config.args ?? [])].join(' ')
       const answer = (await rl.question(`Repo ini ingin menjalankan server MCP "${s.name}" (${what}). Izinkan? [y/N] `)).trim().toLowerCase()
-      setProjectTrust(rt.home, rt.cwd, s.name, answer === 'y')
+      setProjectTrust(rt.home, rt.cwd, s.name, answer === 'y', s.config)
       if (answer === 'y') plan.start.push(s)
     }
     rl.close()

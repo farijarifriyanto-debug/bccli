@@ -20,7 +20,7 @@ function order(ids: string[]): string[] {
 export async function listAllModels(
   config: Config,
   env: NodeJS.ProcessEnv = process.env,
-  opts: { fetch?: typeof fetch; timeoutMs?: number; only?: string } = {},
+  opts: { fetch?: typeof fetch; timeoutMs?: number; only?: string; keyOverride?: string } = {},
 ): Promise<ModelGroup[]> {
   const timeoutMs = opts.timeoutMs ?? 5000
   const baseFetch = opts.fetch ?? fetch
@@ -28,7 +28,11 @@ export async function listAllModels(
   const results = await Promise.all(
     ids.map(async (id): Promise<ModelGroup | undefined> => {
       const provider = config.providers[id]
-      const apiKey = (provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined) || readCredentials(env)[id] || undefined
+      const apiKey =
+        (opts.keyOverride && id === opts.only ? opts.keyOverride : undefined) ||
+        (provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined) ||
+        readCredentials(env)[id] ||
+        undefined
       const local = !provider.apiKeyEnv
       const timedFetch = ((input: string | URL | Request, init?: RequestInit) =>
         baseFetch(input, { ...init, signal: AbortSignal.timeout(timeoutMs) })) as typeof fetch

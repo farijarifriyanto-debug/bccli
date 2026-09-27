@@ -58,3 +58,16 @@ test('remove deletes a custom provider', async () => {
   expect(await run(['remove', 'corp'], d)).toBe(0)
   expect(loadConfig(d.cwd, d.env).providers.corp).toBeUndefined()
 })
+
+test('the candidate key is what gets verified, also for custom providers without apiKeyEnv', async () => {
+  const d = deps('sk-new')
+  const seen: (string | null)[] = []
+  d.fetch = (async (_url: string, init?: RequestInit) => {
+    const auth = new Headers(init?.headers).get('authorization')
+    seen.push(auth)
+    return new Response(JSON.stringify({ data: [{ id: 'm' }] }), { status: auth === 'Bearer sk-new' ? 200 : 401 })
+  }) as unknown as typeof fetch
+  expect(await run(['add', 'corp', '--url', 'http://corp.local/v1'], d)).toBe(0)
+  expect(seen).toEqual(['Bearer sk-new'])
+  expect(readCredentials(d.env)).toEqual({ corp: 'sk-new' })
+})
