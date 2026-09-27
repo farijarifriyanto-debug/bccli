@@ -38,7 +38,8 @@ export function createTaskTool(opts: TaskToolOptions): Tool {
     async run(input, ctx) {
       const def = byName.get(input.agent)
       if (!def) return { output: `Agent "${input.agent}" tidak ada. Tersedia: ${[...byName.keys()].join(', ')}`, isError: true }
-      const base = opts.baseTools().filter((t) => t.name !== 'task')
+      // No nesting, and plan approval stays with the main agent.
+      const base = opts.baseTools().filter((t) => t.name !== 'task' && t.name !== 'exit_plan')
       const unknown = (def.tools ?? []).filter((n) => !base.some((t) => t.name === n))
       if (unknown.length) return { output: `Agent "${def.name}": alat tidak dikenal: ${unknown.join(', ')}`, isError: true }
       const allowed = def.tools

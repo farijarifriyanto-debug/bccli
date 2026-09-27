@@ -16,6 +16,8 @@ export interface Config {
   permissionMode: PermissionMode
   providers: Record<string, ProviderConfig>
   allow: string[]
+  /** Provider ids that came from the (untrusted) project config. */
+  projectProviders?: string[]
 }
 
 export interface ResolvedModel {
@@ -64,10 +66,12 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
   const global = readJsonConfig(join(bccliHome(env), 'config.json'))
   const project = readJsonConfig(join(cwd, '.bccli', 'config.json'))
   const known = { ...DEFAULT_CONFIG.providers, ...global.providers }
+  const fromProject = untrustedProviders(project, known)
   return {
     model: project.model ?? global.model ?? DEFAULT_CONFIG.model,
     permissionMode: global.permissionMode ?? DEFAULT_CONFIG.permissionMode,
-    providers: { ...known, ...untrustedProviders(project, known) },
+    providers: { ...known, ...fromProject },
+    projectProviders: Object.keys(fromProject),
     allow: [...(global.allow ?? [])],
   }
 }

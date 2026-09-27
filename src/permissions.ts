@@ -77,6 +77,10 @@ export class Permissions {
     return needed.every((rule) => this.rules.has(rule)) ? 'allow' : 'ask'
   }
 
+  revoke(rule: string): void {
+    this.rules.delete(rule)
+  }
+
   allowForSession(req: PermissionRequest): void {
     for (const rule of this.rulesFor(req) ?? []) this.rules.add(rule)
   }

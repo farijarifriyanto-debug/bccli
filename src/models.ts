@@ -24,7 +24,9 @@ export async function listAllModels(
 ): Promise<ModelGroup[]> {
   const timeoutMs = opts.timeoutMs ?? 5000
   const baseFetch = opts.fetch ?? fetch
-  const ids = order(Object.keys(config.providers)).filter((id) => (opts.only ? id === opts.only : hasKey(config, id, env)))
+  // Keyless providers from a cloned repo's config are only contacted when explicitly selected.
+  const untrusted = new Set(config.projectProviders ?? [])
+  const ids = order(Object.keys(config.providers)).filter((id) => (opts.only ? id === opts.only : !untrusted.has(id) && hasKey(config, id, env)))
   const results = await Promise.all(
     ids.map(async (id): Promise<ModelGroup | undefined> => {
       const provider = config.providers[id]

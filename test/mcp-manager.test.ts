@@ -53,3 +53,26 @@ test('mcpToolName keeps names valid, short and unique', () => {
   expect(b).toMatch(/^[A-Za-z0-9_-]{1,64}$/)
   expect(a).not.toBe(b)
 })
+
+test('removing a server while it is still connecting closes its process', async () => {
+  const { mkdtempSync, readFileSync, existsSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const pidfile = join(mkdtempSync(join(tmpdir(), 'pid-')), 'pid')
+  manager = new McpManager()
+  const adding = manager.add({ name: 'echo', source: 'global', config: { command: process.execPath, args: [fixture], env: { PIDFILE: pidfile } } })
+  for (let i = 0; i < 100 && !existsSync(pidfile); i++) await new Promise((r) => setTimeout(r, 20))
+  await manager.remove('echo')
+  await adding
+  const pid = Number(readFileSync(pidfile, 'utf8'))
+  await new Promise((r) => setTimeout(r, 300))
+  expect(() => process.kill(pid, 0)).toThrow()
+  expect(manager.states()).toEqual([])
+})
+
+test('removing a server reports its tool names so session grants can be revoked', async () => {
+  const removed: string[] = []
+  manager = new McpManager({ onToolsRemoved: (names) => removed.push(...names) })
+  await manager.start([{ name: 'echo', source: 'global', config: { command: process.execPath, args: [fixture] } }])
+  await manager.remove('echo')
+  expect(removed).toEqual(['mcp__echo__echo', 'mcp__echo__fail', 'mcp__echo__weird_name_with_spaces'])
+})

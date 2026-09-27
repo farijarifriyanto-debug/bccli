@@ -92,3 +92,11 @@ test('mcp tools always ask; [a] is per tool; plan denies', () => {
   expect(new Permissions('acceptEdits').check(req)).toBe('ask')
   expect(new Permissions('plan').check(req)).toBe('deny')
 })
+
+test('revoke removes a session grant', () => {
+  const req = { tool: 'mcp__a_b__x', kind: 'mcp' as const, target: '{}' }
+  const p = new Permissions('default')
+  p.allowForSession(req)
+  p.revoke('mcp(mcp__a_b__x)')
+  expect(p.check(req)).toBe('ask')
+})

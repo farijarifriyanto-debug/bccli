@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { render } from 'ink-testing-library'
@@ -198,4 +198,32 @@ test('two permission asks at once are queued, not lost', async () => {
   stdin.write('n')
   expect(await first).toBe('yes')
   expect(await second).toBe('no')
+})
+
+test('suggestions show a built-in once; mixed-case command files work; a deleted skill does not crash', async () => {
+  const rt = makeRuntime([{ text: 'deployed', toolCalls: [] }], (cwd) => {
+    mkdirSync(join(cwd, '.bccli/commands'), { recursive: true })
+    writeFileSync(join(cwd, '.bccli/commands/help.md'), 'SHADOW')
+    writeFileSync(join(cwd, '.bccli/commands/Deploy.md'), 'Deploy now $ARGUMENTS')
+    mkdirSync(join(cwd, '.bccli/skills/gone'), { recursive: true })
+    writeFileSync(join(cwd, '.bccli/skills/gone/SKILL.md'), '---\nname: gone\ndescription: g\n---\nG')
+  })
+  rmSync(join(rt.cwd, '.bccli/skills/gone'), { recursive: true })
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('/hel')
+  await wait()
+  expect((frames.at(-1)!.match(/\/help/g) ?? []).length).toBe(1)
+  stdin.write('\u007f\u007f\u007f\u007f')
+  await wait()
+  stdin.write('/deploy prod')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('deployed')))
+  expect(rt.agent.messages[0]).toEqual({ role: 'user', content: 'Deploy now prod' })
+  stdin.write('/gone')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('Skill gone tidak bisa dibaca')))
+  expect(frames.join('\n')).toContain('Skill gone tidak bisa dibaca')
 })

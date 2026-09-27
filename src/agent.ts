@@ -50,6 +50,9 @@ export class Agent {
 
   tools: Tool[]
   private definitions: ToolDefinition[]
+  // Snapshot for the running turn: tools added/removed mid-turn (e.g. an MCP server connecting) apply from the next turn.
+  private turnTools: Tool[]
+  private turnDefinitions: ToolDefinition[]
   private readonly readFiles = new Set<string>()
   private readonly maxSteps: number
   // ponytail: one window for every model; read it from /v1/models metadata when providers expose it.
@@ -60,6 +63,8 @@ export class Agent {
     this.permissions = opts.permissions
     this.tools = opts.tools
     this.definitions = toolDefinitions(opts.tools)
+    this.turnTools = this.tools
+    this.turnDefinitions = this.definitions
     this.messages = [...(opts.history ?? [])]
     this.maxSteps = opts.maxSteps ?? 50
     this.contextWindow = opts.contextWindow ?? 128_000
@@ -71,7 +76,7 @@ export class Agent {
   }
 
   private isParallelSafe(call: ToolCall): boolean {
-    const tool = this.tools.find((t) => t.name === call.name)
+    const tool = this.turnTools.find((t) => t.name === call.name)
     if (!tool?.parallelSafe) return false
     try {
       const parsed = tool.schema.safeParse(JSON.parse(call.arguments || '{}'))
@@ -107,6 +112,8 @@ export class Agent {
   }
 
   async run(text: string, signal: AbortSignal): Promise<void> {
+    this.turnTools = this.tools
+    this.turnDefinitions = this.definitions
     try {
       if (this.lastInputTokens > this.contextWindow * 0.8) await this.compact(signal)
       this.push({ role: 'user', content: text })
@@ -118,7 +125,7 @@ export class Agent {
         }
         const completion = await this.provider.chat({
           messages: [{ role: 'system', content: this.opts.systemPrompt }, ...this.messages],
-          tools: this.definitions,
+          tools: this.turnDefinitions,
           signal,
           onText: (delta) => this.onEvent({ type: 'text', delta }),
         })
@@ -193,8 +200,8 @@ export class Agent {
       this.onEvent({ type: 'toolEnd', id: call.id, tool: call.name, output, isError: true })
       return output
     }
-    const tool = this.tools.find((t) => t.name === call.name)
-    if (!tool) return fail(`Alat "${call.name}" tidak ada. Alat yang tersedia: ${this.tools.map((t) => t.name).join(', ')}`)
+    const tool = this.turnTools.find((t) => t.name === call.name)
+    if (!tool) return fail(`Alat "${call.name}" tidak ada. Alat yang tersedia: ${this.turnTools.map((t) => t.name).join(', ')}`)
     let args: unknown
     try {
       args = JSON.parse(call.arguments || '{}')
