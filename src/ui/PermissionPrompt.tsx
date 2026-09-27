@@ -27,7 +27,7 @@ export function PermissionPrompt({
       : `ya sesi ini untuk ${rules.join(', ')}`
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={color('yellow')} paddingX={1}>
-      <Text bold>{`Izinkan ${VERB[request.tool] ?? request.tool} ${request.target}?`}</Text>
+      <Text bold>{`${request.agent ? `[${request.agent}] ` : ''}Izinkan ${VERB[request.tool] ?? request.tool} ${request.target}?`}</Text>
       {request.preview ? <DiffView diff={request.preview} /> : null}
       <Text>
         <Text color={color('green')}>[y] ya</Text>

@@ -27,7 +27,7 @@ test('project config sets the model and adds providers; global allow is kept', (
   writeFileSync(join(project, '.bccli', 'config.json'), JSON.stringify({ model: 'b/y', providers: { b: { baseURL: 'http://b' } } }))
   const config = loadConfig(project, env)
   expect(config.model).toBe('b/y')
-  expect(Object.keys(config.providers).sort()).toEqual(['a', 'b', 'bc-cloud'])
+  expect(Object.keys(config.providers)).toEqual(expect.arrayContaining(['a', 'b', 'bc-cloud', 'openrouter']))
   expect(config.allow).toEqual(['edit'])
 })
 

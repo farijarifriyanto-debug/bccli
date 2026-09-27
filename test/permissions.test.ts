@@ -80,3 +80,23 @@ test('rulesFor tells the prompt exactly what [a] would add', () => {
   expect(p.rulesFor({ tool: 'edit', kind: 'edit', target: 'src/a.ts' })).toEqual(['edit(project)'])
   expect(p.rulesFor({ tool: 'edit', kind: 'edit', target: '/etc/x' })).toBeUndefined()
 })
+
+test('mcp tools always ask; [a] is per tool; plan denies', () => {
+  const req = { tool: 'mcp__github__create_issue', kind: 'mcp' as const, target: '{"title":"x"}' }
+  const p = new Permissions('default')
+  expect(p.check(req)).toBe('ask')
+  expect(p.rulesFor(req)).toEqual(['mcp(mcp__github__create_issue)'])
+  p.allowForSession(req)
+  expect(p.check(req)).toBe('allow')
+  expect(p.check({ ...req, tool: 'mcp__github__delete_repo' })).toBe('ask')
+  expect(new Permissions('acceptEdits').check(req)).toBe('ask')
+  expect(new Permissions('plan').check(req)).toBe('deny')
+})
+
+test('revoke removes a session grant', () => {
+  const req = { tool: 'mcp__a_b__x', kind: 'mcp' as const, target: '{}' }
+  const p = new Permissions('default')
+  p.allowForSession(req)
+  p.revoke('mcp(mcp__a_b__x)')
+  expect(p.check(req)).toBe('ask')
+})

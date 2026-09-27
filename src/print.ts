@@ -8,7 +8,17 @@ export function toolLabel(tool: string): string {
   return tool.charAt(0).toUpperCase() + tool.slice(1)
 }
 
-export async function runPrint(rt: Runtime, prompt: string, io: { out: Writer; err: Writer } = { out: process.stdout, err: process.stderr }): Promise<number> {
+export async function runPrint(
+  rt: Runtime,
+  prompt: string,
+  io: { out: Writer; err: Writer } = { out: process.stdout, err: process.stderr },
+  opts: { allowAll?: boolean } = {},
+): Promise<number> {
+  rt.interaction.approvePlan = async () => {
+    if (opts.allowAll) return 'allowAll'
+    io.err.write('Rencana butuh persetujuan; jalankan dengan --allow-all.\n')
+    return 'no'
+  }
   let failed = false
   let wroteText = false
   rt.agent.onEvent = (event) => {

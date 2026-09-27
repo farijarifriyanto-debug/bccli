@@ -1,12 +1,14 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { PRESETS } from './presets'
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'allowAll'
 
 export interface ProviderConfig {
   baseURL: string
   apiKeyEnv?: string
+  name?: string
 }
 
 export interface Config {
@@ -14,6 +16,8 @@ export interface Config {
   permissionMode: PermissionMode
   providers: Record<string, ProviderConfig>
   allow: string[]
+  /** Provider ids that came from the (untrusted) project config. */
+  projectProviders?: string[]
 }
 
 export interface ResolvedModel {
@@ -28,9 +32,7 @@ export class ConfigError extends Error {}
 const DEFAULT_CONFIG: Config = {
   model: 'bc-cloud/glm-5.3-flash',
   permissionMode: 'default',
-  providers: {
-    'bc-cloud': { baseURL: 'https://api.botconnector.id/v1', apiKeyEnv: 'BOTCONNECTOR_API_KEY' },
-  },
+  providers: Object.fromEntries(PRESETS.map((p) => [p.id, { baseURL: p.baseURL, apiKeyEnv: p.apiKeyEnv }])),
   allow: [],
 }
 
@@ -38,7 +40,7 @@ export function bccliHome(env: NodeJS.ProcessEnv = process.env): string {
   return env.BCCLI_HOME ?? join(homedir(), '.bccli')
 }
 
-function readJson(path: string): Partial<Config> {
+export function readJsonConfig(path: string): Partial<Config> {
   if (!existsSync(path)) return {}
   try {
     return JSON.parse(readFileSync(path, 'utf8'))
@@ -61,13 +63,15 @@ function untrustedProviders(project: Partial<Config>, known: Record<string, Prov
 }
 
 export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): Config {
-  const global = readJson(join(bccliHome(env), 'config.json'))
-  const project = readJson(join(cwd, '.bccli', 'config.json'))
+  const global = readJsonConfig(join(bccliHome(env), 'config.json'))
+  const project = readJsonConfig(join(cwd, '.bccli', 'config.json'))
   const known = { ...DEFAULT_CONFIG.providers, ...global.providers }
+  const fromProject = untrustedProviders(project, known)
   return {
     model: project.model ?? global.model ?? DEFAULT_CONFIG.model,
     permissionMode: global.permissionMode ?? DEFAULT_CONFIG.permissionMode,
-    providers: { ...known, ...untrustedProviders(project, known) },
+    providers: { ...known, ...fromProject },
+    projectProviders: Object.keys(fromProject),
     allow: [...(global.allow ?? [])],
   }
 }
@@ -105,4 +109,13 @@ export function resolveModel(config: Config, modelRef: string, env: NodeJS.Proce
     throw new ConfigError(`API key untuk ${providerId} belum ada. Jalankan \`bccli login\` atau set env ${provider.apiKeyEnv}.`)
   }
   return { providerId, model: modelRef.slice(slash + 1), baseURL: provider.baseURL.replace(/\/+$/, ''), apiKey }
+}
+
+export function removeCredential(providerId: string, env: NodeJS.ProcessEnv = process.env): void {
+  const creds = readCredentials(env)
+  if (!(providerId in creds)) return
+  delete creds[providerId]
+  const path = join(bccliHome(env), 'credentials')
+  writeFileSync(path, JSON.stringify(creds, null, 2), { mode: 0o600 })
+  chmodSync(path, 0o600)
 }

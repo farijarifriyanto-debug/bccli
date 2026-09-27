@@ -1,10 +1,18 @@
 import type { AgentEvent } from '../agent'
 
+export interface SubLine {
+  id: string
+  tool: string
+  target: string
+  done: boolean
+  isError?: boolean
+}
+
 export type Entry = { id: number } & (
   | { kind: 'header' }
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; text: string }
-  | { kind: 'tool'; callId: string; tool: string; target: string; output?: string; display?: string; isError?: boolean; done: boolean }
+  | { kind: 'tool'; callId: string; tool: string; target: string; output?: string; display?: string; isError?: boolean; done: boolean; sub?: SubLine[] }
   | { kind: 'notice'; text: string; tone: 'info' | 'warn' | 'error' }
 )
 
@@ -37,18 +45,32 @@ export function applyEvent(t: Transcript, event: AgentEvent): Transcript {
       if (last?.kind === 'assistant') return { ...t, live: [...t.live.slice(0, -1), { ...last, text: last.text + event.delta }] }
       return { ...t, live: [...t.live, entry({ kind: 'assistant', text: event.delta })] }
     }
-    case 'toolStart':
-      return {
-        done: [...t.done, ...t.live],
-        live: [entry({ kind: 'tool', callId: event.id, tool: event.tool, target: event.target, done: false })],
-      }
+    case 'toolStart': {
+      // A still-running tool means these started in parallel: keep them together in live.
+      const running = t.live.some((e) => e.kind === 'tool' && !e.done)
+      const tool = entry({ kind: 'tool', callId: event.id, tool: event.tool, target: event.target, done: false })
+      return running ? { ...t, live: [...t.live, tool] } : { done: [...t.done, ...t.live], live: [tool] }
+    }
     case 'toolEnd': {
       const live = t.live.map((e) =>
         e.kind === 'tool' && e.callId === event.id
           ? { ...e, output: event.output, display: event.display, isError: event.isError, done: true }
           : e,
       )
-      return { done: [...t.done, ...live], live: [] }
+      const firstRunning = live.findIndex((e) => e.kind === 'tool' && !e.done)
+      const cut = firstRunning === -1 ? live.length : firstRunning
+      return { done: [...t.done, ...live.slice(0, cut)], live: live.slice(cut) }
+    }
+    case 'subagent': {
+      const inner = event.event
+      if (inner.type !== 'toolStart' && inner.type !== 'toolEnd') return t
+      const update = (e: Entry): Entry => {
+        if (e.kind !== 'tool' || e.callId !== event.parentId) return e
+        const sub = e.sub ?? []
+        if (inner.type === 'toolStart') return { ...e, sub: [...sub, { id: inner.id, tool: inner.tool, target: inner.target, done: false }] }
+        return { ...e, sub: sub.map((s) => (s.id === inner.id ? { ...s, done: true, isError: inner.isError } : s)) }
+      }
+      return { ...t, live: t.live.map(update) }
     }
     case 'error':
       return { ...t, live: [...t.live, entry({ kind: 'notice', text: `Error: ${event.message}`, tone: 'error' })] }
