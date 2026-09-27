@@ -1,7 +1,4 @@
-import { loadConfig, saveCredential } from './config'
-import { createProvider } from './provider'
-
-function readSecret(prompt: string): Promise<string> {
+export function readSecret(prompt: string): Promise<string> {
   return new Promise((resolve) => {
     process.stdout.write(prompt)
     const stdin = process.stdin
@@ -36,24 +33,13 @@ function readSecret(prompt: string): Promise<string> {
 }
 
 export async function runLogin(providerId: string, cwd: string): Promise<number> {
-  const config = loadConfig(cwd)
-  const provider = config.providers[providerId]
-  if (!provider) {
-    console.error(`Provider "${providerId}" tidak ada. Tersedia: ${Object.keys(config.providers).join(', ')}`)
-    return 1
-  }
-  const key = await readSecret(`API key untuk ${providerId} (${provider.baseURL}): `)
-  if (!key) {
-    console.error('API key kosong, tidak disimpan.')
-    return 1
-  }
-  try {
-    const models = await createProvider({ baseURL: provider.baseURL.replace(/\/+$/, ''), apiKey: key, model: '' }).listModels()
-    saveCredential(providerId, key)
-    console.log(`Tersimpan. ${models.length} model tersedia di ${providerId}.`)
-    return 0
-  } catch (error) {
-    console.error(`API key ditolak atau provider tidak bisa dihubungi: ${(error as Error).message}`)
-    return 1
-  }
+  const { runProviderCommand } = await import('./providerCli')
+  const { parseCliArgs } = await import('./args')
+  return runProviderCommand(parseCliArgs(['provider', 'add', providerId]), {
+    env: process.env,
+    cwd,
+    out: (s) => console.log(s),
+    err: (s) => console.error(s),
+    readSecret,
+  })
 }

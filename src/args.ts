@@ -3,7 +3,12 @@ import { ConfigError, type PermissionMode } from './config'
 import { MODE_ORDER } from './permissions'
 
 export interface CliArgs {
-  command: 'run' | 'login' | 'models'
+  command: 'run' | 'login' | 'models' | 'provider' | 'mcp'
+  subArgs: string[]
+  url?: string
+  name?: string
+  keyEnv?: string
+  values: string[]
   prompt?: string
   print: boolean
   model?: string
@@ -24,6 +29,8 @@ Pemakaian:
   bccli -p "tugas"              jalankan satu tugas tanpa interaksi (skrip/CI)
   bccli login [provider]        simpan API key (default: bc-cloud)
   bccli models                  daftar model dari provider aktif
+  bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
+  bccli mcp list|add <nama>|remove <nama>    kelola server MCP (katalog, atau --url <url>)
 
 Opsi:
   -m, --model <provider/model>  pilih model, contoh bc-cloud/glm-5.3-flash
@@ -49,6 +56,10 @@ export function parseCliArgs(argv: string[]): CliArgs {
       'permission-mode': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
+      url: { type: 'string' },
+      name: { type: 'string' },
+      'key-env': { type: 'string' },
+      value: { type: 'string', multiple: true },
     },
   })
   const mode = values['permission-mode']
@@ -56,7 +67,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
     throw new ConfigError(`--permission-mode harus salah satu dari: ${MODE_ORDER.join(', ')}`)
   }
   const [first, ...rest] = positionals
-  const command = first === 'login' || first === 'models' ? first : 'run'
+  const SUBCOMMANDS = ['login', 'models', 'provider', 'mcp']
+  const command = SUBCOMMANDS.includes(first) ? (first as CliArgs['command']) : 'run'
   const words = command === 'run' ? positionals : rest
   return {
     command,
@@ -74,5 +86,10 @@ export function parseCliArgs(argv: string[]): CliArgs {
     help: !!values.help,
     version: !!values.version,
     loginProvider: command === 'login' ? (rest[0] ?? 'bc-cloud') : undefined,
+    subArgs: command === 'provider' || command === 'mcp' ? rest : [],
+    url: values.url,
+    name: values.name,
+    keyEnv: values['key-env'],
+    values: values.value ?? [],
   }
 }
