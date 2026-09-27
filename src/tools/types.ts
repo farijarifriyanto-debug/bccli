@@ -13,6 +13,8 @@ export interface ToolContext {
   emit?: (event: AgentEvent) => void
   ask?: AskPermission
   addUsage?: (usage: Usage) => void
+  /** Called with the absolute path before a file is written, so the change can be undone. */
+  checkpoint?: (absPath: string) => Promise<void>
 }
 
 export interface ToolResult {

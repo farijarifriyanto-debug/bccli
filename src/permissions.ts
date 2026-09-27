@@ -25,6 +25,7 @@ function commandKey(segment: string): string {
 
 export class Permissions {
   private readonly rules: Set<string>
+  private readonly configRules: Set<string>
 
   constructor(
     public mode: PermissionMode,
@@ -32,6 +33,7 @@ export class Permissions {
     private readonly cwd = process.cwd(),
   ) {
     this.rules = new Set(rules)
+    this.configRules = new Set(rules)
   }
 
   /** Edits may only be auto-allowed inside the project and outside .git. */
@@ -77,8 +79,13 @@ export class Permissions {
     return needed.every((rule) => this.rules.has(rule)) ? 'allow' : 'ask'
   }
 
+  list(): { rule: string; source: 'config' | 'session' }[] {
+    return [...this.rules].map((rule) => ({ rule, source: this.configRules.has(rule) ? 'config' : 'session' }))
+  }
+
+  /** Removes a session grant; rules from config/flags stay until the user edits them. */
   revoke(rule: string): void {
-    this.rules.delete(rule)
+    if (!this.configRules.has(rule)) this.rules.delete(rule)
   }
 
   allowForSession(req: PermissionRequest): void {

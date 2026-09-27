@@ -12,20 +12,21 @@ function readIf(path: string): string | undefined {
   }
 }
 
-export function loadInstructions(cwd: string, home: string): string {
+/** Instruction files in load order: global BCCLI.md, then AGENTS.md/BCCLI.md from the filesystem root down to cwd. */
+export function instructionPaths(cwd: string, home: string): string[] {
   const dirs: string[] = []
   for (let dir = cwd; ; dir = dirname(dir)) {
     dirs.unshift(dir)
     if (dirname(dir) === dir) break
   }
+  return [join(home, 'BCCLI.md'), ...dirs.flatMap((dir) => FILES.map((name) => join(dir, name)))]
+}
+
+export function loadInstructions(cwd: string, home: string): string {
   const parts: string[] = []
-  const global = readIf(join(home, 'BCCLI.md'))
-  if (global) parts.push(`# ${join(home, 'BCCLI.md')}\n${global}`)
-  for (const dir of dirs) {
-    for (const name of FILES) {
-      const text = readIf(join(dir, name))
-      if (text) parts.push(`# ${join(dir, name)}\n${text}`)
-    }
+  for (const path of instructionPaths(cwd, home)) {
+    const text = readIf(path)
+    if (text) parts.push(`# ${path}\n${text}`)
   }
   return parts.join('\n\n')
 }

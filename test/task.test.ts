@@ -184,3 +184,23 @@ test('subagents never get exit_plan', async () => {
   const child = requests.find((r) => String(r.messages[0].content).includes('delegated task'))!
   expect(child.tools?.map((t) => t.function.name)).not.toContain('exit_plan')
 })
+
+test('subagent file writes go through the parent checkpoint hook (undoable)', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-task-ck-'))
+  const provider = router({ PARENT: [{ text: '', toolCalls: [call('write', { path: 'n.txt', content: 'x' }, 'w1')] }, { text: 'ok', toolCalls: [] }] })
+  const task = createTaskTool({
+    agents: BUILTIN_AGENTS,
+    baseTools: () => ALL_TOOLS,
+    permissions: new Permissions('allowAll', [], cwd),
+    provider: () => provider,
+    providerFor: () => provider,
+    systemPrompt: 'S',
+    cwd,
+  })
+  const seen: string[] = []
+  await task.run(
+    { agent: 'general', description: 'tulis', prompt: 'tulis n.txt' },
+    { cwd, signal: new AbortController().signal, readFiles: new Set(), checkpoint: async (p) => void seen.push(p) },
+  )
+  expect(seen).toEqual([join(cwd, 'n.txt')])
+})

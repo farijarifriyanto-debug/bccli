@@ -58,6 +58,8 @@ export function createTaskTool(opts: TaskToolOptions): Tool {
         cwd: opts.cwd,
         maxSteps: def.maxSteps ?? 50,
         label: def.name,
+        // Subagent edits belong to the parent's turn so /undo reverts them too.
+        checkpoint: ctx.checkpoint,
       })
       let outcome: AgentEvent | undefined
       let steps = 0
