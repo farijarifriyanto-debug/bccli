@@ -12,6 +12,8 @@ export type Entry = { id: number } & (
   | { kind: 'header' }
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; text: string }
+  /** open: fixed state for a reprint; otherwise follows the ctrl+t toggle. */
+  | { kind: 'thinking'; text: string; open?: boolean }
   | { kind: 'tool'; callId: string; tool: string; target: string; output?: string; display?: string; isError?: boolean; done: boolean; sub?: SubLine[] }
   | { kind: 'notice'; text: string; tone: 'info' | 'warn' | 'error' }
 )
@@ -44,6 +46,11 @@ export function applyEvent(t: Transcript, event: AgentEvent): Transcript {
       const last = t.live.at(-1)
       if (last?.kind === 'assistant') return { ...t, live: [...t.live.slice(0, -1), { ...last, text: last.text + event.delta }] }
       return { ...t, live: [...t.live, entry({ kind: 'assistant', text: event.delta })] }
+    }
+    case 'thinking': {
+      const last = t.live.at(-1)
+      if (last?.kind === 'thinking') return { ...t, live: [...t.live.slice(0, -1), { ...last, text: last.text + event.delta }] }
+      return { ...t, live: [...t.live, entry({ kind: 'thinking', text: event.delta })] }
     }
     case 'textReplace': {
       const last = t.live.at(-1)

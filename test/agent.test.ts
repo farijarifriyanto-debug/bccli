@@ -12,7 +12,7 @@ function scripted(steps: Completion[]): Provider & { requests: ChatRequest[] } {
   return {
     requests,
     async chat(req) {
-      requests.push(structuredClone({ ...req, signal: undefined, onText: undefined }))
+      requests.push(structuredClone({ ...req, signal: undefined, onText: undefined, onThinking: undefined }))
       const next = steps.shift()
       if (!next) throw new Error('script exhausted')
       if (next.text) req.onText?.(next.text)

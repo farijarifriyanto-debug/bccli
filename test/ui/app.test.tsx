@@ -357,3 +357,93 @@ test('an error inside a slash command becomes a notice instead of crashing', asy
   await waitFor(() => frames.some((f) => f.includes('EPERM: file terkunci')))
   expect(frames.join('\n')).toContain('EPERM: file terkunci')
 })
+
+test('typing while the agent works queues the message and runs it after the turn; Esc drops the queue', async () => {
+  const rt = makeRuntime([])
+  const seen: string[] = []
+  let gate: Promise<void> | null = null
+  let release = () => {}
+  const block = () => {
+    gate = new Promise<void>((r) => {
+      release = () => {
+        gate = null
+        r()
+      }
+    })
+  }
+  rt.agent.provider = {
+    async chat(req) {
+      seen.push(String(req.messages.at(-1)?.content))
+      if (gate) await gate
+      return { text: `jawab ${seen.length}`, toolCalls: [] }
+    },
+    async listModels() {
+      return []
+    },
+  }
+  const { stdin, frames, lastFrame } = render(<App runtime={rt} version="test" />)
+  const send = async (text: string) => {
+    stdin.write(text)
+    await wait()
+    stdin.write('\r')
+  }
+  await wait()
+  block()
+  await send('satu')
+  await waitFor(() => (lastFrame() ?? '').includes('Berpikir'))
+  stdin.write('dua')
+  await wait()
+  expect(lastFrame()).toContain('> dua')
+  stdin.write('\r')
+  await waitFor(() => (lastFrame() ?? '').includes('antri: dua'))
+  expect(lastFrame()).toContain('antri: dua')
+  expect(seen).toEqual(['satu'])
+  release()
+  await waitFor(() => frames.some((f) => f.includes('jawab 2')))
+  expect(seen).toEqual(['satu', 'dua'])
+  expect(lastFrame()).not.toContain('antri:')
+
+  block()
+  await send('tiga')
+  await waitFor(() => (lastFrame() ?? '').includes('Berpikir'))
+  await send('empat')
+  await waitFor(() => (lastFrame() ?? '').includes('antri: empat'))
+  expect(lastFrame()).toContain('antri: empat')
+  stdin.write('\u001B')
+  await waitFor(() => frames.some((f) => f.includes('1 pesan antrian dibatalkan')))
+  expect(frames.join('\n')).toContain('1 pesan antrian dibatalkan')
+  release()
+  await wait(300)
+  expect(seen).toEqual(['satu', 'dua', 'tiga'])
+})
+
+test('thinking is folded to one line; ctrl+t opens and closes it', async () => {
+  const rt = makeRuntime([])
+  rt.agent.provider = {
+    async chat(req) {
+      req.onThinking?.('baris satu\nbaris dua')
+      req.onText?.('Jawabannya 391.')
+      return { text: 'Jawabannya 391.', toolCalls: [], thinking: 'baris satu\nbaris dua' }
+    },
+    async listModels() {
+      return []
+    },
+  }
+  const { stdin, frames, lastFrame } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('17*23?')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('Jawabannya 391.')))
+  await wait()
+  expect(lastFrame()).toContain('✻ Berpikir · 2 baris · ctrl+t buka')
+  expect(lastFrame()).not.toContain('baris satu')
+  stdin.write('\u0014') // ctrl+t
+  await waitFor(() => (lastFrame() ?? '').includes('Thinking ditampilkan'))
+  expect(lastFrame()).toContain('baris satu')
+  expect(lastFrame()).toContain('✻ Berpikir (ctrl+t tutup)')
+  stdin.write('\u0014')
+  await waitFor(() => (lastFrame() ?? '').includes('Thinking disembunyikan'))
+  expect(lastFrame()).toContain('Thinking disembunyikan')
+  expect(rt.agent.messages.at(-1)).toEqual({ role: 'assistant', content: 'Jawabannya 391.' })
+})

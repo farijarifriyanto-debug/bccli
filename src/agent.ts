@@ -6,6 +6,7 @@ import { recoverTextToolCalls } from './textToolCalls'
 
 export type AgentEvent =
   | { type: 'text'; delta: string }
+  | { type: 'thinking'; delta: string }
   | { type: 'textReplace'; text: string }
   | { type: 'toolStart'; id: string; tool: string; target: string }
   | { type: 'toolEnd'; id: string; tool: string; output: string; display?: string; isError: boolean }
@@ -147,6 +148,7 @@ export class Agent {
           tools: this.turnDefinitions,
           signal,
           onText: (delta) => this.onEvent({ type: 'text', delta }),
+          onThinking: (delta) => this.onEvent({ type: 'thinking', delta }),
         })
         if (!completion.toolCalls.length && completion.finishReason !== 'repetition') {
           const recovered = recoverTextToolCalls(completion.text, this.turnDefinitions)

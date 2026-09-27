@@ -46,7 +46,7 @@ test('the agent runs a recovered call instead of stopping', async () => {
   ]
   const provider: Provider = {
     async chat(req) {
-      requests.push(structuredClone({ ...req, signal: undefined, onText: undefined }))
+      requests.push(structuredClone({ ...req, signal: undefined, onText: undefined, onThinking: undefined }))
       return replies.shift() as never
     },
     async listModels() {
