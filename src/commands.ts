@@ -4,6 +4,7 @@ export const SLASH_COMMANDS = [
   { name: 'help', description: 'daftar perintah dan pintasan' },
   { name: 'model', description: 'ganti model' },
   { name: 'provider', description: 'tambah/pilih provider AI' },
+  { name: 'mcp', description: 'pasang/kelola server MCP' },
   { name: 'clear', description: 'mulai percakapan baru' },
   { name: 'compact', description: 'ringkas percakapan' },
   { name: 'cost', description: 'pemakaian token sesi ini' },

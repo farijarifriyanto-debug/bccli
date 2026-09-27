@@ -21,6 +21,9 @@ import { PromptInput } from './PromptInput'
 import { Spinner } from './Spinner'
 import { StatusBar } from './StatusBar'
 import { ACCENT, color } from './theme'
+import { CATALOG, fillTemplate } from '../mcp/catalog'
+import { addGlobalServer, globalMcpPath, readMcpFile, removeGlobalServer } from '../mcp/config'
+import { McpMenu, type McpMenuItem } from './McpMenu'
 import { PlanApproval } from './PlanApproval'
 import { TodoList } from './TodoList'
 import { ToolBlock } from './ToolBlock'
@@ -60,6 +63,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [history, setHistory] = useState<string[]>([])
   const controller = useRef<AbortController | null>(null)
   const [todos, setTodos] = useState(runtime.todos.items)
+  const [mcpMenu, setMcpMenu] = useState<McpMenuItem[] | null>(null)
   const [planAsk, setPlanAsk] = useState<{ plan: string; resolve(d: PlanDecision): void } | null>(null)
   useEffect(() => runtime.todos.subscribe(setTodos), [runtime])
   const extraCommands = [
@@ -155,6 +159,21 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           }
           return
         }
+        case 'mcp': {
+          const installed = readMcpFile(globalMcpPath(runtime.home))
+          const states = runtime.mcp.states()
+          const items = [
+            ...CATALOG.map((c) => ({ name: c.name, description: c.description, installed: !!installed[c.name] })),
+            ...Object.keys(installed)
+              .filter((n) => !CATALOG.some((c) => c.name === n))
+              .map((n) => ({ name: n, description: '(custom)', installed: true })),
+          ].map((i) => {
+            const s = states.find((st) => st.name === i.name)
+            return { ...i, status: (s?.status ?? 'off') as McpMenuItem['status'], error: s?.error }
+          })
+          setMcpMenu(items)
+          return
+        }
         case 'provider': {
           const c = runtime.config
           setProviderMenu(
@@ -207,6 +226,33 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       notice(`⎿ ${t.tool} ${t.target}\n${t.output}`)
     }
   })
+
+  const pickMcp = async (name: string | undefined) => {
+    const item = mcpMenu?.find((i) => i.name === name)
+    setMcpMenu(null)
+    if (!item) return
+    if (item.installed) {
+      removeGlobalServer(runtime.home, item.name)
+      await runtime.mcp.remove(item.name)
+      notice(`MCP ${item.name} dihapus.`)
+      return
+    }
+    const entry = CATALOG.find((c) => c.name === item.name)
+    if (!entry) return
+    const values: Record<string, string> = {}
+    for (const input of entry.inputs ?? []) {
+      const v = await ask(input.label, !!input.secret)
+      if (!v) return
+      values[input.key] = v
+    }
+    const config = fillTemplate(entry.config, values)
+    addGlobalServer(runtime.home, entry.name, config)
+    notice(`MCP ${entry.name} dipasang, menghubungkan…`)
+    await runtime.mcp.add({ name: entry.name, config, source: 'global' })
+    const state = runtime.mcp.states().find((s) => s.name === entry.name)
+    if (state?.status === 'ready') notice(`MCP ${entry.name} aktif · ${state.tools} alat.`)
+    else notice(`MCP ${entry.name} gagal: ${state?.error ?? 'tidak diketahui'}`, 'error')
+  }
 
   const pickProvider = async (id: string | 'custom' | undefined) => {
     setProviderMenu(null)
@@ -304,6 +350,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           }}
         />
       ) : null}
+      {mcpMenu ? <McpMenu items={mcpMenu} onPick={(n) => void pickMcp(n)} /> : null}
       {providerMenu ? <ProviderMenu entries={providerMenu} onPick={(id) => void pickProvider(id)} /> : null}
       {prompt ? (
         <LinePrompt
@@ -330,7 +377,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         />
       ) : null}
       <TodoList items={todos} />
-      <PromptInput disabled={busy || !!pending || !!picker || !!providerMenu || !!prompt || !!planAsk} history={history} cwd={runtime.cwd} onSubmit={submit} extraCommands={extraCommands} />
+      <PromptInput disabled={busy || !!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu} history={history} cwd={runtime.cwd} onSubmit={submit} extraCommands={extraCommands} />
       <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} />
     </Box>
   )
