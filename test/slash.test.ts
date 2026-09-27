@@ -109,3 +109,27 @@ test('gitDiff includes staged changes and works before the first commit', async 
   git('add', 'first.txt')
   expect(await gitDiff(repo)).toContain('+kedua')
 })
+
+test('gitDiff says git is missing instead of "not a repository"', async () => {
+  expect(await gitDiff(tmpdir(), 400, 'bccli-no-such-git')).toMatch(/git tidak terpasang/)
+})
+
+test('doctorText accepts an async which and runs checks together', async () => {
+  let pending = 0
+  let peak = 0
+  const slow = <T>(v: T) => {
+    pending++
+    peak = Math.max(peak, pending)
+    return new Promise<T>((r) =>
+      setTimeout(() => {
+        pending--
+        r(v)
+      }, 5),
+    )
+  }
+  const text = await doctorText({ providers: [], mcp: [], activeProvider: 'X' }, { which: (c) => slow(c === 'rg'), nodeVersion: 'v24.0.0', listModels: () => slow([1]) })
+  expect(text).toContain('✓ rg')
+  expect(text).toContain('✗ git')
+  expect(text).toContain('✓ Koneksi X (1 model)')
+  expect(peak).toBe(5)
+})

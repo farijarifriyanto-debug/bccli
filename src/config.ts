@@ -111,11 +111,13 @@ export function resolveModel(config: Config, modelRef: string, env: NodeJS.Proce
   return { providerId, model: modelRef.slice(slash + 1), baseURL: provider.baseURL.replace(/\/+$/, ''), apiKey }
 }
 
-export function removeCredential(providerId: string, env: NodeJS.ProcessEnv = process.env): void {
+/** Returns false when there was no stored key to remove. */
+export function removeCredential(providerId: string, env: NodeJS.ProcessEnv = process.env): boolean {
   const creds = readCredentials(env)
-  if (!(providerId in creds)) return
+  if (!(providerId in creds)) return false
   delete creds[providerId]
   const path = join(bccliHome(env), 'credentials')
   writeFileSync(path, JSON.stringify(creds, null, 2), { mode: 0o600 })
   chmodSync(path, 0o600)
+  return true
 }
