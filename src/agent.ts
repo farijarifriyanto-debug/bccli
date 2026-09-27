@@ -2,6 +2,7 @@ import type { PermissionRequest, Permissions } from './permissions'
 import type { ChatMessage, Provider, ToolCall, Usage } from './provider'
 import { type ToolDefinition, toolDefinitions } from './tools/index'
 import type { Tool, ToolContext } from './tools/types'
+import { recoverTextToolCalls } from './textToolCalls'
 
 export type AgentEvent =
   | { type: 'text'; delta: string }
@@ -141,12 +142,19 @@ export class Agent {
           // The summary ends with an assistant turn; restate the task so the model has something to answer.
           this.push({ role: 'user', content: `Lanjutkan tugas ini sesuai ringkasan di atas: ${text}` })
         }
-        const completion = await this.provider.chat({
+        let completion = await this.provider.chat({
           messages: [{ role: 'system', content: this.systemPrompt }, ...this.messages],
           tools: this.turnDefinitions,
           signal,
           onText: (delta) => this.onEvent({ type: 'text', delta }),
         })
+        if (!completion.toolCalls.length && completion.finishReason !== 'repetition') {
+          const recovered = recoverTextToolCalls(completion.text, this.turnDefinitions)
+          if (recovered) {
+            completion = { ...completion, ...recovered }
+            this.onEvent({ type: 'textReplace', text: recovered.text })
+          }
+        }
         // Some gateways (incl. BotConnector) omit usage; estimate ~4 chars/token so /cost and compaction still work.
         const usage = completion.usage ?? {
           inputTokens: estimateTokens(this.systemPrompt) + estimateTokens(JSON.stringify(this.messages)),
