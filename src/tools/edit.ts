@@ -79,6 +79,7 @@ export const editTool = defineTool({
     }
     const next = applyEdit(content, input)
     if (typeof next !== 'string') return next
+    await ctx.checkpoint?.(abs)
     await writeFile(abs, next)
     return { output: `Mengedit ${input.path}.`, display: formatDiff(diffLines(content, next)) }
   },

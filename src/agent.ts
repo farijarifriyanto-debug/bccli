@@ -31,6 +31,9 @@ export interface AgentOptions {
   contextWindow?: number
   onMessage?: (message: ChatMessage) => void
   onReset?: () => void
+  /** Marks the start of a user turn (undo boundary). */
+  onTurnStart?: () => void
+  checkpoint?: (absPath: string) => Promise<void>
   /** Subagent name, shown on its permission prompts. */
   label?: string
 }
@@ -115,6 +118,7 @@ export class Agent {
   async run(text: string, signal: AbortSignal): Promise<void> {
     this.turnTools = this.tools
     this.turnDefinitions = this.definitions
+    this.opts.onTurnStart?.()
     try {
       if (this.lastInputTokens > this.contextWindow * 0.8) await this.compact(signal)
       this.push({ role: 'user', content: text })
@@ -230,6 +234,7 @@ export class Agent {
       callId: call.id,
       emit: (event) => this.onEvent(event),
       ask: (req) => this.askPermission(req),
+      checkpoint: this.opts.checkpoint,
       addUsage: (u) => {
         this.totalUsage.inputTokens += u.inputTokens
         this.totalUsage.outputTokens += u.outputTokens
