@@ -13,9 +13,10 @@ export type AgentEvent =
   | { type: 'aborted' }
   | { type: 'error'; message: string }
   | { type: 'done' }
+  | { type: 'subagent'; parentId: string; agent: string; event: AgentEvent }
 
 export type PermissionAnswer = 'yes' | 'session' | 'no'
-export type PermissionAsk = PermissionRequest & { preview?: string; sessionRules?: string[] }
+export type PermissionAsk = PermissionRequest & { preview?: string; sessionRules?: string[]; agent?: string }
 export type AskPermission = (req: PermissionAsk) => Promise<PermissionAnswer>
 
 export interface AgentOptions {
@@ -29,6 +30,8 @@ export interface AgentOptions {
   contextWindow?: number
   onMessage?: (message: ChatMessage) => void
   onReset?: () => void
+  /** Subagent name, shown on its permission prompts. */
+  label?: string
 }
 
 const estimateTokens = (text: string) => Math.ceil(text.length / 4)
@@ -45,8 +48,11 @@ export class Agent {
   onEvent: (event: AgentEvent) => void = () => {}
   askPermission: AskPermission = async () => 'no'
 
-  private readonly tools: Tool[]
-  private readonly definitions: ToolDefinition[]
+  tools: Tool[]
+  private definitions: ToolDefinition[]
+  // Snapshot for the running turn: tools added/removed mid-turn (e.g. an MCP server connecting) apply from the next turn.
+  private turnTools: Tool[]
+  private turnDefinitions: ToolDefinition[]
   private readonly readFiles = new Set<string>()
   private readonly maxSteps: number
   // ponytail: one window for every model; read it from /v1/models metadata when providers expose it.
@@ -57,9 +63,27 @@ export class Agent {
     this.permissions = opts.permissions
     this.tools = opts.tools
     this.definitions = toolDefinitions(opts.tools)
+    this.turnTools = this.tools
+    this.turnDefinitions = this.definitions
     this.messages = [...(opts.history ?? [])]
     this.maxSteps = opts.maxSteps ?? 50
     this.contextWindow = opts.contextWindow ?? 128_000
+  }
+
+  setTools(tools: Tool[]): void {
+    this.tools = tools
+    this.definitions = toolDefinitions(tools)
+  }
+
+  private isParallelSafe(call: ToolCall): boolean {
+    const tool = this.turnTools.find((t) => t.name === call.name)
+    if (!tool?.parallelSafe) return false
+    try {
+      const parsed = tool.schema.safeParse(JSON.parse(call.arguments || '{}'))
+      return parsed.success && tool.parallelSafe(parsed.data)
+    } catch {
+      return false
+    }
   }
 
   private push(message: ChatMessage): void {
@@ -88,6 +112,8 @@ export class Agent {
   }
 
   async run(text: string, signal: AbortSignal): Promise<void> {
+    this.turnTools = this.tools
+    this.turnDefinitions = this.definitions
     try {
       if (this.lastInputTokens > this.contextWindow * 0.8) await this.compact(signal)
       this.push({ role: 'user', content: text })
@@ -99,7 +125,7 @@ export class Agent {
         }
         const completion = await this.provider.chat({
           messages: [{ role: 'system', content: this.opts.systemPrompt }, ...this.messages],
-          tools: this.definitions,
+          tools: this.turnDefinitions,
           signal,
           onText: (delta) => this.onEvent({ type: 'text', delta }),
         })
@@ -130,16 +156,23 @@ export class Agent {
           this.onEvent({ type: 'done' })
           return
         }
-        for (let i = 0; i < completion.toolCalls.length; i++) {
-          const call = completion.toolCalls[i]
+        const calls = completion.toolCalls
+        let i = 0
+        while (i < calls.length) {
           if (signal.aborted) {
-            for (const pending of completion.toolCalls.slice(i)) {
-              this.push({ role: 'tool', tool_call_id: pending.id, content: 'Dibatalkan oleh user.' })
-            }
+            for (const pending of calls.slice(i)) this.push({ role: 'tool', tool_call_id: pending.id, content: 'Dibatalkan oleh user.' })
             this.onEvent({ type: 'aborted' })
             return
           }
-          this.push({ role: 'tool', tool_call_id: call.id, content: await this.runTool(call, signal) })
+          // Consecutive parallel-safe calls run together; results keep call order.
+          let j = i + 1
+          if (this.isParallelSafe(calls[i])) while (j < calls.length && this.isParallelSafe(calls[j])) j++
+          const batch = calls.slice(i, j)
+          const results = await Promise.all(batch.map((c) => this.runTool(c, signal)))
+          batch.forEach((c, k) => {
+            this.push({ role: 'tool', tool_call_id: c.id, content: results[k] })
+          })
+          i = j
         }
         if (signal.aborted) {
           this.onEvent({ type: 'aborted' })
@@ -167,8 +200,8 @@ export class Agent {
       this.onEvent({ type: 'toolEnd', id: call.id, tool: call.name, output, isError: true })
       return output
     }
-    const tool = this.tools.find((t) => t.name === call.name)
-    if (!tool) return fail(`Alat "${call.name}" tidak ada. Alat yang tersedia: ${this.tools.map((t) => t.name).join(', ')}`)
+    const tool = this.turnTools.find((t) => t.name === call.name)
+    if (!tool) return fail(`Alat "${call.name}" tidak ada. Alat yang tersedia: ${this.turnTools.map((t) => t.name).join(', ')}`)
     let args: unknown
     try {
       args = JSON.parse(call.arguments || '{}')
@@ -181,7 +214,19 @@ export class Agent {
     }
     const input = parsed.data
     const target = tool.target(input)
-    const ctx: ToolContext = { cwd: this.opts.cwd, signal, readFiles: this.readFiles }
+    const ctx: ToolContext = {
+      cwd: this.opts.cwd,
+      signal,
+      readFiles: this.readFiles,
+      callId: call.id,
+      emit: (event) => this.onEvent(event),
+      ask: (req) => this.askPermission(req),
+      addUsage: (u) => {
+        this.totalUsage.inputTokens += u.inputTokens
+        this.totalUsage.outputTokens += u.outputTokens
+        this.onEvent({ type: 'usage', ...this.totalUsage })
+      },
+    }
     this.onEvent({ type: 'toolStart', id: call.id, tool: tool.name, target })
     // Don't ask the user to approve something that is going to fail anyway.
     const invalid = await tool.validate?.(input, ctx).catch((error: Error) => error.message)
@@ -193,7 +238,12 @@ export class Agent {
     let decision = this.permissions.check(request)
     if (decision === 'ask') {
       const preview = await tool.preview?.(input, ctx).catch(() => undefined)
-      const answer = await this.askPermission({ ...request, preview, sessionRules: this.permissions.rulesFor(request) })
+      const answer = await this.askPermission({
+        ...request,
+        preview,
+        sessionRules: this.permissions.rulesFor(request),
+        ...(this.opts.label ? { agent: this.opts.label } : {}),
+      })
       if (answer === 'session') this.permissions.allowForSession(request)
       decision = answer === 'no' ? 'deny' : 'allow'
     }

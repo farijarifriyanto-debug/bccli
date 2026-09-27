@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { render } from 'ink-testing-library'
@@ -6,6 +6,7 @@ import { expect, test } from 'vitest'
 import { parseCliArgs } from '../../src/args'
 import type { Completion, Provider } from '../../src/provider'
 import { createRuntime } from '../../src/setup'
+import { readMcpFile } from '../../src/mcp/config'
 import { App } from '../../src/ui/App'
 
 const wait = (ms = 60) => new Promise((r) => setTimeout(r, ms))
@@ -27,11 +28,12 @@ function scripted(steps: Completion[]): Provider {
   }
 }
 
-function makeRuntime(steps: Completion[]) {
+function makeRuntime(steps: Completion[], setupExt?: (cwd: string) => void) {
   const cwd = mkdtempSync(join(tmpdir(), 'bccli-app-'))
   writeFileSync(join(cwd, 'a.txt'), 'old\n')
-  const env = { BCCLI_HOME: mkdtempSync(join(tmpdir(), 'bccli-apph-')), BOTCONNECTOR_API_KEY: 'k' }
-  return createRuntime({ cwd, args: parseCliArgs([]), env, provider: scripted(steps) })
+  setupExt?.(cwd)
+  const env = { BCCLI_HOME: mkdtempSync(join(tmpdir(), 'bccli-apph-')), BOTCONNECTOR_API_KEY: 'k', OPENROUTER_API_KEY: 'k' }
+  return createRuntime({ cwd, args: parseCliArgs([]), env, provider: scripted(steps), userHome: mkdtempSync(join(tmpdir(), 'bccli-appu-')) })
 }
 
 test('full turn: read, edit with permission prompt, final answer', async () => {
@@ -119,4 +121,109 @@ test('Esc cancels a running /compact', async () => {
   stdin.write('\u001B')
   await waitFor(() => frames.some((f) => f.includes('Gagal meringkas')))
   expect(frames.join('\n')).toContain('Gagal meringkas')
+})
+
+test('/model lists every provider and persists the choice as default', async () => {
+  const rt = makeRuntime([])
+  rt.listModels = async () => [
+    { providerId: 'bc-cloud', providerName: 'BotConnector Cloud', models: ['glm-5.3-flash'] },
+    { providerId: 'openrouter', providerName: 'OpenRouter', models: ['qwen/qwen3-coder'] },
+  ]
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('/model')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('OpenRouter')))
+  await wait()
+  stdin.write('qwen')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => rt.modelRef === 'openrouter/qwen/qwen3-coder')
+  expect(rt.modelRef).toBe('openrouter/qwen/qwen3-coder')
+  expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).model).toBe('openrouter/qwen/qwen3-coder')
+})
+
+test('custom commands expand and run; built-ins win over same-named commands', async () => {
+  const rt = makeRuntime([{ text: 'reviewed', toolCalls: [] }], (cwd) => {
+    mkdirSync(join(cwd, '.bccli/commands'), { recursive: true })
+    writeFileSync(join(cwd, '.bccli/commands/review.md'), '---\ndescription: review\n---\nPlease review $ARGUMENTS')
+    writeFileSync(join(cwd, '.bccli/commands/help.md'), 'SHADOW')
+  })
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('/rev')
+  await wait()
+  expect(frames.at(-1)).toContain('/review')
+  stdin.write('iew src/a.ts')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('reviewed')))
+  expect(rt.agent.messages[0]).toEqual({ role: 'user', content: 'Please review src/a.ts' })
+  stdin.write('/help')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('Perintah custom')))
+  expect(frames.join('\n')).not.toContain('SHADOW')
+})
+
+test('/mcp installs a catalog server and its tools reach the agent', async () => {
+  const rt = makeRuntime([])
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('/mcp')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('context7')))
+  await wait()
+  stdin.write('\u001B[B')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => rt.mcp.states().some((s) => s.name === 'context7'), 20000)
+  expect(readMcpFile(join(rt.home, 'mcp.json')).context7).toEqual({ type: 'http', url: 'https://mcp.context7.com/mcp' })
+  await rt.mcp.stop()
+}, 30000)
+
+test('two permission asks at once are queued, not lost', async () => {
+  const rt = makeRuntime([])
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  const first = rt.agent.askPermission({ tool: 'bash', kind: 'bash', target: 'echo one', sessionRules: ['bash(echo)'] })
+  const second = rt.agent.askPermission({ tool: 'bash', kind: 'bash', target: 'echo two', sessionRules: ['bash(echo)'] })
+  await waitFor(() => frames.some((f) => f.includes('echo one')))
+  await wait()
+  stdin.write('y')
+  await waitFor(() => frames.some((f) => f.includes('echo two')))
+  await wait()
+  stdin.write('n')
+  expect(await first).toBe('yes')
+  expect(await second).toBe('no')
+})
+
+test('suggestions show a built-in once; mixed-case command files work; a deleted skill does not crash', async () => {
+  const rt = makeRuntime([{ text: 'deployed', toolCalls: [] }], (cwd) => {
+    mkdirSync(join(cwd, '.bccli/commands'), { recursive: true })
+    writeFileSync(join(cwd, '.bccli/commands/help.md'), 'SHADOW')
+    writeFileSync(join(cwd, '.bccli/commands/Deploy.md'), 'Deploy now $ARGUMENTS')
+    mkdirSync(join(cwd, '.bccli/skills/gone'), { recursive: true })
+    writeFileSync(join(cwd, '.bccli/skills/gone/SKILL.md'), '---\nname: gone\ndescription: g\n---\nG')
+  })
+  rmSync(join(rt.cwd, '.bccli/skills/gone'), { recursive: true })
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('/hel')
+  await wait()
+  expect((frames.at(-1)!.match(/\/help/g) ?? []).length).toBe(1)
+  stdin.write('\u007f\u007f\u007f\u007f')
+  await wait()
+  stdin.write('/deploy prod')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('deployed')))
+  expect(rt.agent.messages[0]).toEqual({ role: 'user', content: 'Deploy now prod' })
+  stdin.write('/gone')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('Skill gone tidak bisa dibaca')))
+  expect(frames.join('\n')).toContain('Skill gone tidak bisa dibaca')
 })

@@ -1,12 +1,18 @@
 import type { z } from 'zod'
+import type { AgentEvent, AskPermission } from '../agent'
+import type { Usage } from '../provider'
 
-export type PermissionKind = 'read' | 'edit' | 'bash' | 'fetch'
+export type PermissionKind = 'read' | 'edit' | 'bash' | 'fetch' | 'mcp'
 
 export interface ToolContext {
   cwd: string
   signal: AbortSignal
   /** Absolute paths read in this session; edit/write of existing files require membership. */
   readFiles: Set<string>
+  callId?: string
+  emit?: (event: AgentEvent) => void
+  ask?: AskPermission
+  addUsage?: (usage: Usage) => void
 }
 
 export interface ToolResult {
@@ -22,10 +28,14 @@ export interface Tool<S extends z.ZodType = z.ZodType> {
   description: string
   schema: S
   kind: PermissionKind
+  /** Raw JSON schema sent to the model instead of converting `schema` (used for MCP tools). */
+  jsonSchema?: Record<string, unknown>
   target(input: z.infer<S>): string
   preview?(input: z.infer<S>, ctx: ToolContext): Promise<string | undefined>
   /** Cheap pre-check run before asking permission; returns an error message when the call cannot succeed. */
   validate?(input: z.infer<S>, ctx: ToolContext): Promise<string | undefined>
+  /** Consecutive calls whose tool returns true here run concurrently. */
+  parallelSafe?(input: z.infer<S>): boolean
   run(input: z.infer<S>, ctx: ToolContext): Promise<ToolResult>
 }
 

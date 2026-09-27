@@ -19,3 +19,18 @@ test('subcommands', () => {
 test('rejects unknown permission modes', () => {
   expect(() => parseCliArgs(['--permission-mode', 'yolo'])).toThrow(/default, acceptEdits, plan, allowAll/)
 })
+
+test('provider and mcp subcommands keep their sub-arguments', () => {
+  expect(parseCliArgs(['provider', 'add', 'corp', '--url', 'https://c/v1', '--name', 'Corp', '--key-env', 'CORP_KEY'])).toMatchObject({
+    command: 'provider',
+    subArgs: ['add', 'corp'],
+    url: 'https://c/v1',
+    name: 'Corp',
+    keyEnv: 'CORP_KEY',
+  })
+  expect(parseCliArgs(['mcp', 'add', 'filesystem', '--value', 'dir=/tmp', '--value', 'x=y'])).toMatchObject({
+    command: 'mcp',
+    subArgs: ['add', 'filesystem'],
+    values: ['dir=/tmp', 'x=y'],
+  })
+})

@@ -61,6 +61,7 @@ export class Permissions {
       if (!segments.length) return undefined
       return [...new Set(segments.map((s) => `bash(${commandKey(s)})`))]
     }
+    if (req.kind === 'mcp') return [`mcp(${req.tool})`]
     return []
   }
 
@@ -74,6 +75,10 @@ export class Permissions {
     if (!needed) return 'ask'
     if (req.kind === 'edit' && this.mode === 'acceptEdits') return 'allow'
     return needed.every((rule) => this.rules.has(rule)) ? 'allow' : 'ask'
+  }
+
+  revoke(rule: string): void {
+    this.rules.delete(rule)
   }
 
   allowForSession(req: PermissionRequest): void {

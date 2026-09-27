@@ -22,5 +22,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      - if: runner.os == 'Linux'
+        run: BCCLI_E2E_MCP=1 npx vitest run test/e2e-mcp.test.ts
       - run: npm run build
       - run: node dist/cli.js --version
