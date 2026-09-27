@@ -357,3 +357,62 @@ test('an error inside a slash command becomes a notice instead of crashing', asy
   await waitFor(() => frames.some((f) => f.includes('EPERM: file terkunci')))
   expect(frames.join('\n')).toContain('EPERM: file terkunci')
 })
+
+test('typing while the agent works queues the message and runs it after the turn; Esc drops the queue', async () => {
+  const rt = makeRuntime([])
+  const seen: string[] = []
+  let gate: Promise<void> | null = null
+  let release = () => {}
+  const block = () => {
+    gate = new Promise<void>((r) => {
+      release = () => {
+        gate = null
+        r()
+      }
+    })
+  }
+  rt.agent.provider = {
+    async chat(req) {
+      seen.push(String(req.messages.at(-1)?.content))
+      if (gate) await gate
+      return { text: `jawab ${seen.length}`, toolCalls: [] }
+    },
+    async listModels() {
+      return []
+    },
+  }
+  const { stdin, frames, lastFrame } = render(<App runtime={rt} version="test" />)
+  const send = async (text: string) => {
+    stdin.write(text)
+    await wait()
+    stdin.write('\r')
+  }
+  await wait()
+  block()
+  await send('satu')
+  await waitFor(() => (lastFrame() ?? '').includes('Berpikir'))
+  stdin.write('dua')
+  await wait()
+  expect(lastFrame()).toContain('> dua')
+  stdin.write('\r')
+  await waitFor(() => (lastFrame() ?? '').includes('antri: dua'))
+  expect(lastFrame()).toContain('antri: dua')
+  expect(seen).toEqual(['satu'])
+  release()
+  await waitFor(() => frames.some((f) => f.includes('jawab 2')))
+  expect(seen).toEqual(['satu', 'dua'])
+  expect(lastFrame()).not.toContain('antri:')
+
+  block()
+  await send('tiga')
+  await waitFor(() => (lastFrame() ?? '').includes('Berpikir'))
+  await send('empat')
+  await waitFor(() => (lastFrame() ?? '').includes('antri: empat'))
+  expect(lastFrame()).toContain('antri: empat')
+  stdin.write('\u001B')
+  await waitFor(() => frames.some((f) => f.includes('1 pesan antrian dibatalkan')))
+  expect(frames.join('\n')).toContain('1 pesan antrian dibatalkan')
+  release()
+  await wait(300)
+  expect(seen).toEqual(['satu', 'dua', 'tiga'])
+})
