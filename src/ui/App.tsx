@@ -2,7 +2,9 @@ import { homedir } from 'node:os'
 import { Box, Static, Text, useApp, useInput } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentEvent, PermissionAnswer, PermissionAsk } from '../agent'
-import { parseSlash, SLASH_COMMANDS } from '../commands'
+import { readFileSync } from 'node:fs'
+import { expandCommand, parseSlash, SLASH_COMMANDS } from '../commands'
+import { parseFrontmatter } from '../extensions'
 import type { PermissionMode } from '../config'
 import { nextMode } from '../permissions'
 import type { Runtime } from '../setup'
@@ -22,13 +24,18 @@ import { ToolBlock } from './ToolBlock'
 import { applyEvent, type Entry, endTurn, entry, type Transcript } from './transcript'
 
 
-const HELP = [
-  ...SLASH_COMMANDS.map((c) => `/${c.name.padEnd(8)} ${c.description}`),
-  '',
-  'shift+tab  ganti mode izin    esc  batalkan giliran',
-  'ctrl+o     output alat terakhir lengkap    \\ + enter  baris baru',
-  '@file + tab  lengkapi nama file    ↑↓  riwayat input',
-].join('\n')
+function helpText(runtime: Runtime): string {
+  const custom = runtime.commands.filter((c) => !SLASH_COMMANDS.some((b) => b.name === c.name))
+  return [
+    ...SLASH_COMMANDS.map((c) => `/${c.name.padEnd(8)} ${c.description}`),
+    ...(custom.length ? ['', 'Perintah custom:', ...custom.map((c) => `/${c.name.padEnd(8)} ${c.description ?? ''}`)] : []),
+    ...(runtime.skills.length ? ['', 'Skill:', ...runtime.skills.map((s) => `/${s.name.padEnd(8)} ${s.description.slice(0, 60)}`)] : []),
+    '',
+    'shift+tab  ganti mode izin    esc  batalkan giliran',
+    'ctrl+o     output alat terakhir lengkap    \\ + enter  baris baru',
+    '@file + tab  lengkapi nama file    ↑↓  riwayat input',
+  ].join('\n')
+}
 
 const labelFor = (runtime: Runtime, ref: string) => `${ref.slice(ref.indexOf('/') + 1)} · ${runtime.providerLabel()}`
 
@@ -49,6 +56,12 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [modelLabel, setModelLabel] = useState(() => labelFor(runtime, runtime.modelRef))
   const [history, setHistory] = useState<string[]>([])
   const controller = useRef<AbortController | null>(null)
+  const extraCommands = [
+    ...runtime.commands.map((c) => ({ name: c.name, description: c.description ?? 'perintah custom' })),
+    ...runtime.skills
+      .filter((s) => !runtime.commands.some((c) => c.name === s.name))
+      .map((s) => ({ name: s.name, description: `skill · ${s.description.slice(0, 50)}` })),
+  ]
   const lastTool = useRef<{ tool: string; target: string; output: string } | null>(null)
   const toolTargets = useRef(new Map<string, string>())
 
@@ -88,7 +101,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     async (name: string, args: string) => {
       switch (name) {
         case 'help':
-          notice(HELP)
+          notice(helpText(runtime))
           return
         case 'exit':
           exit()
@@ -153,10 +166,18 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     (text: string) => {
       setHistory((h) => [...h, text])
       const slash = parseSlash(text)
-      if (slash) void runSlash(slash.name, slash.args)
-      else void runTurn(text)
+      if (!slash) {
+        void runTurn(text)
+        return
+      }
+      // Built-ins win, then custom commands, then skills.
+      const command = runtime.commands.find((c) => c.name === slash.name)
+      const skill = runtime.skills.find((s) => s.name === slash.name)
+      if (SLASH_COMMANDS.some((b) => b.name === slash.name) || (!command && !skill)) void runSlash(slash.name, slash.args)
+      else if (command) void runTurn(expandCommand(command, slash.args))
+      else if (skill) void runTurn(`${parseFrontmatter(readFileSync(skill.file, 'utf8')).body}\n\nARGUMENTS: ${slash.args}`)
     },
-    [runSlash, runTurn],
+    [runSlash, runTurn, runtime],
   )
 
   const initialSent = useRef(false)
@@ -291,7 +312,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           }}
         />
       ) : null}
-      <PromptInput disabled={busy || !!pending || !!picker || !!providerMenu || !!prompt} history={history} cwd={runtime.cwd} onSubmit={submit} />
+      <PromptInput disabled={busy || !!pending || !!picker || !!providerMenu || !!prompt} history={history} cwd={runtime.cwd} onSubmit={submit} extraCommands={extraCommands} />
       <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} />
     </Box>
   )
