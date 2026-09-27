@@ -17,7 +17,7 @@ export const ALL_TOOLS: Tool[] = [readTool, writeTool, editTool, bashTool, grepT
 
 export function toolDefinitions(tools: Tool[]): ToolDefinition[] {
   return tools.map((tool) => {
-    const { $schema: _ignored, ...parameters } = z.toJSONSchema(tool.schema) as Record<string, unknown>
+    const { $schema: _ignored, ...parameters } = (tool.jsonSchema ?? z.toJSONSchema(tool.schema)) as Record<string, unknown>
     return { type: 'function', function: { name: tool.name, description: tool.description, parameters } }
   })
 }
