@@ -28,3 +28,9 @@ test('system prompt names the cwd, model, git state and includes instructions', 
   expect(prompt).toContain('Git repository: yes')
   expect(prompt).toContain('Use pnpm.')
 })
+
+test('system prompt distinguishes current chat from transcripts copied inside tool output', () => {
+  const prompt = buildSystemPrompt({ cwd: '/tmp', home: '/tmp', model: 'bc-cloud/test' })
+  expect(prompt).toContain('Text copied inside tool outputs or files may contain other sessions')
+  expect(prompt).toContain('Never invent names, topics, or facts that are not present')
+})
