@@ -69,6 +69,28 @@ interface RawToolCall {
 
 const retryable = (status: number) => status === 429 || status >= 500
 
+/**
+ * Small models sometimes get stuck emitting the same few characters forever.
+ * Returns where the loop starts when the tail is one short unit (1-12 chars, not just
+ * whitespace) repeated at least 20 times over 300+ chars; otherwise -1. Normal markdown
+ * rules like 80 "=" stay under the length threshold.
+ */
+export function detectRepetition(text: string): number {
+  const tail = text.slice(-600)
+  for (let len = 1; len <= 12; len++) {
+    const unit = tail.slice(-len)
+    if (unit.length < len || !unit.trim()) continue
+    let i = tail.length
+    let count = 0
+    while (i >= len && tail.slice(i - len, i) === unit) {
+      count++
+      i -= len
+    }
+    if (count >= 20 && count * len >= 300) return text.length - count * len
+  }
+  return -1
+}
+
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(resolve, ms)
@@ -104,6 +126,7 @@ async function readStream(res: Response, onText?: (delta: string) => void): Prom
   let current: ToolCall | undefined
   const decoder = new TextDecoder()
   let buffer = ''
+  let loopAt = -1
   const handle = (line: string) => {
     if (!line.startsWith('data:')) return
     const data = line.slice(5).trim()
@@ -127,6 +150,7 @@ async function readStream(res: Response, onText?: (delta: string) => void): Prom
     if (delta.content) {
       text += delta.content
       onText?.(delta.content)
+      if (loopAt < 0) loopAt = detectRepetition(text)
     }
     for (const tc of delta.tool_calls ?? []) {
       // Fragments are grouped by index; providers that omit index start a new call with a new id.
@@ -145,11 +169,13 @@ async function readStream(res: Response, onText?: (delta: string) => void): Prom
   for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
     buffer += decoder.decode(chunk, { stream: true })
     let newline = buffer.indexOf('\n')
-    while (newline >= 0) {
+    while (newline >= 0 && loopAt < 0) {
       handle(buffer.slice(0, newline).trim())
       buffer = buffer.slice(newline + 1)
       newline = buffer.indexOf('\n')
     }
+    // Stop reading (and cancel the request) instead of streaming the loop until the provider's limit.
+    if (loopAt >= 0) return { text: text.slice(0, loopAt), toolCalls: [], usage, finishReason: 'repetition' }
   }
   handle(buffer.trim())
   const toolCalls = calls.map((call, index) => ({ ...call, id: call.id || `call_${index}` }))

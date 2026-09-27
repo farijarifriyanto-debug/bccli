@@ -5,6 +5,7 @@ import type { Tool, ToolContext } from './tools/types'
 
 export type AgentEvent =
   | { type: 'text'; delta: string }
+  | { type: 'textReplace'; text: string }
   | { type: 'toolStart'; id: string; tool: string; target: string }
   | { type: 'toolEnd'; id: string; tool: string; output: string; display?: string; isError: boolean }
   | { type: 'usage'; inputTokens: number; outputTokens: number }
@@ -152,6 +153,14 @@ export class Agent {
               }
             : {}),
         })
+        if (completion.finishReason === 'repetition') {
+          this.onEvent({ type: 'textReplace', text: completion.text })
+          this.onEvent({
+            type: 'error',
+            message: 'Model terjebak mengulang teks, jawaban dihentikan. Coba ulangi atau ganti model dengan /model.',
+          })
+          return
+        }
         if (!completion.toolCalls.length) {
           this.onEvent({ type: 'done' })
           return
