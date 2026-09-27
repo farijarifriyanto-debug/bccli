@@ -1,4 +1,5 @@
 import { Agent } from './agent'
+import { BUILTIN_AGENTS } from './agents'
 import type { CliArgs } from './args'
 import { bccliHome, type Config, loadConfig, resolveModel } from './config'
 import { homedir } from 'node:os'
@@ -13,6 +14,8 @@ import { Session } from './session'
 import { ALL_TOOLS } from './tools/index'
 import { createExitPlanTool, type Interaction } from './tools/plan'
 import { createSkillTool } from './tools/skill'
+import { createTaskTool } from './tools/task'
+import type { Tool } from './tools/types'
 import { createTodoTool, TodoStore } from './tools/todo'
 
 export interface Runtime {
@@ -77,11 +80,23 @@ export function createRuntime(opts: {
     }
   }
 
-  const agent = new Agent({
-    provider,
-    tools: [...ALL_TOOLS, createSkillTool(skills), createTodoTool(todos), createExitPlanTool({ permissions, interaction })],
+  const systemPrompt = buildSystemPrompt({ cwd: opts.cwd, home, model: modelRef, skills })
+  const baseTools: Tool[] = [...ALL_TOOLS, createSkillTool(skills), createTodoTool(todos), createExitPlanTool({ permissions, interaction })]
+  const task = createTaskTool({
+    agents: [...BUILTIN_AGENTS, ...agentDefs],
+    // Subagents get whatever the main agent has right now (incl. MCP tools), minus task itself.
+    baseTools: () => agent.tools.filter((t) => t.name !== 'task'),
     permissions,
-    systemPrompt: buildSystemPrompt({ cwd: opts.cwd, home, model: modelRef, skills }),
+    provider: () => agent.provider,
+    providerFor: makeProvider,
+    systemPrompt,
+    cwd: opts.cwd,
+  })
+  const agent: Agent = new Agent({
+    provider,
+    tools: [...baseTools, task],
+    permissions,
+    systemPrompt,
     cwd: opts.cwd,
     history,
     onMessage: (m) => session.append(m),
