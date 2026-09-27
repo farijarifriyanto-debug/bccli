@@ -39,7 +39,7 @@ async function main(): Promise<number> {
   }
   if (args.print) {
     if (!args.prompt) throw new ConfigError('Mode -p butuh tugas, contoh: bccli -p "jelaskan repo ini"')
-    return runPrint(rt, args.prompt)
+    return runPrint(rt, args.prompt, undefined, { allowAll: args.allowAll })
   }
   if (!process.stdin.isTTY) throw new ConfigError('Mode interaktif butuh terminal. Untuk skrip/CI pakai: bccli -p "tugas"')
   const { startInteractive } = await import('./ui/index')

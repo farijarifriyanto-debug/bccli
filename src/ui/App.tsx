@@ -7,6 +7,7 @@ import { expandCommand, parseSlash, SLASH_COMMANDS } from '../commands'
 import { parseFrontmatter } from '../extensions'
 import type { PermissionMode } from '../config'
 import { nextMode } from '../permissions'
+import type { PlanDecision } from '../tools/plan'
 import type { Runtime } from '../setup'
 import { Markdown } from './Markdown'
 import type { ModelGroup } from '../models'
@@ -20,6 +21,7 @@ import { PromptInput } from './PromptInput'
 import { Spinner } from './Spinner'
 import { StatusBar } from './StatusBar'
 import { ACCENT, color } from './theme'
+import { PlanApproval } from './PlanApproval'
 import { TodoList } from './TodoList'
 import { ToolBlock } from './ToolBlock'
 import { applyEvent, type Entry, endTurn, entry, type Transcript } from './transcript'
@@ -58,6 +60,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [history, setHistory] = useState<string[]>([])
   const controller = useRef<AbortController | null>(null)
   const [todos, setTodos] = useState(runtime.todos.items)
+  const [planAsk, setPlanAsk] = useState<{ plan: string; resolve(d: PlanDecision): void } | null>(null)
   useEffect(() => runtime.todos.subscribe(setTodos), [runtime])
   const extraCommands = [
     ...runtime.commands.map((c) => ({ name: c.name, description: c.description ?? 'perintah custom' })),
@@ -84,6 +87,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   useEffect(() => {
     runtime.agent.onEvent = onEvent
     runtime.agent.askPermission = (request) => new Promise((resolve) => setPending({ request, resolve }))
+    runtime.interaction.approvePlan = (plan) => new Promise((resolve) => setPlanAsk({ plan, resolve }))
   }, [runtime, onEvent])
 
   const runTurn = useCallback(
@@ -284,7 +288,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     <Box flexDirection="column">
       <Static items={transcript.done}>{renderEntry}</Static>
       {transcript.live.map(renderEntry)}
-      {busy && !pending ? (
+      {busy && !pending && !planAsk ? (
         <Box marginTop={1}>
           <Spinner label="Berpikir" startedAt={startedAt} />
         </Box>
@@ -315,8 +319,18 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           }}
         />
       ) : null}
+      {planAsk ? (
+        <PlanApproval
+          plan={planAsk.plan}
+          onAnswer={(d) => {
+            planAsk.resolve(d)
+            setPlanAsk(null)
+            if (d !== 'no') setMode(d)
+          }}
+        />
+      ) : null}
       <TodoList items={todos} />
-      <PromptInput disabled={busy || !!pending || !!picker || !!providerMenu || !!prompt} history={history} cwd={runtime.cwd} onSubmit={submit} extraCommands={extraCommands} />
+      <PromptInput disabled={busy || !!pending || !!picker || !!providerMenu || !!prompt || !!planAsk} history={history} cwd={runtime.cwd} onSubmit={submit} extraCommands={extraCommands} />
       <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} />
     </Box>
   )
