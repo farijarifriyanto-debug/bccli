@@ -52,9 +52,10 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [startedAt, setStartedAt] = useState(0)
   const [mode, setMode] = useState<PermissionMode>(runtime.agent.permissions.mode)
   const [tokens, setTokens] = useState(runtime.agent.totalUsage.inputTokens + runtime.agent.totalUsage.outputTokens)
-  const [pending, setPending] = useState<{ request: PermissionAsk; resolve(a: PermissionAnswer): void } | null>(
-    null,
-  )
+  // Parallel tools (e.g. two subagents) can ask at the same time: queue them, show one at a time.
+  const [asks, setAsks] = useState<{ id: number; request: PermissionAsk; resolve(a: PermissionAnswer): void }[]>([])
+  const pending = asks[0] ?? null
+  const askId = useRef(0)
   const [picker, setPicker] = useState<ModelGroup[] | null>(null)
   const [providerMenu, setProviderMenu] = useState<ProviderEntry[] | null>(null)
   const [prompt, setPrompt] = useState<{ label: string; mask?: boolean; resolve(v: string | undefined): void } | null>(null)
@@ -90,7 +91,8 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
 
   useEffect(() => {
     runtime.agent.onEvent = onEvent
-    runtime.agent.askPermission = (request) => new Promise((resolve) => setPending({ request, resolve }))
+    runtime.agent.askPermission = (request) =>
+      new Promise((resolve) => setAsks((q) => [...q, { id: askId.current++, request, resolve }]))
     runtime.interaction.approvePlan = (plan) => new Promise((resolve) => setPlanAsk({ plan, resolve }))
   }, [runtime, onEvent])
 
@@ -283,7 +285,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
 
   const answer = (a: PermissionAnswer) => {
     pending?.resolve(a)
-    setPending(null)
+    setAsks((q) => q.slice(1))
   }
 
   const cwd = runtime.cwd.startsWith(homedir()) ? `~${runtime.cwd.slice(homedir().length)}` : runtime.cwd
@@ -339,7 +341,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           <Spinner label="Berpikir" startedAt={startedAt} />
         </Box>
       ) : null}
-      {pending ? <PermissionPrompt request={pending.request} onAnswer={answer} /> : null}
+      {pending ? <PermissionPrompt key={pending.id} request={pending.request} onAnswer={answer} /> : null}
       {picker ? (
         <ModelPicker
           groups={picker}

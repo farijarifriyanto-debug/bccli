@@ -145,3 +145,21 @@ test('parallel explore tasks run concurrently', async () => {
   expect(peak).toBe(2)
   expect(agent.messages.filter((m) => m.role === 'tool').map((m) => (m as { tool_call_id: string }).tool_call_id)).toEqual(['p1', 'p2'])
 })
+
+test('a custom agent overriding explore with non-read tools is not run in parallel', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-ovr-'))
+  const provider = router({ PARENT: [] })
+  const permissions = new Permissions('default', [], cwd)
+  const task = createTaskTool({
+    agents: [...BUILTIN_AGENTS, { name: 'explore', description: 'x', tools: ['bash'], prompt: 'p' }],
+    baseTools: () => ALL_TOOLS,
+    permissions,
+    provider: () => provider,
+    providerFor: () => provider,
+    systemPrompt: 'S',
+    cwd,
+  })
+  expect(task.parallelSafe?.({ agent: 'explore', description: 'a', prompt: 'a' })).toBe(false)
+  const readOnly = createTaskTool({ agents: BUILTIN_AGENTS, baseTools: () => ALL_TOOLS, permissions, provider: () => provider, providerFor: () => provider, systemPrompt: 'S', cwd })
+  expect(readOnly.parallelSafe?.({ agent: 'explore', description: 'a', prompt: 'a' })).toBe(true)
+})

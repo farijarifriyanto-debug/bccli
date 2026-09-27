@@ -28,7 +28,13 @@ export function createTaskTool(opts: TaskToolOptions): Tool {
     }),
     kind: 'read',
     target: (input) => `[${input.agent}] ${input.description}`,
-    parallelSafe: (input) => input.agent === 'explore',
+    // Parallel only when the resolved agent can do nothing but read (a project file may redefine "explore").
+    parallelSafe: (input) => {
+      const allowed = byName.get(input.agent)?.tools
+      if (!allowed) return false
+      const base = opts.baseTools()
+      return allowed.every((name) => base.find((t) => t.name === name)?.kind === 'read')
+    },
     async run(input, ctx) {
       const def = byName.get(input.agent)
       if (!def) return { output: `Agent "${input.agent}" tidak ada. Tersedia: ${[...byName.keys()].join(', ')}`, isError: true }
