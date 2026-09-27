@@ -6,6 +6,7 @@ import { expect, test } from 'vitest'
 import { parseCliArgs } from '../../src/args'
 import type { Completion, Provider } from '../../src/provider'
 import { createRuntime } from '../../src/setup'
+import { readMcpFile } from '../../src/mcp/config'
 import { App } from '../../src/ui/App'
 
 const wait = (ms = 60) => new Promise((r) => setTimeout(r, ms))
@@ -165,3 +166,20 @@ test('custom commands expand and run; built-ins win over same-named commands', a
   await waitFor(() => frames.some((f) => f.includes('Perintah custom')))
   expect(frames.join('\n')).not.toContain('SHADOW')
 })
+
+test('/mcp installs a catalog server and its tools reach the agent', async () => {
+  const rt = makeRuntime([])
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('/mcp')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('context7')))
+  await wait()
+  stdin.write('\u001B[B')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => rt.mcp.states().some((s) => s.name === 'context7'), 20000)
+  expect(readMcpFile(join(rt.home, 'mcp.json')).context7).toEqual({ type: 'http', url: 'https://mcp.context7.com/mcp' })
+  await rt.mcp.stop()
+}, 30000)

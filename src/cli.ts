@@ -19,6 +19,11 @@ async function main(): Promise<number> {
   }
   const cwd = process.cwd()
   if (args.command === 'login') return runLogin(args.loginProvider ?? 'bc-cloud', cwd)
+  if (args.command === 'mcp') {
+    const { runMcpCommand } = await import('./mcpCli')
+    const { readSecret } = await import('./login')
+    return runMcpCommand(args, { env: process.env, cwd, out: (s) => console.log(s), err: (s) => console.error(s), readSecret })
+  }
   if (args.command === 'provider') {
     const { runProviderCommand } = await import('./providerCli')
     const { readSecret } = await import('./login')
@@ -39,7 +44,17 @@ async function main(): Promise<number> {
   }
   if (args.print) {
     if (!args.prompt) throw new ConfigError('Mode -p butuh tugas, contoh: bccli -p "jelaskan repo ini"')
-    return runPrint(rt, args.prompt, undefined, { allowAll: args.allowAll })
+    const { serversToStart } = await import('./mcp/config')
+    const plan = serversToStart(rt.home, cwd)
+    for (const s of plan.needTrust) {
+      console.error(`Server MCP project "${s.name}" dilewati (belum diizinkan; jalankan bccli interaktif sekali untuk menyetujuinya).`)
+    }
+    await rt.startMcp(plan.start)
+    try {
+      return await runPrint(rt, args.prompt, undefined, { allowAll: args.allowAll })
+    } finally {
+      await rt.mcp.stop()
+    }
   }
   if (!process.stdin.isTTY) throw new ConfigError('Mode interaktif butuh terminal. Untuk skrip/CI pakai: bccli -p "tugas"')
   const { startInteractive } = await import('./ui/index')

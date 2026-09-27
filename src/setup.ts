@@ -1,5 +1,7 @@
 import { Agent } from './agent'
 import { BUILTIN_AGENTS } from './agents'
+import type { McpServerSpec } from './mcp/config'
+import { McpManager } from './mcp/manager'
 import type { CliArgs } from './args'
 import { bccliHome, type Config, loadConfig, resolveModel } from './config'
 import { homedir } from 'node:os'
@@ -32,6 +34,8 @@ export interface Runtime {
   agentDefs: AgentDef[]
   todos: TodoStore
   interaction: Interaction
+  mcp: McpManager
+  startMcp(specs: McpServerSpec[]): Promise<void>
   reloadConfig(): void
   providerLabel(): string
   listModels: (only?: string) => Promise<ModelGroup[]>
@@ -103,6 +107,9 @@ export function createRuntime(opts: {
     onReset: () => session.reset(),
   })
 
+  // MCP tools join the agent's tool list whenever a server connects, fails or is removed.
+  const mcp = new McpManager({ onChange: () => agent.setTools([...baseTools, task, ...mcp.tools()]) })
+
   return {
     cwd: opts.cwd,
     home,
@@ -112,6 +119,8 @@ export function createRuntime(opts: {
     agentDefs,
     todos,
     interaction,
+    mcp,
+    startMcp: (specs: McpServerSpec[]) => mcp.start(specs),
     get config() {
       return config
     },

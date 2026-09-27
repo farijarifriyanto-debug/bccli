@@ -19,7 +19,22 @@ export async function startInteractive(rt: Runtime, opts: { initialPrompt?: stri
       if (chosen) rt.resume(chosen.session)
     }
   }
+  const { serversToStart, setProjectTrust } = await import('../mcp/config')
+  const plan = serversToStart(rt.home, rt.cwd)
+  if (plan.needTrust.length) {
+    const { createInterface } = await import('node:readline/promises')
+    const rl = createInterface({ input: process.stdin, output: process.stdout })
+    for (const s of plan.needTrust) {
+      const what = s.config.type === 'http' ? s.config.url : [s.config.command, ...(s.config.args ?? [])].join(' ')
+      const answer = (await rl.question(`Repo ini ingin menjalankan server MCP "${s.name}" (${what}). Izinkan? [y/N] `)).trim().toLowerCase()
+      setProjectTrust(rt.home, rt.cwd, s.name, answer === 'y')
+      if (answer === 'y') plan.start.push(s)
+    }
+    rl.close()
+  }
+  void rt.startMcp(plan.start)
   const instance = render(<App runtime={rt} initialPrompt={opts.initialPrompt} version={opts.version} />, { exitOnCtrlC: true })
   await instance.waitUntilExit()
+  await rt.mcp.stop()
   return 0
 }
