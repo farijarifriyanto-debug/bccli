@@ -628,6 +628,13 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           </Box>
         )
       case 'assistant':
+        if (e.cont) {
+          return e.text ? (
+            <Box key={e.id} paddingLeft={2}>
+              <Markdown text={e.text} />
+            </Box>
+          ) : null
+        }
         if (!e.text.trim()) return null
         return (
           <Box key={e.id} marginTop={1}>
