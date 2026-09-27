@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { render } from 'ink-testing-library'
@@ -27,11 +27,12 @@ function scripted(steps: Completion[]): Provider {
   }
 }
 
-function makeRuntime(steps: Completion[]) {
+function makeRuntime(steps: Completion[], setupExt?: (cwd: string) => void) {
   const cwd = mkdtempSync(join(tmpdir(), 'bccli-app-'))
   writeFileSync(join(cwd, 'a.txt'), 'old\n')
+  setupExt?.(cwd)
   const env = { BCCLI_HOME: mkdtempSync(join(tmpdir(), 'bccli-apph-')), BOTCONNECTOR_API_KEY: 'k', OPENROUTER_API_KEY: 'k' }
-  return createRuntime({ cwd, args: parseCliArgs([]), env, provider: scripted(steps) })
+  return createRuntime({ cwd, args: parseCliArgs([]), env, provider: scripted(steps), userHome: mkdtempSync(join(tmpdir(), 'bccli-appu-')) })
 }
 
 test('full turn: read, edit with permission prompt, final answer', async () => {
@@ -140,4 +141,27 @@ test('/model lists every provider and persists the choice as default', async () 
   await waitFor(() => rt.modelRef === 'openrouter/qwen/qwen3-coder')
   expect(rt.modelRef).toBe('openrouter/qwen/qwen3-coder')
   expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).model).toBe('openrouter/qwen/qwen3-coder')
+})
+
+test('custom commands expand and run; built-ins win over same-named commands', async () => {
+  const rt = makeRuntime([{ text: 'reviewed', toolCalls: [] }], (cwd) => {
+    mkdirSync(join(cwd, '.bccli/commands'), { recursive: true })
+    writeFileSync(join(cwd, '.bccli/commands/review.md'), '---\ndescription: review\n---\nPlease review $ARGUMENTS')
+    writeFileSync(join(cwd, '.bccli/commands/help.md'), 'SHADOW')
+  })
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('/rev')
+  await wait()
+  expect(frames.at(-1)).toContain('/review')
+  stdin.write('iew src/a.ts')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('reviewed')))
+  expect(rt.agent.messages[0]).toEqual({ role: 'user', content: 'Please review src/a.ts' })
+  stdin.write('/help')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('Perintah custom')))
+  expect(frames.join('\n')).not.toContain('SHADOW')
 })

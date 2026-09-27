@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import type { SkillDef } from './extensions'
 
 const FILES = ['AGENTS.md', 'BCCLI.md']
 
@@ -36,8 +37,12 @@ function isGitRepo(cwd: string): boolean {
   }
 }
 
-export function buildSystemPrompt(opts: { cwd: string; home: string; model: string; date?: string; platform?: string }): string {
+export function buildSystemPrompt(opts: { cwd: string; home: string; model: string; date?: string; platform?: string; skills?: SkillDef[] }): string {
   const instructions = loadInstructions(opts.cwd, opts.home)
+  const skills = (opts.skills ?? []).slice(0, 50)
+  const skillText = skills.length
+    ? `\n\nSkills (load one with the skill tool when it matches the task):\n${skills.map((s) => `- ${s.name}: ${s.description.slice(0, 200)}`).join('\n')}`
+    : ''
   return `You are BCCLI, a coding agent by BotConnector running in the user's terminal. You help with software engineering tasks by reading code, editing files, and running commands with the tools provided.
 
 How to work:
@@ -53,5 +58,5 @@ Environment:
 - Git repository: ${isGitRepo(opts.cwd) ? 'yes' : 'no'}
 - Platform: ${opts.platform ?? process.platform}
 - Date: ${opts.date ?? new Date().toISOString().slice(0, 10)}
-- Model: ${opts.model}${instructions ? `\n\nProject and user instructions (follow them):\n\n${instructions}` : ''}`
+- Model: ${opts.model}${skillText}${instructions ? `\n\nProject and user instructions (follow them):\n\n${instructions}` : ''}`
 }

@@ -1,7 +1,9 @@
 import { Agent } from './agent'
 import type { CliArgs } from './args'
 import { bccliHome, type Config, loadConfig, resolveModel } from './config'
+import { homedir } from 'node:os'
 import { buildSystemPrompt } from './context'
+import { type AgentDef, type CommandDef, loadAgentDefs, loadCommands, loadSkills, type SkillDef } from './extensions'
 import { Permissions } from './permissions'
 import { listAllModels, type ModelGroup } from './models'
 import { type ChatMessage, createProvider, type Provider } from './provider'
@@ -9,6 +11,7 @@ import { addProviderKey } from './providerCli'
 import { providerName } from './providers'
 import { Session } from './session'
 import { ALL_TOOLS } from './tools/index'
+import { createSkillTool } from './tools/skill'
 
 export interface Runtime {
   cwd: string
@@ -19,6 +22,9 @@ export interface Runtime {
   session: Session
   setModel(ref: string): void
   env: NodeJS.ProcessEnv
+  skills: SkillDef[]
+  commands: CommandDef[]
+  agentDefs: AgentDef[]
   reloadConfig(): void
   providerLabel(): string
   listModels: (only?: string) => Promise<ModelGroup[]>
@@ -36,6 +42,7 @@ export function createRuntime(opts: {
   provider?: Provider
   history?: ChatMessage[]
   fetch?: typeof fetch
+  userHome?: string
 }): Runtime {
   const env = opts.env ?? process.env
   const home = bccliHome(env)
@@ -49,6 +56,10 @@ export function createRuntime(opts: {
   const mode = opts.args.allowAll ? 'allowAll' : (opts.args.permissionMode ?? config.permissionMode)
   const rules = [...config.allow, ...opts.args.allowedTools.map((t) => TOOL_RULES[t] ?? t)]
   const permissions = new Permissions(mode, rules, opts.cwd)
+  const roots = { cwd: opts.cwd, home, userHome: opts.userHome ?? homedir() }
+  const skills = loadSkills(roots)
+  const commands = loadCommands(roots)
+  const agentDefs = loadAgentDefs(roots)
 
   let session = Session.create(home, opts.cwd)
   let history = opts.history
@@ -62,9 +73,9 @@ export function createRuntime(opts: {
 
   const agent = new Agent({
     provider,
-    tools: ALL_TOOLS,
+    tools: [...ALL_TOOLS, createSkillTool(skills)],
     permissions,
-    systemPrompt: buildSystemPrompt({ cwd: opts.cwd, home, model: modelRef }),
+    systemPrompt: buildSystemPrompt({ cwd: opts.cwd, home, model: modelRef, skills }),
     cwd: opts.cwd,
     history,
     onMessage: (m) => session.append(m),
@@ -75,6 +86,9 @@ export function createRuntime(opts: {
     cwd: opts.cwd,
     home,
     env,
+    skills,
+    commands,
+    agentDefs,
     get config() {
       return config
     },

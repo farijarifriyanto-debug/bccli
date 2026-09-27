@@ -9,9 +9,10 @@ export interface PromptInputProps {
   history: string[]
   cwd: string
   onSubmit(text: string): void
+  extraCommands?: { name: string; description: string }[]
 }
 
-export function PromptInput({ disabled, history, cwd, onSubmit }: PromptInputProps) {
+export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }: PromptInputProps) {
   const [value, setValue] = useState('')
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
 
@@ -57,8 +58,8 @@ export function PromptInput({ disabled, history, cwd, onSubmit }: PromptInputPro
     { isActive: !disabled },
   )
 
-  const suggestions =
-    value.startsWith('/') && !/\s/.test(value) ? SLASH_COMMANDS.filter((c) => c.name.startsWith(value.slice(1))) : []
+  const all = [...SLASH_COMMANDS, ...(extraCommands ?? []).filter((c) => !SLASH_COMMANDS.some((b) => b.name === c.name))]
+  const suggestions = value.startsWith('/') && !/\s/.test(value) ? all.filter((c) => c.name.startsWith(value.slice(1))).slice(0, 8) : []
 
   return (
     <Box flexDirection="column">
