@@ -1,10 +1,18 @@
 import type { AgentEvent } from '../agent'
 
+export interface SubLine {
+  id: string
+  tool: string
+  target: string
+  done: boolean
+  isError?: boolean
+}
+
 export type Entry = { id: number } & (
   | { kind: 'header' }
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; text: string }
-  | { kind: 'tool'; callId: string; tool: string; target: string; output?: string; display?: string; isError?: boolean; done: boolean }
+  | { kind: 'tool'; callId: string; tool: string; target: string; output?: string; display?: string; isError?: boolean; done: boolean; sub?: SubLine[] }
   | { kind: 'notice'; text: string; tone: 'info' | 'warn' | 'error' }
 )
 
@@ -52,6 +60,17 @@ export function applyEvent(t: Transcript, event: AgentEvent): Transcript {
       const firstRunning = live.findIndex((e) => e.kind === 'tool' && !e.done)
       const cut = firstRunning === -1 ? live.length : firstRunning
       return { done: [...t.done, ...live.slice(0, cut)], live: live.slice(cut) }
+    }
+    case 'subagent': {
+      const inner = event.event
+      if (inner.type !== 'toolStart' && inner.type !== 'toolEnd') return t
+      const update = (e: Entry): Entry => {
+        if (e.kind !== 'tool' || e.callId !== event.parentId) return e
+        const sub = e.sub ?? []
+        if (inner.type === 'toolStart') return { ...e, sub: [...sub, { id: inner.id, tool: inner.tool, target: inner.target, done: false }] }
+        return { ...e, sub: sub.map((s) => (s.id === inner.id ? { ...s, done: true, isError: inner.isError } : s)) }
+      }
+      return { ...t, live: t.live.map(update) }
     }
     case 'error':
       return { ...t, live: [...t.live, entry({ kind: 'notice', text: `Error: ${event.message}`, tone: 'error' })] }

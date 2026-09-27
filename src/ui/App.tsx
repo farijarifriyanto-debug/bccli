@@ -271,7 +271,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         )
       case 'tool':
         return (
-          <ToolBlock key={e.id} tool={e.tool} target={e.target} output={e.output} display={e.display} isError={e.isError} done={e.done} />
+          <ToolBlock key={e.id} tool={e.tool} target={e.target} output={e.output} display={e.display} isError={e.isError} done={e.done} sub={e.sub} />
         )
       case 'notice':
         return (

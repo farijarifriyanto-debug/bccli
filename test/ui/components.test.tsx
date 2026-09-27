@@ -70,3 +70,29 @@ test('parseSlash', () => {
   expect(parseSlash('/model bc-cloud/x')).toEqual({ name: 'model', args: 'bc-cloud/x' })
   expect(parseSlash('hello')).toBeUndefined()
 })
+
+test('task block shows nested subagent tools and the summary', () => {
+  const frame = render(
+    <ToolBlock
+      tool="task"
+      target="[explore] cari login"
+      output="login di auth.ts:1"
+      display="2 langkah · 1k token"
+      done
+      sub={[
+        { id: 'a', tool: 'grep', target: 'login', done: true },
+        { id: 'b', tool: 'read', target: 'auth.ts', done: true },
+      ]}
+    />,
+  ).lastFrame()!
+  expect(frame).toContain('⎿ Task  [explore] cari login')
+  expect(frame).toMatch(/ {5}⎿ Grep {2}login/)
+  expect(frame).toContain('✓ selesai · 2 langkah · 1k token')
+})
+
+test('permission prompt names the subagent', () => {
+  const frame = render(
+    <PermissionPrompt request={{ tool: 'edit', kind: 'edit', target: 'a.ts', agent: 'general', sessionRules: ['edit(project)'] }} onAnswer={() => {}} />,
+  ).lastFrame()!
+  expect(frame).toContain('[general] Izinkan edit a.ts?')
+})
