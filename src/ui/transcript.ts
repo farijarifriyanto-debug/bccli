@@ -45,6 +45,11 @@ export function applyEvent(t: Transcript, event: AgentEvent): Transcript {
       if (last?.kind === 'assistant') return { ...t, live: [...t.live.slice(0, -1), { ...last, text: last.text + event.delta }] }
       return { ...t, live: [...t.live, entry({ kind: 'assistant', text: event.delta })] }
     }
+    case 'textReplace': {
+      const last = t.live.at(-1)
+      if (last?.kind !== 'assistant') return t
+      return { ...t, live: [...t.live.slice(0, -1), { ...last, text: event.text }] }
+    }
     case 'toolStart': {
       // A still-running tool means these started in parallel: keep them together in live.
       const running = t.live.some((e) => e.kind === 'tool' && !e.done)
