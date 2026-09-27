@@ -74,7 +74,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [picker, setPicker] = useState<ModelGroup[] | null>(null)
   const [providerMenu, setProviderMenu] = useState<ProviderEntry[] | null>(null)
   const [prompt, setPrompt] = useState<{ label: string; mask?: boolean; resolve(v: string | undefined): void } | null>(null)
-  const ask = (label: string, mask = false) => new Promise<string | undefined>((resolve) => setPrompt({ label, mask, resolve }))
+  const ask = useCallback((label: string, mask = false) => new Promise<string | undefined>((resolve) => setPrompt({ label, mask, resolve })), [])
   const [modelLabel, setModelLabel] = useState(() => labelFor(runtime, runtime.modelRef))
   const [history, setHistory] = useState<string[]>([])
   const controller = useRef<AbortController | null>(null)
@@ -414,7 +414,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           notice(`Perintah tidak dikenal: /${name}. Ketik /help.`, 'warn')
       }
     },
-    [runtime, notice, exit, version, runTurn],
+    [runtime, notice, exit, version, runTurn, ask],
   )
 
   const submit = useCallback(
