@@ -96,3 +96,14 @@ test('permission prompt names the subagent', () => {
   ).lastFrame()!
   expect(frame).toContain('[general] Izinkan edit a.ts?')
 })
+
+test('[s] yes-to-all is always offered, even when [a] is not', async () => {
+  const onAnswer = vi.fn()
+  const { stdin, lastFrame } = render(<PermissionPrompt request={{ tool: 'bash', kind: 'bash', target: 'ls > out' }} onAnswer={onAnswer} />)
+  expect(lastFrame()).toContain('[s] ya semua')
+  expect(lastFrame()).not.toContain('[a]')
+  await tick()
+  stdin.write('s')
+  await tick()
+  expect(onAnswer).toHaveBeenCalledWith('all')
+})

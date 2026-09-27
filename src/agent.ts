@@ -15,7 +15,7 @@ export type AgentEvent =
   | { type: 'done' }
   | { type: 'subagent'; parentId: string; agent: string; event: AgentEvent }
 
-export type PermissionAnswer = 'yes' | 'session' | 'no'
+export type PermissionAnswer = 'yes' | 'session' | 'all' | 'no'
 export type PermissionAsk = PermissionRequest & { preview?: string; sessionRules?: string[]; agent?: string }
 export type AskPermission = (req: PermissionAsk) => Promise<PermissionAnswer>
 
@@ -245,6 +245,7 @@ export class Agent {
         ...(this.opts.label ? { agent: this.opts.label } : {}),
       })
       if (answer === 'session') this.permissions.allowForSession(request)
+      if (answer === 'all') this.permissions.mode = 'allowAll'
       decision = answer === 'no' ? 'deny' : 'allow'
     }
     if (decision === 'deny') {

@@ -227,3 +227,20 @@ test('suggestions show a built-in once; mixed-case command files work; a deleted
   await waitFor(() => frames.some((f) => f.includes('Skill gone tidak bisa dibaca')))
   expect(frames.join('\n')).toContain('Skill gone tidak bisa dibaca')
 })
+
+test('answering [s] turns the status bar to allow all', async () => {
+  const rt = makeRuntime([
+    { text: '', toolCalls: [{ id: '1', name: 'bash', arguments: '{"command":"node -e \\"1\\""}' }] },
+    { text: 'selesai', toolCalls: [] },
+  ])
+  const { stdin, frames, lastFrame } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('jalan')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('[s] ya semua')))
+  await wait()
+  stdin.write('s')
+  await waitFor(() => frames.some((f) => f.includes('selesai')))
+  expect(lastFrame()).toContain('⏵⏵ allow all')
+})
