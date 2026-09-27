@@ -31,6 +31,9 @@ export interface AgentOptions {
   contextWindow?: number
   onMessage?: (message: ChatMessage) => void
   onReset?: () => void
+  /** Marks the start of a user turn (undo boundary). */
+  onTurnStart?: () => void
+  checkpoint?: (absPath: string) => Promise<void>
   /** Subagent name, shown on its permission prompts. */
   label?: string
 }
@@ -58,6 +61,7 @@ export class Agent {
   private readonly maxSteps: number
   // ponytail: one window for every model; read it from /v1/models metadata when providers expose it.
   private readonly contextWindow: number
+  private systemPrompt: string
 
   constructor(private readonly opts: AgentOptions) {
     this.provider = opts.provider
@@ -69,6 +73,11 @@ export class Agent {
     this.messages = [...(opts.history ?? [])]
     this.maxSteps = opts.maxSteps ?? 50
     this.contextWindow = opts.contextWindow ?? 128_000
+    this.systemPrompt = opts.systemPrompt
+  }
+
+  setSystemPrompt(text: string): void {
+    this.systemPrompt = text
   }
 
   setTools(tools: Tool[]): void {
@@ -92,6 +101,13 @@ export class Agent {
     this.opts.onMessage?.(message)
   }
 
+  /** Swaps in another conversation (resume, new session) without writing to the session log. */
+  load(messages: ChatMessage[]): void {
+    this.messages = messages
+    this.readFiles.clear()
+    this.lastInputTokens = 0
+  }
+
   clear(): void {
     this.messages = []
     this.readFiles.clear()
@@ -101,7 +117,7 @@ export class Agent {
 
   async compact(signal: AbortSignal): Promise<void> {
     const completion = await this.provider.chat({
-      messages: [{ role: 'system', content: this.opts.systemPrompt }, ...this.messages, { role: 'user', content: COMPACT_PROMPT }],
+      messages: [{ role: 'system', content: this.systemPrompt }, ...this.messages, { role: 'user', content: COMPACT_PROMPT }],
       // Some gateways reject tool_calls in history when no tools are declared.
       tools: this.definitions,
       signal,
@@ -115,6 +131,7 @@ export class Agent {
   async run(text: string, signal: AbortSignal): Promise<void> {
     this.turnTools = this.tools
     this.turnDefinitions = this.definitions
+    this.opts.onTurnStart?.()
     try {
       if (this.lastInputTokens > this.contextWindow * 0.8) await this.compact(signal)
       this.push({ role: 'user', content: text })
@@ -125,14 +142,14 @@ export class Agent {
           this.push({ role: 'user', content: `Lanjutkan tugas ini sesuai ringkasan di atas: ${text}` })
         }
         const completion = await this.provider.chat({
-          messages: [{ role: 'system', content: this.opts.systemPrompt }, ...this.messages],
+          messages: [{ role: 'system', content: this.systemPrompt }, ...this.messages],
           tools: this.turnDefinitions,
           signal,
           onText: (delta) => this.onEvent({ type: 'text', delta }),
         })
         // Some gateways (incl. BotConnector) omit usage; estimate ~4 chars/token so /cost and compaction still work.
         const usage = completion.usage ?? {
-          inputTokens: estimateTokens(this.opts.systemPrompt) + estimateTokens(JSON.stringify(this.messages)),
+          inputTokens: estimateTokens(this.systemPrompt) + estimateTokens(JSON.stringify(this.messages)),
           outputTokens:
             estimateTokens(completion.text) + (completion.toolCalls.length ? estimateTokens(JSON.stringify(completion.toolCalls)) : 0),
         }
@@ -230,6 +247,7 @@ export class Agent {
       callId: call.id,
       emit: (event) => this.onEvent(event),
       ask: (req) => this.askPermission(req),
+      checkpoint: this.opts.checkpoint,
       addUsage: (u) => {
         this.totalUsage.inputTokens += u.inputTokens
         this.totalUsage.outputTokens += u.outputTokens

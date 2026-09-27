@@ -100,3 +100,15 @@ test('revoke removes a session grant', () => {
   p.revoke('mcp(mcp__a_b__x)')
   expect(p.check(req)).toBe('ask')
 })
+
+test('list shows config and session rules; revoke only removes session ones', () => {
+  const p = new Permissions('default', ['bash(npm test)'], '/w')
+  p.allowForSession({ tool: 'bash', kind: 'bash', target: 'git status' })
+  expect(p.list()).toEqual([
+    { rule: 'bash(npm test)', source: 'config' },
+    { rule: 'bash(git status)', source: 'session' },
+  ])
+  p.revoke('bash(npm test)')
+  p.revoke('bash(git status)')
+  expect(p.list()).toEqual([{ rule: 'bash(npm test)', source: 'config' }])
+})

@@ -1,4 +1,5 @@
 import { Agent } from './agent'
+import { CheckpointStore } from './checkpoints'
 import { BUILTIN_AGENTS } from './agents'
 import type { McpServerSpec } from './mcp/config'
 import { McpManager } from './mcp/manager'
@@ -42,6 +43,12 @@ export interface Runtime {
   addProviderKey(id: string, key: string): ReturnType<typeof addProviderKey>
   /** Continue an earlier session: load its history and append new messages to its file. */
   resume(session: Session): void
+  /** Starts a fresh session file; the previous one stays on disk for /resume. */
+  newSession(): void
+  /** Re-reads AGENTS.md/BCCLI.md into the system prompt (after /memory). */
+  rebuildSystemPrompt(): void
+  checkpoints: CheckpointStore
+  startedAt: Date
 }
 
 const TOOL_RULES: Record<string, string> = { bash: 'bash', edit: 'edit', write: 'edit', fetch: 'fetch' }
@@ -72,6 +79,8 @@ export function createRuntime(opts: {
   const commands = loadCommands(roots)
   const agentDefs = loadAgentDefs(roots)
   const todos = new TodoStore()
+  const checkpoints = new CheckpointStore()
+  let startedAt = new Date()
   const interaction: Interaction = { approvePlan: async () => 'no' }
 
   let session = Session.create(home, opts.cwd)
@@ -105,6 +114,8 @@ export function createRuntime(opts: {
     history,
     onMessage: (m) => session.append(m),
     onReset: () => session.reset(),
+    onTurnStart: () => checkpoints.beginTurn(),
+    checkpoint: (path) => checkpoints.snapshot(path),
   })
 
   // MCP tools join the agent's tool list whenever a server connects, fails or is removed.
@@ -149,7 +160,23 @@ export function createRuntime(opts: {
     },
     resume(previous: Session) {
       session = previous
-      agent.messages = previous.load()
+      agent.load(previous.load())
+      checkpoints.clear()
+    },
+    newSession() {
+      session = Session.create(home, opts.cwd)
+      agent.load([])
+      agent.totalUsage = { inputTokens: 0, outputTokens: 0 }
+      todos.set([])
+      checkpoints.clear()
+      startedAt = new Date()
+    },
+    rebuildSystemPrompt() {
+      agent.setSystemPrompt(buildSystemPrompt({ cwd: opts.cwd, home, model: modelRef, skills }))
+    },
+    checkpoints,
+    get startedAt() {
+      return startedAt
     },
     setModel(ref: string) {
       agent.provider = makeProvider(ref)

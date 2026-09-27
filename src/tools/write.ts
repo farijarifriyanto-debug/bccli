@@ -30,6 +30,7 @@ export const writeTool = defineTool({
       return { output: `${input.path} sudah ada. Baca dulu dengan read sebelum menimpanya.`, isError: true }
     }
     try {
+      await ctx.checkpoint?.(abs)
       await mkdir(dirname(abs), { recursive: true })
       await writeFile(abs, input.content)
     } catch (error) {
