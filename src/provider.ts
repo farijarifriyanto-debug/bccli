@@ -223,6 +223,10 @@ async function readJson(res: Response): Promise<Completion> {
 export function createProvider({ baseURL, apiKey, model, fetch: doFetch = fetch, retryDelayMs = 1000 }: ProviderOptions): Provider {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (apiKey) headers.authorization = `Bearer ${apiKey}`
+  if (/^https:\/\/api\.botconnector\.id\/v1\/?$/.test(baseURL) && apiKey?.startsWith('bc_live_')) {
+    headers['x-botconnector-client'] = 'bccli'
+    headers['x-botconnector-client-version'] = '0.4.0'
+  }
 
   async function post(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
     let lastError: ProviderError | undefined
