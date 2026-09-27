@@ -19,7 +19,36 @@ cd project-kamu && bccli
 | `bccli -m provider/model` | pilih model |
 | `bccli models` | daftar model |
 
-Di dalam sesi: `/help`, `/model`, `/clear`, `/compact`, `/cost`, `/exit`.
+Perintah di dalam sesi (ketik `/` untuk saran, ↑↓ pilih, Enter jalankan):
+
+| Perintah | Fungsi |
+|---|---|
+| `/help` | daftar perintah dan pintasan |
+| `/model` | ganti model |
+| `/provider` | tambah/pilih provider AI |
+| `/mcp` | pasang/kelola server MCP |
+| `/new` | sesi baru (sesi lama tetap tersimpan) |
+| `/resume` | lanjutkan sesi lain di folder ini |
+| `/session` | info sesi ini |
+| `/status` | versi, model, mode izin, MCP, konteks |
+| `/permissions` | lihat/cabut izin |
+| `/undo` | batalkan edit file giliran terakhir |
+| `/diff` | git diff project |
+| `/copy` | salin jawaban terakhir |
+| `/export` | simpan percakapan ke markdown |
+| `/memory` | instruksi project (/memory <teks>, /memory global <teks>) |
+| `/init` | buat/perbarui AGENTS.md untuk project ini |
+| `/agents` | daftar subagent |
+| `/skills` | daftar skill dan perintah custom |
+| `/doctor` | cek kesehatan instalasi |
+| `/login` | simpan API key provider aktif |
+| `/logout` | hapus API key provider aktif |
+| `/clear` | mulai percakapan baru |
+| `/compact` | ringkas percakapan |
+| `/cost` | pemakaian token sesi ini |
+| `/exit` | keluar |
+
+`/undo` hanya membatalkan perubahan lewat alat edit/tulis (bukan perintah bash), per giliran, sampai 20 giliran ke belakang.
 Shift+Tab ganti mode izin: `default` → `acceptEdits` → `plan` → `allowAll`.
 
 Mode `-p` tidak pernah bertanya: alat yang butuh izin ditolak, kecuali memakai
