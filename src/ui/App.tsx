@@ -234,12 +234,24 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
               if (!chosen) return
               runtime.resume(chosen.session)
               setTokens(0)
-              const tail = runtime.agent.messages.filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content).slice(-3)
-              notice(
-                [`Melanjutkan sesi (${runtime.agent.messages.length} pesan):`, ...tail.map((m) => `${m.role === 'user' ? '>' : '●'} ${String(m.content).slice(0, 200)}`)].join(
-                  '\n',
-                ),
+              const chat = runtime.agent.messages.filter(
+                (m): m is typeof m & { role: 'user' | 'assistant'; content: string } =>
+                  (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && !!m.content.trim(),
               )
+              setTranscript({
+                done: [
+                  entry({ kind: 'header' }),
+                  entry({
+                    kind: 'notice',
+                    text: `Melanjutkan sesi (${runtime.agent.messages.length} pesan tersimpan · ${chat.length} chat user/assistant ditampilkan).`,
+                    tone: 'info',
+                  }),
+                  ...chat.map((m) =>
+                    entry(m.role === 'user' ? { kind: 'user', text: m.content } : { kind: 'assistant', text: m.content }),
+                  ),
+                ],
+                live: [],
+              })
             },
           })
           return
