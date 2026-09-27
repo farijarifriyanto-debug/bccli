@@ -61,6 +61,7 @@ export class Permissions {
       if (!segments.length) return undefined
       return [...new Set(segments.map((s) => `bash(${commandKey(s)})`))]
     }
+    if (req.kind === 'mcp') return [`mcp(${req.tool})`]
     return []
   }
 

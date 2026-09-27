@@ -2,7 +2,7 @@ import type { z } from 'zod'
 import type { AgentEvent, AskPermission } from '../agent'
 import type { Usage } from '../provider'
 
-export type PermissionKind = 'read' | 'edit' | 'bash' | 'fetch'
+export type PermissionKind = 'read' | 'edit' | 'bash' | 'fetch' | 'mcp'
 
 export interface ToolContext {
   cwd: string
@@ -28,6 +28,8 @@ export interface Tool<S extends z.ZodType = z.ZodType> {
   description: string
   schema: S
   kind: PermissionKind
+  /** Raw JSON schema sent to the model instead of converting `schema` (used for MCP tools). */
+  jsonSchema?: Record<string, unknown>
   target(input: z.infer<S>): string
   preview?(input: z.infer<S>, ctx: ToolContext): Promise<string | undefined>
   /** Cheap pre-check run before asking permission; returns an error message when the call cannot succeed. */
