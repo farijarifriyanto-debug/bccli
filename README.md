@@ -80,6 +80,13 @@ per provider; ketik untuk menyaring. Pilihan tersimpan sebagai default.
 izin (`permissionMode`, `allow`) dan provider yang sudah ada hanya diatur dari `~/.bccli/config.json`,
 supaya repo yang kamu clone tidak bisa memberi dirinya izin penuh atau mencuri API key.
 
+## Internet
+
+- `web_search`: mencari di web tanpa perlu izin. Memakai akun BotConnector Cloud
+  bila ada key, kalau tidak langsung ke Keenable (gratis, tanpa key). Hasilnya
+  judul, URL, dan cuplikan singkat, jadi hemat token.
+- `fetch`: membuka satu URL dari komputer ini (butuh izin per host).
+
 ## MCP
 
 `/mcp` (atau `bccli mcp add <nama>`) memasang server dari katalog:

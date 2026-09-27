@@ -18,6 +18,10 @@ const server = createServer((req, res) => {
     res.statusCode = 302
     res.setHeader('location', '/html')
     res.end()
+  } else if (req.url === '/gone') {
+    res.statusCode = 404
+    res.setHeader('content-type', 'text/html')
+    res.end('<!DOCTYPE html><html><head><script>x()</script></head><body><h1>Page not found</h1></body></html>')
   } else {
     res.statusCode = 404
     res.end('missing')
@@ -59,4 +63,16 @@ test('fetch follows same-host redirects but not redirects to another host', asyn
   const away = await fetchTool.run({ url: `${base}/away` }, ctx)
   expect(away.isError).toBe(true)
   expect(away.output).toContain('localhost')
+})
+
+test('an HTML error page is reported as text, not markup', async () => {
+  const r = await fetchTool.run({ url: `${base}/gone` }, ctx)
+  expect(r.output).toBe(`HTTP 404 dari ${base}/gone: Page not found`)
+})
+
+test('a network failure names its cause instead of just "fetch failed"', async () => {
+  const r = await fetchTool.run({ url: 'http://nama-host-tidak-ada.invalid/' }, ctx)
+  expect(r.isError).toBe(true)
+  expect(r.output).toContain('ENOTFOUND')
+  expect(r.output).toContain('DNS')
 })

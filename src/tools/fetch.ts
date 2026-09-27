@@ -39,6 +39,22 @@ export function htmlToText(html: string): string {
     .join('\n')
 }
 
+/** undici only says "fetch failed"; the useful part (DNS, TLS, reset) is in error.cause. */
+function describeFetchError(error: unknown): string {
+  const cause = (error as { cause?: { code?: string; message?: string } }).cause
+  const code = cause?.code ?? ''
+  const detail = cause?.message ?? (error as Error).message
+  if ((error as Error).name === 'TimeoutError') return 'tidak ada jawaban dalam 30 detik'
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return `${detail} — DNS tidak menemukan host (salah ketik, offline, atau diblokir DNS/ISP)`
+  if (/CERT|SELF_SIGNED|UNABLE_TO/.test(code)) {
+    return `${detail} — sertifikat TLS ditolak; sering karena antivirus/proxy yang memeriksa HTTPS. Coba jalankan dengan NODE_OPTIONS=--use-system-ca`
+  }
+  if (/ECONNRESET|ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|UND_ERR_CONNECT_TIMEOUT|UND_ERR_SOCKET/.test(code)) {
+    return `${detail} — koneksi gagal (firewall, proxy, atau situs diblokir jaringan)`
+  }
+  return code ? `${detail} (${code})` : detail
+}
+
 export const fetchTool = defineTool({
   name: 'fetch',
   description: 'Fetch a URL (http/https). HTML is converted to plain text. Max 50k characters.',
@@ -67,12 +83,12 @@ export const fetchTool = defineTool({
         url = next
       }
     } catch (error) {
-      return { output: `Gagal mengambil ${input.url}: ${(error as Error).message}`, isError: true }
+      return { output: `Gagal mengambil ${input.url}: ${describeFetchError(error)}`, isError: true }
     }
     if (!res) return { output: `Gagal mengambil ${input.url}`, isError: true }
     const { text: body, truncated } = await readCapped(res)
-    if (!res.ok) return { output: `HTTP ${res.status} dari ${input.url}: ${body.slice(0, 500)}`, isError: true }
     const text = (res.headers.get('content-type') ?? '').includes('html') ? htmlToText(body) : body
+    if (!res.ok) return { output: `HTTP ${res.status} dari ${input.url}: ${text.slice(0, 500)}`, isError: true }
     const clipped = text.length > MAX_CHARS || truncated ? `${text.slice(0, MAX_CHARS)}\n… [dipotong]` : text
     const display = truncated ? 'lebih dari 5 MB, dipotong' : `${text.length} karakter`
     return { output: clipped, display }

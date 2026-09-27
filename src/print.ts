@@ -5,6 +5,7 @@ interface Writer {
 }
 
 export function toolLabel(tool: string): string {
+  if (tool === 'web_search') return 'Search'
   return tool.charAt(0).toUpperCase() + tool.slice(1)
 }
 
