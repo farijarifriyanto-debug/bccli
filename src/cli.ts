@@ -19,6 +19,11 @@ async function main(): Promise<number> {
   }
   const cwd = process.cwd()
   if (args.command === 'login') return runLogin(args.loginProvider ?? 'bc-cloud', cwd)
+  if (args.command === 'provider') {
+    const { runProviderCommand } = await import('./providerCli')
+    const { readSecret } = await import('./login')
+    return runProviderCommand(args, { env: process.env, cwd, out: (s) => console.log(s), err: (s) => console.error(s), readSecret })
+  }
   if (args.command === 'models') {
     const config = loadConfig(cwd)
     const resolved = resolveModel(config, args.model ?? config.model)
