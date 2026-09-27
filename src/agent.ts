@@ -61,6 +61,7 @@ export class Agent {
   private readonly maxSteps: number
   // ponytail: one window for every model; read it from /v1/models metadata when providers expose it.
   private readonly contextWindow: number
+  private systemPrompt: string
 
   constructor(private readonly opts: AgentOptions) {
     this.provider = opts.provider
@@ -72,6 +73,11 @@ export class Agent {
     this.messages = [...(opts.history ?? [])]
     this.maxSteps = opts.maxSteps ?? 50
     this.contextWindow = opts.contextWindow ?? 128_000
+    this.systemPrompt = opts.systemPrompt
+  }
+
+  setSystemPrompt(text: string): void {
+    this.systemPrompt = text
   }
 
   setTools(tools: Tool[]): void {
@@ -104,7 +110,7 @@ export class Agent {
 
   async compact(signal: AbortSignal): Promise<void> {
     const completion = await this.provider.chat({
-      messages: [{ role: 'system', content: this.opts.systemPrompt }, ...this.messages, { role: 'user', content: COMPACT_PROMPT }],
+      messages: [{ role: 'system', content: this.systemPrompt }, ...this.messages, { role: 'user', content: COMPACT_PROMPT }],
       // Some gateways reject tool_calls in history when no tools are declared.
       tools: this.definitions,
       signal,
@@ -129,14 +135,14 @@ export class Agent {
           this.push({ role: 'user', content: `Lanjutkan tugas ini sesuai ringkasan di atas: ${text}` })
         }
         const completion = await this.provider.chat({
-          messages: [{ role: 'system', content: this.opts.systemPrompt }, ...this.messages],
+          messages: [{ role: 'system', content: this.systemPrompt }, ...this.messages],
           tools: this.turnDefinitions,
           signal,
           onText: (delta) => this.onEvent({ type: 'text', delta }),
         })
         // Some gateways (incl. BotConnector) omit usage; estimate ~4 chars/token so /cost and compaction still work.
         const usage = completion.usage ?? {
-          inputTokens: estimateTokens(this.opts.systemPrompt) + estimateTokens(JSON.stringify(this.messages)),
+          inputTokens: estimateTokens(this.systemPrompt) + estimateTokens(JSON.stringify(this.messages)),
           outputTokens:
             estimateTokens(completion.text) + (completion.toolCalls.length ? estimateTokens(JSON.stringify(completion.toolCalls)) : 0),
         }
