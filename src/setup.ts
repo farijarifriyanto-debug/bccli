@@ -12,6 +12,7 @@ import { providerName } from './providers'
 import { Session } from './session'
 import { ALL_TOOLS } from './tools/index'
 import { createSkillTool } from './tools/skill'
+import { createTodoTool, TodoStore } from './tools/todo'
 
 export interface Runtime {
   cwd: string
@@ -25,6 +26,7 @@ export interface Runtime {
   skills: SkillDef[]
   commands: CommandDef[]
   agentDefs: AgentDef[]
+  todos: TodoStore
   reloadConfig(): void
   providerLabel(): string
   listModels: (only?: string) => Promise<ModelGroup[]>
@@ -60,6 +62,7 @@ export function createRuntime(opts: {
   const skills = loadSkills(roots)
   const commands = loadCommands(roots)
   const agentDefs = loadAgentDefs(roots)
+  const todos = new TodoStore()
 
   let session = Session.create(home, opts.cwd)
   let history = opts.history
@@ -73,7 +76,7 @@ export function createRuntime(opts: {
 
   const agent = new Agent({
     provider,
-    tools: [...ALL_TOOLS, createSkillTool(skills)],
+    tools: [...ALL_TOOLS, createSkillTool(skills), createTodoTool(todos)],
     permissions,
     systemPrompt: buildSystemPrompt({ cwd: opts.cwd, home, model: modelRef, skills }),
     cwd: opts.cwd,
@@ -89,6 +92,7 @@ export function createRuntime(opts: {
     skills,
     commands,
     agentDefs,
+    todos,
     get config() {
       return config
     },

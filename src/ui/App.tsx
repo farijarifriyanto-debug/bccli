@@ -20,6 +20,7 @@ import { PromptInput } from './PromptInput'
 import { Spinner } from './Spinner'
 import { StatusBar } from './StatusBar'
 import { ACCENT, color } from './theme'
+import { TodoList } from './TodoList'
 import { ToolBlock } from './ToolBlock'
 import { applyEvent, type Entry, endTurn, entry, type Transcript } from './transcript'
 
@@ -56,6 +57,8 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [modelLabel, setModelLabel] = useState(() => labelFor(runtime, runtime.modelRef))
   const [history, setHistory] = useState<string[]>([])
   const controller = useRef<AbortController | null>(null)
+  const [todos, setTodos] = useState(runtime.todos.items)
+  useEffect(() => runtime.todos.subscribe(setTodos), [runtime])
   const extraCommands = [
     ...runtime.commands.map((c) => ({ name: c.name, description: c.description ?? 'perintah custom' })),
     ...runtime.skills
@@ -312,6 +315,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           }}
         />
       ) : null}
+      <TodoList items={todos} />
       <PromptInput disabled={busy || !!pending || !!picker || !!providerMenu || !!prompt} history={history} cwd={runtime.cwd} onSubmit={submit} extraCommands={extraCommands} />
       <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} />
     </Box>
