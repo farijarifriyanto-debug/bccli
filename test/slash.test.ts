@@ -96,3 +96,16 @@ test('doctorText reports node, keys, connection, MCP and tools', async () => {
   expect(down).toContain('✗ Node v20.0.0 (butuh ≥ 22)')
   expect(down).toContain('✗ Koneksi X: 401')
 })
+
+test('gitDiff includes staged changes and works before the first commit', async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'bccli-git3-'))
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: repo })
+  git('init', '-q')
+  writeFileSync(join(repo, 'first.txt'), 'pertama\n')
+  git('add', 'first.txt')
+  expect(await gitDiff(repo)).toContain('+pertama')
+  git('commit', '-q', '-m', 'a')
+  writeFileSync(join(repo, 'first.txt'), 'kedua\n')
+  git('add', 'first.txt')
+  expect(await gitDiff(repo)).toContain('+kedua')
+})

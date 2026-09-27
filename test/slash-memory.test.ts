@@ -1,9 +1,10 @@
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { parseCliArgs } from '../src/args'
 import type { ChatRequest, Provider } from '../src/provider'
+import { Session } from '../src/session'
 import { createRuntime } from '../src/setup'
 import { appendMemory, instructionFiles } from '../src/slash/memory'
 
@@ -46,4 +47,33 @@ test('rebuildSystemPrompt makes new memory visible on the next turn; newSession 
   expect(rt.agent.messages).toEqual([])
   await rt.agent.run('tiga', new AbortController().signal)
   expect(rt.session.load().map((m) => m.content)).toEqual(['tiga', 'ok'])
+})
+
+test('/new creates no file until something is said; resume forgets files read in the other conversation', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bm-n-'))
+  writeFileSync(join(cwd, 'a.txt'), 'old\n')
+  const steps = [
+    { text: '', toolCalls: [{ id: '1', name: 'read', arguments: '{"path":"a.txt"}' }] },
+    { text: 'dibaca', toolCalls: [] },
+    { text: '', toolCalls: [{ id: '2', name: 'edit', arguments: '{"path":"a.txt","old_string":"old","new_string":"new"}' }] },
+    { text: 'selesai', toolCalls: [] },
+  ]
+  const provider: Provider = {
+    async chat() {
+      return steps.shift() as never
+    },
+    async listModels() {
+      return []
+    },
+  }
+  const home = mkdtempSync(join(tmpdir(), 'bm-nh-'))
+  const rt = createRuntime({ cwd, args: parseCliArgs(['--allow-all']), env: { BCCLI_HOME: home, BOTCONNECTOR_API_KEY: 'k' }, provider, userHome: mkdtempSync(join(tmpdir(), 'bm-nu-')) })
+  await rt.agent.run('baca a.txt', new AbortController().signal)
+  const first = rt.session
+  rt.newSession()
+  expect(existsSync(rt.session.file)).toBe(false)
+  expect(Session.latest(home, cwd)?.file).toBe(first.file)
+  rt.resume(first)
+  await rt.agent.run('ganti', new AbortController().signal)
+  expect(readFileSync(join(cwd, 'a.txt'), 'utf8')).toBe('old\n')
 })

@@ -160,12 +160,12 @@ export function createRuntime(opts: {
     },
     resume(previous: Session) {
       session = previous
-      agent.messages = previous.load()
+      agent.load(previous.load())
       checkpoints.clear()
     },
     newSession() {
       session = Session.create(home, opts.cwd)
-      agent.clear()
+      agent.load([])
       agent.totalUsage = { inputTokens: 0, outputTokens: 0 }
       todos.set([])
       checkpoints.clear()

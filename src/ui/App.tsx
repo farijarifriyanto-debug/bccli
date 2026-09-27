@@ -129,7 +129,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     [runtime],
   )
 
-  const runSlash = useCallback(
+  const runSlashCommand = useCallback(
     async (name: string, args: string) => {
       switch (name) {
         case 'help':
@@ -368,6 +368,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           const rel = (p: string) => relative(runtime.cwd, p) || p
           notice(
             [
+              result.failed.length ? `Gagal dikembalikan: ${result.failed.map(rel).join(', ')}` : '',
               result.restored.length ? `Dikembalikan: ${result.restored.map(rel).join(', ')}` : '',
               result.deleted.length ? `Dihapus (file baru): ${result.deleted.map(rel).join(', ')}` : '',
               result.skipped.length ? `Terlalu besar untuk disimpan, tidak diubah: ${result.skipped.map(rel).join(', ')}` : '',
@@ -415,6 +416,11 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       }
     },
     [runtime, notice, exit, version, runTurn, ask],
+  )
+  // A failing command (locked file, unwritable folder) must not take the whole app down.
+  const runSlash = useCallback(
+    (name: string, args: string) => runSlashCommand(name, args).catch((error: Error) => notice(`/${name}: ${error.message}`, 'error')),
+    [runSlashCommand, notice],
   )
 
   const submit = useCallback(

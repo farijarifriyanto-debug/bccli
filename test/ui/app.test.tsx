@@ -345,3 +345,15 @@ test('/memory adds to AGENTS.md; /copy saves the last answer; /status, /diff and
   await waitFor(() => frames.some((f) => f.includes('BOTCONNECTOR_API_KEY masih ada di environment')))
   expect(frames.join('\n')).toContain('BOTCONNECTOR_API_KEY masih ada di environment')
 })
+
+test('an error inside a slash command becomes a notice instead of crashing', async () => {
+  const rt = makeRuntime([])
+  rt.checkpoints.undo = async () => {
+    throw new Error('EPERM: file terkunci')
+  }
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  await slash(stdin, '/undo')
+  await waitFor(() => frames.some((f) => f.includes('EPERM: file terkunci')))
+  expect(frames.join('\n')).toContain('EPERM: file terkunci')
+})

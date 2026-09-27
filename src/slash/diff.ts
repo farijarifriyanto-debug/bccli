@@ -9,7 +9,13 @@ function git(cwd: string, args: string[]): Promise<{ ok: boolean; out: string }>
 export async function gitDiff(cwd: string, maxLines = 400): Promise<string> {
   const inside = await git(cwd, ['rev-parse', '--is-inside-work-tree'])
   if (!inside.ok || inside.out.trim() !== 'true') return 'Folder ini bukan repository git, jadi tidak ada diff.'
-  const [stat, diff, untracked] = await Promise.all([git(cwd, ['diff', '--stat']), git(cwd, ['diff']), git(cwd, ['ls-files', '--others', '--exclude-standard'])])
+  // Against HEAD so staged changes show too; before the first commit, against the empty tree.
+  const base = (await git(cwd, ['rev-parse', '--verify', '-q', 'HEAD'])).ok ? 'HEAD' : '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+  const [stat, diff, untracked] = await Promise.all([
+    git(cwd, ['diff', '--stat', base]),
+    git(cwd, ['diff', base]),
+    git(cwd, ['ls-files', '--others', '--exclude-standard']),
+  ])
   const fresh = untracked.out.split('\n').filter(Boolean)
   if (!diff.out.trim() && !fresh.length) return 'Tidak ada perubahan yang belum di-commit.'
   const lines = diff.out.trimEnd().split('\n')

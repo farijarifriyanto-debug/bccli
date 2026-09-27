@@ -32,20 +32,25 @@ export class CheckpointStore {
     return this.history.filter((t) => t.size).length
   }
 
-  async undo(): Promise<{ restored: string[]; deleted: string[]; skipped: string[] } | undefined> {
+  async undo(): Promise<{ restored: string[]; deleted: string[]; skipped: string[]; failed: string[] } | undefined> {
     while (this.history.length && !this.history.at(-1)?.size) this.history.pop()
     const turn = this.history.pop()
     this.current = undefined
     if (!turn) return undefined
-    const result = { restored: [] as string[], deleted: [] as string[], skipped: [] as string[] }
+    const result = { restored: [] as string[], deleted: [] as string[], skipped: [] as string[], failed: [] as string[] }
     for (const [path, original] of turn) {
-      if (original === 'skipped') result.skipped.push(path)
-      else if (original === null) {
-        await rm(path, { force: true })
-        result.deleted.push(path)
-      } else {
-        await writeFile(path, original)
-        result.restored.push(path)
+      try {
+        if (original === 'skipped') result.skipped.push(path)
+        else if (original === null) {
+          await rm(path, { force: true })
+          result.deleted.push(path)
+        } else {
+          await writeFile(path, original)
+          result.restored.push(path)
+        }
+      } catch {
+        // One locked/moved file must not cost the rest of the turn's undo.
+        result.failed.push(path)
       }
     }
     return result

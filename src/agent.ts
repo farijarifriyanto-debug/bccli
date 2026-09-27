@@ -101,6 +101,13 @@ export class Agent {
     this.opts.onMessage?.(message)
   }
 
+  /** Swaps in another conversation (resume, new session) without writing to the session log. */
+  load(messages: ChatMessage[]): void {
+    this.messages = messages
+    this.readFiles.clear()
+    this.lastInputTokens = 0
+  }
+
   clear(): void {
     this.messages = []
     this.readFiles.clear()
