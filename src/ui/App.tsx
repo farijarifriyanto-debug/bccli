@@ -7,7 +7,12 @@ import type { PermissionMode } from '../config'
 import { nextMode } from '../permissions'
 import type { Runtime } from '../setup'
 import { Markdown } from './Markdown'
+import type { ModelGroup } from '../models'
+import { PRESETS } from '../presets'
+import { hasKey, providerName, writeGlobalConfig } from '../providers'
+import { LinePrompt } from './LinePrompt'
 import { ModelPicker } from './ModelPicker'
+import { type ProviderEntry, ProviderMenu } from './ProviderMenu'
 import { PermissionPrompt } from './PermissionPrompt'
 import { PromptInput } from './PromptInput'
 import { Spinner } from './Spinner'
@@ -25,6 +30,8 @@ const HELP = [
   '@file + tab  lengkapi nama file    ↑↓  riwayat input',
 ].join('\n')
 
+const labelFor = (runtime: Runtime, ref: string) => `${ref.slice(ref.indexOf('/') + 1)} · ${runtime.providerLabel()}`
+
 export function App({ runtime, initialPrompt, version }: { runtime: Runtime; initialPrompt?: string; version: string }) {
   const { exit } = useApp()
   const [transcript, setTranscript] = useState<Transcript>(() => ({ done: [entry({ kind: 'header' })], live: [] }))
@@ -35,7 +42,11 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [pending, setPending] = useState<{ request: PermissionAsk; resolve(a: PermissionAnswer): void } | null>(
     null,
   )
-  const [picker, setPicker] = useState<string[] | null>(null)
+  const [picker, setPicker] = useState<ModelGroup[] | null>(null)
+  const [providerMenu, setProviderMenu] = useState<ProviderEntry[] | null>(null)
+  const [prompt, setPrompt] = useState<{ label: string; mask?: boolean; resolve(v: string | undefined): void } | null>(null)
+  const ask = (label: string, mask = false) => new Promise<string | undefined>((resolve) => setPrompt({ label, mask, resolve }))
+  const [modelLabel, setModelLabel] = useState(() => labelFor(runtime, runtime.modelRef))
   const [history, setHistory] = useState<string[]>([])
   const controller = useRef<AbortController | null>(null)
   const lastTool = useRef<{ tool: string; target: string; output: string } | null>(null)
@@ -109,19 +120,26 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           if (args) {
             try {
               runtime.setModel(args)
-              notice(`Model: ${args}`)
+              writeGlobalConfig({ model: args }, runtime.env)
+              setModelLabel(labelFor(runtime, args))
+              notice(`Model: ${args} (tersimpan sebagai default)`)
             } catch (error) {
               notice((error as Error).message, 'error')
             }
             return
           }
           try {
-            const provider = runtime.modelRef.slice(0, runtime.modelRef.indexOf('/'))
-            const models = await runtime.agent.provider.listModels()
-            setPicker(models.map((m) => `${provider}/${m}`))
+            setPicker(await runtime.listModels())
           } catch (error) {
             notice(`Tidak bisa mengambil daftar model: ${(error as Error).message}`, 'error')
           }
+          return
+        }
+        case 'provider': {
+          const c = runtime.config
+          setProviderMenu(
+            Object.keys(c.providers).map((id) => ({ id, name: providerName(c, id), ready: hasKey(c, id, runtime.env), baseURL: c.providers[id].baseURL })),
+          )
           return
         }
         default:
@@ -162,6 +180,33 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     }
   })
 
+  const pickProvider = async (id: string | 'custom' | undefined) => {
+    setProviderMenu(null)
+    if (!id) return
+    let target = id
+    if (id === 'custom') {
+      const name = await ask('Id provider (huruf kecil, mis. corp)')
+      const url = name ? await ask('Base URL OpenAI-compatible') : undefined
+      if (!name || !url) return
+      writeGlobalConfig({ providers: { [name]: { baseURL: url } } }, runtime.env)
+      runtime.reloadConfig()
+      target = name
+    }
+    const c = runtime.config
+    const keyless = !c.providers[target].apiKeyEnv && PRESETS.some((p) => p.id === target)
+    if (!hasKey(c, target, runtime.env) || id === 'custom') {
+      const key = keyless ? '' : await ask(`API key untuk ${providerName(c, target)}`, true)
+      if (key === undefined) return
+      const result = await runtime.addProviderKey(target, key)
+      if (!result.ok) {
+        notice(result.error, 'error')
+        return
+      }
+      notice(`${providerName(c, target)} siap · ${result.models} model.`)
+    }
+    setPicker(await runtime.listModels(target))
+  }
+
   const answer = (a: PermissionAnswer) => {
     pending?.resolve(a)
     setPending(null)
@@ -178,7 +223,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
                 {' ✻ '}
               </Text>
               <Text bold>{`BCCLI ${version}`}</Text>
-              <Text dimColor>{` · ${runtime.modelRef} · ${cwd}`}</Text>
+              <Text dimColor>{` · ${runtime.modelRef} (${runtime.providerLabel()}) · ${cwd}`}</Text>
             </Text>
           </Box>
         )
@@ -223,7 +268,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       {pending ? <PermissionPrompt request={pending.request} onAnswer={answer} /> : null}
       {picker ? (
         <ModelPicker
-          models={picker}
+          groups={picker}
           current={runtime.modelRef}
           onPick={(m) => {
             setPicker(null)
@@ -231,8 +276,23 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           }}
         />
       ) : null}
-      <PromptInput disabled={busy || !!pending || !!picker} history={history} cwd={runtime.cwd} onSubmit={submit} />
-      <StatusBar mode={mode} tokens={tokens} busy={busy} />
+      {providerMenu ? <ProviderMenu entries={providerMenu} onPick={(id) => void pickProvider(id)} /> : null}
+      {prompt ? (
+        <LinePrompt
+          label={prompt.label}
+          mask={prompt.mask}
+          onSubmit={(v) => {
+            setPrompt(null)
+            prompt.resolve(v)
+          }}
+          onCancel={() => {
+            setPrompt(null)
+            prompt.resolve(undefined)
+          }}
+        />
+      ) : null}
+      <PromptInput disabled={busy || !!pending || !!picker || !!providerMenu || !!prompt} history={history} cwd={runtime.cwd} onSubmit={submit} />
+      <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} />
     </Box>
   )
 }

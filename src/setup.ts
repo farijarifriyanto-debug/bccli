@@ -3,7 +3,10 @@ import type { CliArgs } from './args'
 import { bccliHome, type Config, loadConfig, resolveModel } from './config'
 import { buildSystemPrompt } from './context'
 import { Permissions } from './permissions'
+import { listAllModels, type ModelGroup } from './models'
 import { type ChatMessage, createProvider, type Provider } from './provider'
+import { addProviderKey } from './providerCli'
+import { providerName } from './providers'
 import { Session } from './session'
 import { ALL_TOOLS } from './tools/index'
 
@@ -15,6 +18,11 @@ export interface Runtime {
   agent: Agent
   session: Session
   setModel(ref: string): void
+  env: NodeJS.ProcessEnv
+  reloadConfig(): void
+  providerLabel(): string
+  listModels: (only?: string) => Promise<ModelGroup[]>
+  addProviderKey(id: string, key: string): ReturnType<typeof addProviderKey>
   /** Continue an earlier session: load its history and append new messages to its file. */
   resume(session: Session): void
 }
@@ -27,10 +35,11 @@ export function createRuntime(opts: {
   env?: NodeJS.ProcessEnv
   provider?: Provider
   history?: ChatMessage[]
+  fetch?: typeof fetch
 }): Runtime {
   const env = opts.env ?? process.env
   const home = bccliHome(env)
-  const config = loadConfig(opts.cwd, env)
+  let config = loadConfig(opts.cwd, env)
   let modelRef = opts.args.model ?? config.model
   const makeProvider = (ref: string) => {
     const resolved = resolveModel(config, ref, env)
@@ -65,7 +74,20 @@ export function createRuntime(opts: {
   return {
     cwd: opts.cwd,
     home,
-    config,
+    env,
+    get config() {
+      return config
+    },
+    reloadConfig() {
+      config = loadConfig(opts.cwd, env)
+    },
+    providerLabel() {
+      return providerName(config, modelRef.slice(0, modelRef.indexOf('/')))
+    },
+    listModels: (only?: string) => listAllModels(config, env, { fetch: opts.fetch, only }),
+    addProviderKey(id: string, key: string) {
+      return addProviderKey(id, key, { env, cwd: opts.cwd, out: () => {}, err: () => {}, readSecret: async () => '', fetch: opts.fetch })
+    },
     get modelRef() {
       return modelRef
     },
