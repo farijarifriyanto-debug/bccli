@@ -238,3 +238,11 @@ test('"all" switches to allowAll so later tools run without asking', async () =>
   expect(asks).toBe(1)
   expect(agent.permissions.mode).toBe('allowAll')
 })
+
+test('a repetition cut-off is reported and only the clean text is kept', async () => {
+  const { events, agent } = setup([{ text: 'Halo', toolCalls: [], finishReason: 'repetition' }])
+  await agent.run('x', new AbortController().signal)
+  expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('mengulang') })
+  expect(events).toContainEqual({ type: 'textReplace', text: 'Halo' })
+  expect(agent.messages.at(-1)).toEqual({ role: 'assistant', content: 'Halo' })
+})

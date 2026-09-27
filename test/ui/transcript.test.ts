@@ -49,3 +49,9 @@ test('subagent tool calls nest under their task entry', () => {
   t = applyEvent(t, { type: 'subagent', parentId: 't1', agent: 'explore', event: { type: 'toolEnd', id: 'g', tool: 'grep', output: 'x', isError: false } })
   expect(t.live[0]).toMatchObject({ kind: 'tool', sub: [{ tool: 'grep', target: 'login', done: true }] })
 })
+
+test('textReplace swaps the streaming answer for the cleaned text', () => {
+  let t = applyEvent(empty, { type: 'text', delta: `Halo${'读取'.repeat(50)}` })
+  t = applyEvent(t, { type: 'textReplace', text: 'Halo' })
+  expect(t.live).toMatchObject([{ kind: 'assistant', text: 'Halo' }])
+})
