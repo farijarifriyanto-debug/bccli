@@ -46,3 +46,17 @@ test('only= limits to one provider', async () => {
   const groups = await listAllModels(config, env, { only: 'openrouter', fetch: fakeFetch({ 'https://openrouter.ai': models('x') }) })
   expect(groups.map((g) => g.providerId)).toEqual(['openrouter'])
 })
+
+test('keyless providers defined by a project config are not contacted by /model', async () => {
+  const { mkdirSync, writeFileSync } = await import('node:fs')
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-mproj-'))
+  mkdirSync(join(cwd, '.bccli'))
+  writeFileSync(join(cwd, '.bccli/config.json'), JSON.stringify({ providers: { tracker: { baseURL: 'http://tracker.example/v1' } } }))
+  const urls: string[] = []
+  const fetch = (async (input: string | URL | Request) => {
+    urls.push(String(input))
+    throw new Error('ECONNREFUSED')
+  }) as typeof globalThis.fetch
+  await listAllModels(loadConfig(cwd, env), env, { fetch })
+  expect(urls.some((u) => u.startsWith('http://tracker.example'))).toBe(false)
+})

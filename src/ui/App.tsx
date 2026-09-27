@@ -68,9 +68,12 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [planAsk, setPlanAsk] = useState<{ plan: string; resolve(d: PlanDecision): void } | null>(null)
   useEffect(() => runtime.todos.subscribe(setTodos), [runtime])
   const extraCommands = [
-    ...runtime.commands.map((c) => ({ name: c.name, description: c.description ?? 'perintah custom' })),
+    ...runtime.commands
+      .filter((c) => !SLASH_COMMANDS.some((b) => b.name === c.name.toLowerCase()))
+      .map((c) => ({ name: c.name.toLowerCase(), description: c.description ?? 'perintah custom' })),
     ...runtime.skills
-      .filter((s) => !runtime.commands.some((c) => c.name === s.name))
+      .filter((s) => !runtime.commands.some((c) => c.name.toLowerCase() === s.name.toLowerCase()))
+      .filter((s) => !SLASH_COMMANDS.some((b) => b.name === s.name.toLowerCase()))
       .map((s) => ({ name: s.name, description: `skill · ${s.description.slice(0, 50)}` })),
   ]
   const lastTool = useRef<{ tool: string; target: string; output: string } | null>(null)
@@ -199,13 +202,23 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         return
       }
       // Built-ins win, then custom commands, then skills.
-      const command = runtime.commands.find((c) => c.name === slash.name)
-      const skill = runtime.skills.find((s) => s.name === slash.name)
+      // parseSlash lowercases the typed name, so match file names case-insensitively.
+      const command = runtime.commands.find((c) => c.name.toLowerCase() === slash.name)
+      const skill = runtime.skills.find((s) => s.name.toLowerCase() === slash.name)
       if (SLASH_COMMANDS.some((b) => b.name === slash.name) || (!command && !skill)) void runSlash(slash.name, slash.args)
       else if (command) void runTurn(expandCommand(command, slash.args))
-      else if (skill) void runTurn(`${parseFrontmatter(readFileSync(skill.file, 'utf8')).body}\n\nARGUMENTS: ${slash.args}`)
+      else if (skill) {
+        let body: string
+        try {
+          body = parseFrontmatter(readFileSync(skill.file, 'utf8')).body
+        } catch (error) {
+          notice(`Skill ${skill.name} tidak bisa dibaca: ${(error as NodeJS.ErrnoException).code ?? (error as Error).message}`, 'error')
+          return
+        }
+        void runTurn(`${body}\n\nARGUMENTS: ${slash.args}`)
+      }
     },
-    [runSlash, runTurn, runtime],
+    [runSlash, runTurn, runtime, notice],
   )
 
   const initialSent = useRef(false)

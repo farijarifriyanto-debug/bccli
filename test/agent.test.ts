@@ -204,3 +204,21 @@ test('the compaction request still declares the tools', async () => {
   await agent.run('dua', new AbortController().signal)
   expect(provider.requests[1].tools?.length).toBe(7)
 })
+
+test('a tool list change during a turn applies from the next turn', async () => {
+  const { cwd, provider, agent } = setup([{ text: '', toolCalls: [call('read', { path: 'a.txt' })] }, reply('ok'), reply('second')])
+  writeFileSync(join(cwd, 'a.txt'), 'hello')
+  const original = provider.chat.bind(provider)
+  let swapped = false
+  provider.chat = async (req) => {
+    if (!swapped) {
+      swapped = true
+      agent.setTools(ALL_TOOLS.filter((t) => t.name !== 'read'))
+    }
+    return original(req)
+  }
+  await agent.run('baca', new AbortController().signal)
+  expect((provider.requests[1].messages.find((m) => m.role === 'tool') as { content: string }).content).toContain('hello')
+  await agent.run('lagi', new AbortController().signal)
+  expect(provider.requests[2].tools?.map((t) => t.function.name)).not.toContain('read')
+})

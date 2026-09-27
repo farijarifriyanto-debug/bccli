@@ -163,3 +163,24 @@ test('a custom agent overriding explore with non-read tools is not run in parall
   const readOnly = createTaskTool({ agents: BUILTIN_AGENTS, baseTools: () => ALL_TOOLS, permissions, provider: () => provider, providerFor: () => provider, systemPrompt: 'S', cwd })
   expect(readOnly.parallelSafe?.({ agent: 'explore', description: 'a', prompt: 'a' })).toBe(true)
 })
+
+test('subagents never get exit_plan', async () => {
+  const requests: ChatRequest[] = []
+  const provider = router(
+    {
+      PARENT: [{ text: '', toolCalls: [call('task', { agent: 'general', description: 'x', prompt: 'x' }, 't1')] }, { text: 'ok', toolCalls: [] }],
+      'delegated task': [{ text: 'done', toolCalls: [] }],
+    },
+    requests,
+  )
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-ep-'))
+  const permissions = new Permissions('default', [], cwd)
+  const exitPlan = { ...ALL_TOOLS[0], name: 'exit_plan' }
+  let agent: Agent | undefined
+  // Same wiring as setup.ts: subagents take the main agent's current tools.
+  const task = createTaskTool({ agents: BUILTIN_AGENTS, baseTools: () => agent!.tools, permissions, provider: () => provider, providerFor: () => provider, systemPrompt: 'S', cwd })
+  agent = new Agent({ provider, tools: [...ALL_TOOLS, exitPlan, task], permissions, systemPrompt: 'S', cwd })
+  await agent.run('go', new AbortController().signal)
+  const child = requests.find((r) => String(r.messages[0].content).includes('delegated task'))!
+  expect(child.tools?.map((t) => t.function.name)).not.toContain('exit_plan')
+})

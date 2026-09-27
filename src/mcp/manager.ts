@@ -42,7 +42,7 @@ export class McpManager {
   private readonly servers = new Map<string, Connected>()
   private readonly taken = new Set<string>()
 
-  constructor(private readonly opts: { connectTimeoutMs?: number; onChange?: () => void } = {}) {}
+  constructor(private readonly opts: { connectTimeoutMs?: number; onChange?: () => void; onToolsRemoved?: (names: string[]) => void } = {}) {}
 
   async start(specs: McpServerSpec[]): Promise<void> {
     await Promise.all(specs.map((spec) => this.add(spec)))
@@ -54,6 +54,7 @@ export class McpManager {
     this.servers.set(spec.name, entry)
     this.opts.onChange?.()
     const client = new Client({ name: 'bccli', version: '0.3.0' })
+    entry.client = client // so remove() during connect can close it
     const timeoutMs = this.opts.connectTimeoutMs ?? 30_000
     try {
       const config = spec.config
@@ -68,12 +69,16 @@ export class McpManager {
             })
       await withTimeout(client.connect(transport), timeoutMs)
       const { tools } = await withTimeout(client.listTools(), timeoutMs)
-      entry.client = client
+      if (this.servers.get(spec.name) !== entry) {
+        await client.close().catch(() => {})
+        return
+      }
       entry.tools = tools.map((t) => this.wrap(spec.name, client, t))
       entry.state = { ...entry.state, status: 'ready', tools: entry.tools.length }
     } catch (error) {
       entry.state = { ...entry.state, status: 'error', error: (error as Error).message }
       await client.close().catch(() => {})
+      if (this.servers.get(spec.name) !== entry) return
     }
     this.opts.onChange?.()
   }
@@ -109,6 +114,7 @@ export class McpManager {
     if (!entry) return
     this.servers.delete(name)
     for (const t of entry.tools) this.taken.delete(t.name)
+    if (entry.tools.length) this.opts.onToolsRemoved?.(entry.tools.map((t) => t.name))
     await entry.client?.close().catch(() => {})
     this.opts.onChange?.()
   }

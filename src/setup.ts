@@ -108,7 +108,13 @@ export function createRuntime(opts: {
   })
 
   // MCP tools join the agent's tool list whenever a server connects, fails or is removed.
-  const mcp = new McpManager({ onChange: () => agent.setTools([...baseTools, task, ...mcp.tools()]) })
+  const mcp = new McpManager({
+    onChange: () => agent.setTools([...baseTools, task, ...mcp.tools()]),
+    // A later server may reuse a sanitized name; it must not inherit this one's "[a]" grants.
+    onToolsRemoved: (names) => {
+      for (const name of names) permissions.revoke(`mcp(${name})`)
+    },
+  })
 
   return {
     cwd: opts.cwd,
