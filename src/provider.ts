@@ -1,3 +1,4 @@
+import { splitThinking, ThinkSplitter } from './thinking'
 import type { ToolDefinition } from './tools/index'
 
 export interface ToolCall {
@@ -24,6 +25,8 @@ export interface Usage {
 export interface Completion {
   text: string
   toolCalls: ToolCall[]
+  /** The model's reasoning, when it sends any (reasoning_content or <think> blocks); not part of the history. */
+  thinking?: string
   usage?: Usage
   finishReason?: string
 }
@@ -33,6 +36,7 @@ export interface ChatRequest {
   tools?: ToolDefinition[]
   signal?: AbortSignal
   onText?: (delta: string) => void
+  onThinking?: (delta: string) => void
 }
 
 export interface Provider {
@@ -117,8 +121,21 @@ function errorMessage(body: string): string {
 const toUsage = (u?: RawUsage): Usage | undefined =>
   u ? { inputTokens: u.prompt_tokens ?? 0, outputTokens: u.completion_tokens ?? 0 } : undefined
 
-async function readStream(res: Response, onText?: (delta: string) => void): Promise<Completion> {
+async function readStream(res: Response, onText?: (delta: string) => void, onThinking?: (delta: string) => void): Promise<Completion> {
   let text = ''
+  let thinking = ''
+  const splitter = new ThinkSplitter()
+  const emit = (part: { text: string; thinking: string }) => {
+    if (part.thinking) {
+      thinking += part.thinking
+      onThinking?.(part.thinking)
+    }
+    if (part.text) {
+      text += part.text
+      onText?.(part.text)
+      if (loopAt < 0) loopAt = detectRepetition(text)
+    }
+  }
   let usage: Usage | undefined
   let finishReason: string | undefined
   const calls: ToolCall[] = []
@@ -132,7 +149,10 @@ async function readStream(res: Response, onText?: (delta: string) => void): Prom
     const data = line.slice(5).trim()
     if (!data || data === '[DONE]') return
     let event: {
-      choices?: { delta?: { content?: string; tool_calls?: RawToolCall[] }; finish_reason?: string }[]
+      choices?: {
+        delta?: { content?: string; reasoning_content?: string; reasoning?: string; tool_calls?: RawToolCall[] }
+        finish_reason?: string
+      }[]
       usage?: RawUsage
       error?: { message?: string }
     }
@@ -147,11 +167,9 @@ async function readStream(res: Response, onText?: (delta: string) => void): Prom
     if (!choice) return
     if (choice.finish_reason) finishReason = choice.finish_reason
     const delta = choice.delta ?? {}
-    if (delta.content) {
-      text += delta.content
-      onText?.(delta.content)
-      if (loopAt < 0) loopAt = detectRepetition(text)
-    }
+    const reasoning = delta.reasoning_content || delta.reasoning
+    if (reasoning) emit({ text: '', thinking: reasoning })
+    if (delta.content) emit(splitter.push(delta.content))
     for (const tc of delta.tool_calls ?? []) {
       // Fragments are grouped by index; providers that omit index start a new call with a new id.
       let target = tc.index !== undefined ? byIndex.get(tc.index) : current
@@ -175,16 +193,20 @@ async function readStream(res: Response, onText?: (delta: string) => void): Prom
       newline = buffer.indexOf('\n')
     }
     // Stop reading (and cancel the request) instead of streaming the loop until the provider's limit.
-    if (loopAt >= 0) return { text: text.slice(0, loopAt), toolCalls: [], usage, finishReason: 'repetition' }
+    if (loopAt >= 0) return { text: text.slice(0, loopAt), toolCalls: [], thinking: thinking || undefined, usage, finishReason: 'repetition' }
   }
   handle(buffer.trim())
+  emit(splitter.flush())
   const toolCalls = calls.map((call, index) => ({ ...call, id: call.id || `call_${index}` }))
-  return { text, toolCalls, usage, finishReason }
+  return { text, toolCalls, thinking: thinking || undefined, usage, finishReason }
 }
 
 async function readJson(res: Response): Promise<Completion> {
   const body = (await res.json()) as {
-    choices?: { message?: { content?: string | null; tool_calls?: RawToolCall[] }; finish_reason?: string }[]
+    choices?: {
+      message?: { content?: string | null; reasoning_content?: string | null; reasoning?: string | null; tool_calls?: RawToolCall[] }
+      finish_reason?: string
+    }[]
     usage?: RawUsage
   }
   const choice = body.choices?.[0]
@@ -193,7 +215,9 @@ async function readJson(res: Response): Promise<Completion> {
     name: tc.function?.name ?? '',
     arguments: tc.function?.arguments ?? '',
   }))
-  return { text: choice?.message?.content ?? '', toolCalls, usage: toUsage(body.usage), finishReason: choice?.finish_reason }
+  const split = splitThinking(choice?.message?.content ?? '')
+  const thinking = (choice?.message?.reasoning_content || choice?.message?.reasoning || '') + split.thinking
+  return { text: split.text, toolCalls, thinking: thinking || undefined, usage: toUsage(body.usage), finishReason: choice?.finish_reason }
 }
 
 export function createProvider({ baseURL, apiKey, model, fetch: doFetch = fetch, retryDelayMs = 1000 }: ProviderOptions): Provider {
@@ -221,7 +245,7 @@ export function createProvider({ baseURL, apiKey, model, fetch: doFetch = fetch,
   }
 
   return {
-    async chat({ messages, tools, signal, onText }) {
+    async chat({ messages, tools, signal, onText, onThinking }) {
       const res = await post(
         '/chat/completions',
         { model, messages, stream: true, stream_options: { include_usage: true }, ...(tools?.length ? { tools } : {}) },
@@ -229,7 +253,7 @@ export function createProvider({ baseURL, apiKey, model, fetch: doFetch = fetch,
       )
       if ((res.headers.get('content-type') ?? '').includes('application/json')) return readJson(res)
       if (!res.body) throw new ProviderError('Respons provider kosong')
-      return readStream(res, onText)
+      return readStream(res, onText, onThinking)
     },
     async listModels() {
       const res = await doFetch(`${baseURL}/models`, { headers })

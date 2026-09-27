@@ -51,6 +51,7 @@ function helpText(runtime: Runtime): string {
     '',
     'shift+tab  ganti mode izin    esc  batalkan giliran',
     'ctrl+o     output alat terakhir lengkap    \\ + enter  baris baru',
+    'ctrl+t     buka/tutup thinking model',
     '@file + tab  lengkapi nama file    ↑↓  riwayat input',
   ].join('\n')
 }
@@ -82,6 +83,9 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [mcpMenu, setMcpMenu] = useState<McpMenuItem[] | null>(null)
   const [listPicker, setListPicker] = useState<{ title: string; items: ListItem[]; onPick(id?: string): void } | null>(null)
   const [planAsk, setPlanAsk] = useState<{ plan: string; resolve(d: PlanDecision): void } | null>(null)
+  // Messages typed while the agent works; each runs after the turn before it.
+  const [queued, setQueued] = useState<string[]>([])
+  const [showThinking, setShowThinking] = useState(false)
   useEffect(() => runtime.todos.subscribe(setTodos), [runtime])
   const extraCommands = [
     ...runtime.commands
@@ -474,6 +478,21 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     [runSlash, runTurn, runtime, notice],
   )
 
+  const onPrompt = useCallback(
+    (text: string) => {
+      if (busy) setQueued((q) => [...q, text])
+      else submit(text)
+    },
+    [busy, submit],
+  )
+
+  useEffect(() => {
+    if (busy || pending || planAsk || !queued.length) return
+    const [next, ...rest] = queued
+    setQueued(rest)
+    submit(next)
+  }, [busy, pending, planAsk, queued, submit])
+
   const initialSent = useRef(false)
   useEffect(() => {
     if (initialPrompt && !initialSent.current) {
@@ -489,6 +508,26 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       setMode(next)
     } else if (key.escape && busy && !pending) {
       controller.current?.abort()
+      if (queued.length) {
+        setQueued([])
+        notice(`${queued.length} pesan antrian dibatalkan.`, 'warn')
+      }
+    } else if (key.ctrl && input === 't') {
+      const next = !showThinking
+      setShowThinking(next)
+      setTranscript((t) => {
+        // Scrollback is printed once, so an already finished thinking block is reprinted open.
+        const last = [...t.done, ...t.live].findLast((e) => e.kind === 'thinking')
+        const reprint = next && last?.kind === 'thinking' && t.done.includes(last)
+        return {
+          ...t,
+          done: [
+            ...t.done,
+            ...(reprint ? [entry({ kind: 'thinking', text: last.text, open: true })] : []),
+            entry({ kind: 'notice', text: next ? 'Thinking ditampilkan (ctrl+t untuk menutup).' : 'Thinking disembunyikan (ctrl+t untuk membuka).', tone: 'info' }),
+          ],
+        }
+      })
     } else if (key.ctrl && input === 'o' && lastTool.current) {
       const t = lastTool.current
       notice(`⎿ ${t.tool} ${t.target}\n${t.output}`)
@@ -584,6 +623,28 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
             <Markdown text={e.text.replace(/^\s+/, '')} />
           </Box>
         )
+      case 'thinking': {
+        const text = e.text.trim()
+        if (!text) return null
+        if (!(e.open ?? showThinking)) {
+          const lines = text.split('\n').length
+          return (
+            <Box key={e.id} marginTop={1}>
+              <Text dimColor>{`✻ Berpikir · ${lines} baris · ctrl+t buka`}</Text>
+            </Box>
+          )
+        }
+        return (
+          <Box key={e.id} marginTop={1} flexDirection="column">
+            <Text dimColor>✻ Berpikir (ctrl+t tutup)</Text>
+            <Box paddingLeft={2}>
+              <Text dimColor italic>
+                {text}
+              </Text>
+            </Box>
+          </Box>
+        )
+      }
       case 'tool':
         return (
           <ToolBlock key={e.id} tool={e.tool} target={e.target} output={e.output} display={e.display} isError={e.isError} done={e.done} sub={e.sub} />
@@ -647,7 +708,10 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         />
       ) : null}
       <TodoList items={todos} />
-      <PromptInput disabled={busy || !!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu || !!listPicker} history={history} cwd={runtime.cwd} onSubmit={submit} extraCommands={extraCommands} />
+      {queued.map((q, i) => (
+        <Text key={`${i}-${q}`} dimColor>{`  ⏳ antri: ${q}`}</Text>
+      ))}
+      <PromptInput disabled={!!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu || !!listPicker} history={history} cwd={runtime.cwd} onSubmit={onPrompt} extraCommands={extraCommands} />
       <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} />
     </Box>
   )
