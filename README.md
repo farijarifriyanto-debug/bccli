@@ -25,24 +25,69 @@ Shift+Tab ganti mode izin: `default` → `acceptEdits` → `plan` → `allowAll`
 Mode `-p` tidak pernah bertanya: alat yang butuh izin ditolak, kecuali memakai
 `--allow-all` atau `--allowed-tools bash,edit,fetch`.
 
-## Provider lain (OpenAI-compatible)
+## Provider
 
-`~/.bccli/config.json`:
+`/provider` di dalam sesi (atau `bccli provider add <id>`) memasang provider hanya dengan API key:
 
-```json
-{
-  "model": "openrouter/qwen/qwen3-coder",
-  "providers": {
-    "openrouter": { "baseURL": "https://openrouter.ai/api/v1", "apiKeyEnv": "OPENROUTER_API_KEY" },
-    "local": { "baseURL": "http://127.0.0.1:11434/v1" }
-  },
-  "allow": ["bash(npm test)"]
-}
-```
+| Id | Provider |
+|---|---|
+| `bc-cloud` | BotConnector Cloud (default) |
+| `openrouter` | OpenRouter |
+| `openai` | OpenAI |
+| `gemini` | Google Gemini |
+| `deepseek` | DeepSeek |
+| `groq` | Groq |
+| `ollama-cloud` | Ollama Cloud |
+| `ollama` | Ollama lokal (tanpa key) |
+| `lmstudio` | LM Studio lokal (tanpa key) |
+
+Provider lain yang OpenAI-compatible: pilih **Custom…** di `/provider`, atau
+`bccli provider add corp --url https://corp.example/v1 --name "Corp"`.
+
+`/model` menampilkan model dari **semua** provider yang sudah punya key, dikelompokkan
+per provider; ketik untuk menyaring. Pilihan tersimpan sebagai default.
 
 `.bccli/config.json` di dalam project hanya boleh memilih `model` dan menambah provider baru tanpa API key —
 izin (`permissionMode`, `allow`) dan provider yang sudah ada hanya diatur dari `~/.bccli/config.json`,
 supaya repo yang kamu clone tidak bisa memberi dirinya izin penuh atau mencuri API key.
+
+## MCP
+
+`/mcp` (atau `bccli mcp add <nama>`) memasang server dari katalog:
+`playwright`, `context7`, `fetch`, `filesystem`, `git`, `github`. Server remote lain:
+`bccli mcp add nama --url https://…`. Tersimpan di `~/.bccli/mcp.json` (format `mcpServers`
+seperti Claude Code). Semua alat MCP selalu minta izin.
+
+`.bccli/mcp.json` di dalam repo tidak dijalankan sebelum kamu setujui (ditanya sekali per folder).
+
+## Subagent
+
+Agent bisa mendelegasikan pekerjaan lewat alat `task`:
+- `explore` — hanya baca & cari, bisa jalan paralel;
+- `general` — semua alat (edit/perintah tetap minta izin);
+- custom — `.bccli/agents/nama.md` atau `.claude/agents/nama.md`:
+
+```markdown
+---
+name: reviewer
+description: review perubahan kode
+tools: [read, grep, glob]
+model: openrouter/qwen/qwen3-coder
+---
+Kamu reviewer kode. Laporkan bug nyata saja.
+```
+
+## Skill & perintah custom
+
+- Skill: folder berisi `SKILL.md` di `~/.bccli/skills/`, `.bccli/skills/`, `~/.claude/skills/`,
+  `.claude/skills/` — dipakai agent otomatis bila cocok, atau `/nama-skill`.
+- Perintah: `commands/nama.md` di folder yang sama → `/nama argumen` (`$ARGUMENTS` diganti argumen).
+
+## Todo & mode plan
+
+Tugas ≥ 3 langkah menampilkan checklist di atas kotak input. Di mode plan (Shift+Tab),
+agent hanya membaca lalu mengajukan rencana; `[a]` setujui dengan edit otomatis,
+`[y]` setujui dengan tanya tiap langkah, `[n]` minta perbaikan.
 
 Instruksi project dibaca dari `AGENTS.md` dan `BCCLI.md`.
 
