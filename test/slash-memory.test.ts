@@ -6,7 +6,7 @@ import { parseCliArgs } from '../src/args'
 import type { ChatRequest, Provider } from '../src/provider'
 import { Session } from '../src/session'
 import { createRuntime } from '../src/setup'
-import { appendMemory, instructionFiles } from '../src/slash/memory'
+import { appendMemory, instructionFiles, parseMemoryArgs } from '../src/slash/memory'
 
 test('appendMemory creates AGENTS.md and instructionFiles lists it', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'bm-c-'))
@@ -73,7 +73,18 @@ test('/new creates no file until something is said; resume forgets files read in
   rt.newSession()
   expect(existsSync(rt.session.file)).toBe(false)
   expect(Session.latest(home, cwd)?.file).toBe(first.file)
+  rt.agent.totalUsage = { inputTokens: 50, outputTokens: 5 }
+  rt.todos.set([{ content: 'x', status: 'pending' }])
   rt.resume(first)
+  expect(rt.agent.totalUsage).toEqual({ inputTokens: 0, outputTokens: 0 })
+  expect(rt.todos.items).toEqual([])
   await rt.agent.run('ganti', new AbortController().signal)
   expect(readFileSync(join(cwd, 'a.txt'), 'utf8')).toBe('old\n')
+})
+
+test('parseMemoryArgs: "global" alone has no text instead of becoming the text', () => {
+  expect(parseMemoryArgs('global')).toEqual({ global: true, text: '' })
+  expect(parseMemoryArgs('  GLOBAL   pakai tab ')).toEqual({ global: true, text: 'pakai tab' })
+  expect(parseMemoryArgs('globalnya bahasa Indonesia')).toEqual({ global: false, text: 'globalnya bahasa Indonesia' })
+  expect(parseMemoryArgs('pakai pnpm')).toEqual({ global: false, text: 'pakai pnpm' })
 })

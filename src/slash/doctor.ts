@@ -1,5 +1,5 @@
 export interface DoctorDeps {
-  which: (cmd: string) => boolean
+  which: (cmd: string) => boolean | Promise<boolean>
   nodeVersion: string
   listModels: () => Promise<unknown[]>
 }
@@ -11,12 +11,17 @@ export async function doctorText(
   const major = Number(deps.nodeVersion.replace(/^v/, '').split('.')[0])
   const lines = [major >= 22 ? `✓ Node ${deps.nodeVersion}` : `✗ Node ${deps.nodeVersion} (butuh ≥ 22)`]
   for (const p of input.providers) lines.push(p.ready ? `✓ ${p.name}` : `○ ${p.name} (belum ada key)`)
-  try {
-    lines.push(`✓ Koneksi ${input.activeProvider} (${(await deps.listModels()).length} model)`)
-  } catch (error) {
-    lines.push(`✗ Koneksi ${input.activeProvider}: ${(error as Error).message}`)
-  }
+  const cmds = ['rg', 'git', 'npx', 'uvx']
+  // Run the network check and the PATH lookups together so neither waits on the other.
+  const [connection, found] = await Promise.all([
+    deps.listModels().then(
+      (models) => `✓ Koneksi ${input.activeProvider} (${models.length} model)`,
+      (error: Error) => `✗ Koneksi ${input.activeProvider}: ${error.message}`,
+    ),
+    Promise.all(cmds.map(async (cmd) => deps.which(cmd))),
+  ])
+  lines.push(connection)
   for (const m of input.mcp) lines.push(m.status === 'error' ? `✗ MCP ${m.name}: ${m.error ?? ''}` : `✓ MCP ${m.name} (${m.status})`)
-  for (const cmd of ['rg', 'git', 'npx', 'uvx']) lines.push(`${deps.which(cmd) ? '✓' : '✗'} ${cmd}`)
+  for (const [i, cmd] of cmds.entries()) lines.push(`${found[i] ? '✓' : '✗'} ${cmd}`)
   return lines.join('\n')
 }

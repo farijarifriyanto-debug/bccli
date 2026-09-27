@@ -1,13 +1,16 @@
 import { execFile } from 'node:child_process'
 
-function git(cwd: string, args: string[]): Promise<{ ok: boolean; out: string }> {
+function git(cwd: string, args: string[], bin = 'git'): Promise<{ ok: boolean; out: string; missing?: boolean }> {
   return new Promise((resolve) => {
-    execFile('git', args, { cwd, maxBuffer: 20 * 1024 * 1024 }, (error, stdout, stderr) => resolve({ ok: !error, out: error ? stderr : stdout }))
+    execFile(bin, args, { cwd, maxBuffer: 20 * 1024 * 1024 }, (error, stdout, stderr) =>
+      resolve({ ok: !error, out: error ? stderr : stdout, missing: (error as NodeJS.ErrnoException | null)?.code === 'ENOENT' }),
+    )
   })
 }
 
-export async function gitDiff(cwd: string, maxLines = 400): Promise<string> {
-  const inside = await git(cwd, ['rev-parse', '--is-inside-work-tree'])
+export async function gitDiff(cwd: string, maxLines = 400, bin = 'git'): Promise<string> {
+  const inside = await git(cwd, ['rev-parse', '--is-inside-work-tree'], bin)
+  if (inside.missing) return 'git tidak terpasang atau tidak ada di PATH, jadi /diff tidak bisa dipakai.'
   if (!inside.ok || inside.out.trim() !== 'true') return 'Folder ini bukan repository git, jadi tidak ada diff.'
   // Against HEAD so staged changes show too; before the first commit, against the empty tree.
   const base = (await git(cwd, ['rev-parse', '--verify', '-q', 'HEAD'])).ok ? 'HEAD' : '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
