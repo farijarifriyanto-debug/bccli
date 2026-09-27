@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { render } from 'ink-testing-library'
@@ -243,4 +243,105 @@ test('answering [s] turns the status bar to allow all', async () => {
   stdin.write('s')
   await waitFor(() => frames.some((f) => f.includes('selesai')))
   expect(lastFrame()).toContain('⏵⏵ allow all')
+})
+
+async function slash(stdin: { write(s: string): void }, cmd: string) {
+  stdin.write(cmd)
+  await wait()
+  stdin.write('\r')
+}
+
+test('/new, /session and /resume move between sessions', async () => {
+  const rt = makeRuntime([
+    { text: 'jawab satu', toolCalls: [] },
+    { text: 'jawab dua', toolCalls: [] },
+  ])
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('pertanyaan satu')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('jawab satu')))
+  const first = rt.session.file
+  await slash(stdin, '/new ')
+  await waitFor(() => rt.session.file !== first)
+  expect(rt.agent.messages).toEqual([])
+  await slash(stdin, '/session ')
+  await waitFor(() => frames.some((f) => f.includes('0 pesan')))
+  expect(frames.join('\n')).toContain('0 pesan')
+  await slash(stdin, '/resume ')
+  await waitFor(() => frames.some((f) => f.includes('pertanyaan satu') && f.includes('Lanjutkan sesi')))
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => rt.session.file === first)
+  expect(rt.agent.messages.map((m) => m.content)).toEqual(['pertanyaan satu', 'jawab satu'])
+  expect(frames.join('\n')).toContain('Melanjutkan sesi (2 pesan)')
+})
+
+test('/resume with no other sessions says so', async () => {
+  const rt = makeRuntime([])
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  await slash(stdin, '/resume ')
+  await waitFor(() => frames.some((f) => f.includes('Belum ada sesi lain')))
+  expect(frames.join('\n')).toContain('Belum ada sesi lain')
+})
+
+test('/undo reverts the last turn file edits', async () => {
+  const rt = makeRuntime([
+    { text: '', toolCalls: [{ id: '1', name: 'read', arguments: '{"path":"a.txt"}' }] },
+    { text: '', toolCalls: [{ id: '2', name: 'edit', arguments: '{"path":"a.txt","old_string":"old","new_string":"new"}' }] },
+    { text: 'diganti', toolCalls: [] },
+  ])
+  rt.agent.permissions.mode = 'acceptEdits'
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('ganti')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('diganti')))
+  expect(readFileSync(join(rt.cwd, 'a.txt'), 'utf8')).toBe('new\n')
+  await slash(stdin, '/undo')
+  await waitFor(() => frames.some((f) => f.includes('Dikembalikan: a.txt')))
+  expect(readFileSync(join(rt.cwd, 'a.txt'), 'utf8')).toBe('old\n')
+  await slash(stdin, '/undo')
+  await waitFor(() => frames.some((f) => f.includes('Tidak ada edit file')))
+  expect(frames.join('\n')).toContain('Tidak ada edit file')
+})
+
+test('/permissions lists rules and revokes a session rule', async () => {
+  const rt = makeRuntime([])
+  rt.agent.permissions.allowForSession({ tool: 'bash', kind: 'bash', target: 'git status' })
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  await slash(stdin, '/permissions')
+  await waitFor(() => frames.some((f) => f.includes('bash(git status)')))
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => rt.agent.permissions.list().length === 0)
+  expect(rt.agent.permissions.list()).toEqual([])
+  expect(frames.join('\n')).toContain('Izin bash(git status) dicabut.')
+})
+
+test('/memory adds to AGENTS.md; /copy saves the last answer; /status, /diff and /logout answer', async () => {
+  const rt = makeRuntime([{ text: 'jawaban terakhir', toolCalls: [] }])
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  await slash(stdin, '/memory pakai pnpm')
+  await waitFor(() => existsSync(join(rt.cwd, 'AGENTS.md')))
+  expect(readFileSync(join(rt.cwd, 'AGENTS.md'), 'utf8')).toBe('- pakai pnpm\n')
+  stdin.write('halo')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('jawaban terakhir')))
+  await slash(stdin, '/copy')
+  await waitFor(() => existsSync(join(rt.home, 'last-answer.md')))
+  expect(readFileSync(join(rt.home, 'last-answer.md'), 'utf8')).toBe('jawaban terakhir')
+  await slash(stdin, '/status')
+  await waitFor(() => frames.some((f) => f.includes('Mode izin: default')))
+  await slash(stdin, '/diff')
+  await waitFor(() => frames.some((f) => f.includes('bukan repository git')))
+  await slash(stdin, '/logout')
+  await waitFor(() => frames.some((f) => f.includes('BOTCONNECTOR_API_KEY masih ada di environment')))
+  expect(frames.join('\n')).toContain('BOTCONNECTOR_API_KEY masih ada di environment')
 })

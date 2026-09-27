@@ -1,9 +1,20 @@
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { dirname, join, relative, resolve } from 'node:path'
 import { Box, Static, Text, useApp, useInput } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentEvent, PermissionAnswer, PermissionAsk } from '../agent'
-import { readFileSync } from 'node:fs'
+import { BUILTIN_AGENTS } from '../agents'
 import { expandCommand, parseSlash, SLASH_COMMANDS } from '../commands'
+import { removeCredential } from '../config'
+import { Session } from '../session'
+import { osc52 } from '../slash/copy'
+import { gitDiff } from '../slash/diff'
+import { doctorText } from '../slash/doctor'
+import { exportMarkdown } from '../slash/export'
+import { agentsText, sessionText, skillsText, statusText } from '../slash/info'
+import { appendMemory, instructionFiles } from '../slash/memory'
 import { parseFrontmatter } from '../extensions'
 import type { PermissionMode } from '../config'
 import { nextMode } from '../permissions'
@@ -14,6 +25,7 @@ import type { ModelGroup } from '../models'
 import { PRESETS } from '../presets'
 import { hasKey, providerName, writeGlobalConfig } from '../providers'
 import { LinePrompt } from './LinePrompt'
+import { type ListItem, ListPicker } from './ListPicker'
 import { ModelPicker } from './ModelPicker'
 import { type ProviderEntry, ProviderMenu } from './ProviderMenu'
 import { PermissionPrompt } from './PermissionPrompt'
@@ -33,7 +45,7 @@ import { applyEvent, type Entry, endTurn, entry, type Transcript } from './trans
 function helpText(runtime: Runtime): string {
   const custom = runtime.commands.filter((c) => !SLASH_COMMANDS.some((b) => b.name === c.name))
   return [
-    ...SLASH_COMMANDS.map((c) => `/${c.name.padEnd(8)} ${c.description}`),
+    ...SLASH_COMMANDS.map((c) => `/${c.name.padEnd(12)} ${c.description}`),
     ...(custom.length ? ['', 'Perintah custom:', ...custom.map((c) => `/${c.name.padEnd(8)} ${c.description ?? ''}`)] : []),
     ...(runtime.skills.length ? ['', 'Skill:', ...runtime.skills.map((s) => `/${s.name.padEnd(8)} ${s.description.slice(0, 60)}`)] : []),
     '',
@@ -42,6 +54,9 @@ function helpText(runtime: Runtime): string {
     '@file + tab  lengkapi nama file    ↑↓  riwayat input',
   ].join('\n')
 }
+
+const INIT_PROMPT =
+  'Pelajari project ini (struktur folder, file package/build, perintah test dan lint, konvensi kode yang terlihat). Lalu buat AGENTS.md di root project, atau perbarui bila sudah ada, berisi: cara build, test, dan lint; struktur singkat; konvensi penting. Ringkas dan faktual, hanya yang benar-benar ada di project.'
 
 const labelFor = (runtime: Runtime, ref: string) => `${ref.slice(ref.indexOf('/') + 1)} · ${runtime.providerLabel()}`
 
@@ -65,6 +80,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const controller = useRef<AbortController | null>(null)
   const [todos, setTodos] = useState(runtime.todos.items)
   const [mcpMenu, setMcpMenu] = useState<McpMenuItem[] | null>(null)
+  const [listPicker, setListPicker] = useState<{ title: string; items: ListItem[]; onPick(id?: string): void } | null>(null)
   const [planAsk, setPlanAsk] = useState<{ plan: string; resolve(d: PlanDecision): void } | null>(null)
   useEffect(() => runtime.todos.subscribe(setTodos), [runtime])
   const extraCommands = [
@@ -179,6 +195,214 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           setMcpMenu(items)
           return
         }
+        case 'new':
+          runtime.newSession()
+          setTokens(0)
+          notice('Sesi baru dimulai. Sesi sebelumnya tetap tersimpan (/resume).')
+          return
+        case 'session':
+          notice(
+            sessionText({
+              file: runtime.session.file,
+              started: runtime.startedAt,
+              messages: runtime.agent.messages.length,
+              usage: runtime.agent.totalUsage,
+              modelRef: runtime.modelRef,
+            }),
+          )
+          return
+        case 'resume': {
+          const others = Session.list(runtime.home, runtime.cwd).filter((s) => s.session.file !== runtime.session.file)
+          if (!others.length) {
+            notice('Belum ada sesi lain di folder ini.')
+            return
+          }
+          setListPicker({
+            title: 'Lanjutkan sesi',
+            items: others.map((s) => ({
+              id: s.session.file,
+              label: `${s.mtime.toLocaleString('id-ID')}  ${s.preview || '(kosong)'}`,
+              hint: `${s.session.load().length} pesan`,
+            })),
+            onPick: (id) => {
+              setListPicker(null)
+              const chosen = others.find((s) => s.session.file === id)
+              if (!chosen) return
+              runtime.resume(chosen.session)
+              const tail = runtime.agent.messages.filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content).slice(-3)
+              notice(
+                [`Melanjutkan sesi (${runtime.agent.messages.length} pesan):`, ...tail.map((m) => `${m.role === 'user' ? '>' : '●'} ${String(m.content).slice(0, 200)}`)].join(
+                  '\n',
+                ),
+              )
+            },
+          })
+          return
+        }
+        case 'status':
+          notice(
+            statusText({
+              version,
+              modelRef: runtime.modelRef,
+              providerLabel: runtime.providerLabel(),
+              mode: runtime.agent.permissions.mode,
+              cwd: runtime.cwd,
+              mcp: runtime.mcp.states(),
+              usage: runtime.agent.totalUsage,
+              lastInputTokens: runtime.agent.lastInputTokens,
+            }),
+          )
+          return
+        case 'agents':
+          notice(agentsText([...BUILTIN_AGENTS, ...runtime.agentDefs]))
+          return
+        case 'skills':
+          notice(skillsText(runtime.skills, runtime.commands))
+          return
+        case 'doctor': {
+          notice('Memeriksa…')
+          const c = runtime.config
+          notice(
+            await doctorText(
+              {
+                providers: Object.keys(c.providers).map((id) => ({ id, name: providerName(c, id), ready: hasKey(c, id, runtime.env) })),
+                mcp: runtime.mcp.states(),
+                activeProvider: runtime.providerLabel(),
+              },
+              {
+                which: (cmd) => spawnSync(process.platform === 'win32' ? 'where' : 'which', [cmd]).status === 0,
+                nodeVersion: process.version,
+                listModels: () => runtime.agent.provider.listModels(),
+              },
+            ),
+          )
+          return
+        }
+        case 'permissions': {
+          const rules = runtime.agent.permissions.list()
+          if (!rules.length) {
+            notice('Belum ada izin tersimpan. Izin dari jawaban [a] dan dari config akan muncul di sini.')
+            return
+          }
+          setListPicker({
+            title: 'Izin aktif (enter: cabut izin sesi)',
+            items: rules.map((r) => ({ id: r.rule, label: r.rule, hint: r.source === 'config' ? 'config' : 'sesi ini' })),
+            onPick: (id) => {
+              setListPicker(null)
+              const rule = rules.find((r) => r.rule === id)
+              if (!rule) return
+              if (rule.source === 'config') notice(`${rule.rule} berasal dari config/flag; hapus dari ~/.bccli/config.json untuk mencabutnya.`, 'warn')
+              else {
+                runtime.agent.permissions.revoke(rule.rule)
+                notice(`Izin ${rule.rule} dicabut.`)
+              }
+            },
+          })
+          return
+        }
+        case 'memory': {
+          if (!args) {
+            const files = instructionFiles(runtime.cwd, runtime.home)
+            notice(files.length ? files.map((f) => `${f.path} (${f.lines} baris)`).join('\n') : 'Belum ada AGENTS.md / BCCLI.md. Tambah dengan /memory <teks>.')
+            return
+          }
+          const global = /^global\s/i.test(args)
+          const text = global ? args.replace(/^global\s+/i, '') : args
+          const file = global ? join(runtime.home, 'BCCLI.md') : join(runtime.cwd, 'AGENTS.md')
+          try {
+            mkdirSync(dirname(file), { recursive: true })
+            appendMemory(file, text)
+          } catch (error) {
+            notice(`Gagal menulis ${file}: ${(error as Error).message}`, 'error')
+            return
+          }
+          runtime.rebuildSystemPrompt()
+          notice(`Ditambahkan ke ${file}.`)
+          return
+        }
+        case 'init':
+          void runTurn(INIT_PROMPT)
+          return
+        case 'login': {
+          const id = runtime.modelRef.slice(0, runtime.modelRef.indexOf('/'))
+          const key = await ask(`API key untuk ${runtime.providerLabel()}`, true)
+          if (!key) return
+          const result = await runtime.addProviderKey(id, key)
+          if (!result.ok) {
+            notice(result.error, 'error')
+            return
+          }
+          runtime.setModel(runtime.modelRef) // pick up the new key
+          notice(`Key ${runtime.providerLabel()} tersimpan · ${result.models} model.`)
+          return
+        }
+        case 'logout': {
+          const id = runtime.modelRef.slice(0, runtime.modelRef.indexOf('/'))
+          removeCredential(id, runtime.env)
+          const envName = runtime.config.providers[id]?.apiKeyEnv
+          if (envName && runtime.env[envName]) {
+            notice(`Key tersimpan dihapus, tapi ${envName} masih ada di environment dan tetap dipakai.`, 'warn')
+            return
+          }
+          try {
+            runtime.setModel(runtime.modelRef)
+          } catch (error) {
+            // No key left: stop using the one still held in memory.
+            const fail = async (): Promise<never> => {
+              throw error
+            }
+            runtime.agent.provider = { chat: fail, listModels: fail }
+          }
+          notice(`Key ${runtime.providerLabel()} dihapus. Pakai /login atau /provider untuk menambah lagi.`)
+          return
+        }
+        case 'diff':
+          notice(await gitDiff(runtime.cwd))
+          return
+        case 'undo': {
+          const result = await runtime.checkpoints.undo()
+          if (!result) {
+            notice('Tidak ada edit file yang bisa dibatalkan.')
+            return
+          }
+          const rel = (p: string) => relative(runtime.cwd, p) || p
+          notice(
+            [
+              result.restored.length ? `Dikembalikan: ${result.restored.map(rel).join(', ')}` : '',
+              result.deleted.length ? `Dihapus (file baru): ${result.deleted.map(rel).join(', ')}` : '',
+              result.skipped.length ? `Terlalu besar untuk disimpan, tidak diubah: ${result.skipped.map(rel).join(', ')}` : '',
+              'Catatan: perubahan lewat perintah bash tidak bisa di-undo.',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          )
+          return
+        }
+        case 'copy': {
+          const last = runtime.agent.messages.findLast((m) => m.role === 'assistant' && typeof m.content === 'string' && m.content.trim())
+          if (!last || typeof last.content !== 'string') {
+            notice('Belum ada jawaban untuk disalin.')
+            return
+          }
+          process.stdout.write(osc52(last.content, !!process.env.TMUX))
+          const file = join(runtime.home, 'last-answer.md')
+          mkdirSync(runtime.home, { recursive: true })
+          writeFileSync(file, last.content)
+          notice(`Disalin ke clipboard (bila terminal mendukung OSC 52) dan disimpan di ${file}.`)
+          return
+        }
+        case 'export': {
+          const name = args || `bccli-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.md`
+          const file = resolve(runtime.cwd, name)
+          try {
+            writeFileSync(file, exportMarkdown(runtime.agent.messages, `Sesi BCCLI ${runtime.startedAt.toLocaleString('id-ID')}`))
+          } catch (error) {
+            notice(`Gagal menulis ${file}: ${(error as Error).message}`, 'error')
+            return
+          }
+          notice(`Percakapan disimpan di ${file}.`)
+          return
+        }
         case 'provider': {
           const c = runtime.config
           setProviderMenu(
@@ -190,7 +414,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           notice(`Perintah tidak dikenal: /${name}. Ketik /help.`, 'warn')
       }
     },
-    [runtime, notice, exit],
+    [runtime, notice, exit, version, runTurn],
   )
 
   const submit = useCallback(
@@ -366,6 +590,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           }}
         />
       ) : null}
+      {listPicker ? <ListPicker title={listPicker.title} items={listPicker.items} onPick={listPicker.onPick} /> : null}
       {mcpMenu ? <McpMenu items={mcpMenu} onPick={(n) => void pickMcp(n)} /> : null}
       {providerMenu ? <ProviderMenu entries={providerMenu} onPick={(id) => void pickProvider(id)} /> : null}
       {prompt ? (
@@ -393,7 +618,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         />
       ) : null}
       <TodoList items={todos} />
-      <PromptInput disabled={busy || !!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu} history={history} cwd={runtime.cwd} onSubmit={submit} extraCommands={extraCommands} />
+      <PromptInput disabled={busy || !!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu || !!listPicker} history={history} cwd={runtime.cwd} onSubmit={submit} extraCommands={extraCommands} />
       <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} />
     </Box>
   )
