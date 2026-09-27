@@ -42,3 +42,10 @@ test('parallel tools: a finished tool waits in live until earlier ones finish', 
   expect(t.live).toEqual([])
   expect(t.done.map((e) => (e.kind === 'tool' ? e.callId : ''))).toEqual(['a', 'b'])
 })
+
+test('subagent tool calls nest under their task entry', () => {
+  let t = applyEvent(empty, { type: 'toolStart', id: 't1', tool: 'task', target: '[explore] cari' })
+  t = applyEvent(t, { type: 'subagent', parentId: 't1', agent: 'explore', event: { type: 'toolStart', id: 'g', tool: 'grep', target: 'login' } })
+  t = applyEvent(t, { type: 'subagent', parentId: 't1', agent: 'explore', event: { type: 'toolEnd', id: 'g', tool: 'grep', output: 'x', isError: false } })
+  expect(t.live[0]).toMatchObject({ kind: 'tool', sub: [{ tool: 'grep', target: 'login', done: true }] })
+})
