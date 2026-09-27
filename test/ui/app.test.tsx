@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { render } from 'ink-testing-library'
@@ -30,7 +30,7 @@ function scripted(steps: Completion[]): Provider {
 function makeRuntime(steps: Completion[]) {
   const cwd = mkdtempSync(join(tmpdir(), 'bccli-app-'))
   writeFileSync(join(cwd, 'a.txt'), 'old\n')
-  const env = { BCCLI_HOME: mkdtempSync(join(tmpdir(), 'bccli-apph-')), BOTCONNECTOR_API_KEY: 'k' }
+  const env = { BCCLI_HOME: mkdtempSync(join(tmpdir(), 'bccli-apph-')), BOTCONNECTOR_API_KEY: 'k', OPENROUTER_API_KEY: 'k' }
   return createRuntime({ cwd, args: parseCliArgs([]), env, provider: scripted(steps) })
 }
 
@@ -119,4 +119,25 @@ test('Esc cancels a running /compact', async () => {
   stdin.write('\u001B')
   await waitFor(() => frames.some((f) => f.includes('Gagal meringkas')))
   expect(frames.join('\n')).toContain('Gagal meringkas')
+})
+
+test('/model lists every provider and persists the choice as default', async () => {
+  const rt = makeRuntime([])
+  rt.listModels = async () => [
+    { providerId: 'bc-cloud', providerName: 'BotConnector Cloud', models: ['glm-5.3-flash'] },
+    { providerId: 'openrouter', providerName: 'OpenRouter', models: ['qwen/qwen3-coder'] },
+  ]
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('/model')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('OpenRouter')))
+  await wait()
+  stdin.write('qwen')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => rt.modelRef === 'openrouter/qwen/qwen3-coder')
+  expect(rt.modelRef).toBe('openrouter/qwen/qwen3-coder')
+  expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).model).toBe('openrouter/qwen/qwen3-coder')
 })
