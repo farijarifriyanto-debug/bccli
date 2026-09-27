@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFile } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { Box, Static, Text, useApp, useInput } from 'ink'
@@ -14,7 +14,7 @@ import { gitDiff } from '../slash/diff'
 import { doctorText } from '../slash/doctor'
 import { exportMarkdown } from '../slash/export'
 import { agentsText, sessionText, skillsText, statusText } from '../slash/info'
-import { appendMemory, instructionFiles } from '../slash/memory'
+import { appendMemory, instructionFiles, parseMemoryArgs } from '../slash/memory'
 import { parseFrontmatter } from '../extensions'
 import type { PermissionMode } from '../config'
 import { nextMode } from '../permissions'
@@ -229,6 +229,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
               const chosen = others.find((s) => s.session.file === id)
               if (!chosen) return
               runtime.resume(chosen.session)
+              setTokens(0)
               const tail = runtime.agent.messages.filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content).slice(-3)
               notice(
                 [`Melanjutkan sesi (${runtime.agent.messages.length} pesan):`, ...tail.map((m) => `${m.role === 'user' ? '>' : '●'} ${String(m.content).slice(0, 200)}`)].join(
@@ -270,7 +271,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
                 activeProvider: runtime.providerLabel(),
               },
               {
-                which: (cmd) => spawnSync(process.platform === 'win32' ? 'where' : 'which', [cmd]).status === 0,
+                which: (cmd) => new Promise((done) => execFile(process.platform === 'win32' ? 'where' : 'which', [cmd], (error) => done(!error))),
                 nodeVersion: process.version,
                 listModels: () => runtime.agent.provider.listModels(),
               },
@@ -306,8 +307,11 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
             notice(files.length ? files.map((f) => `${f.path} (${f.lines} baris)`).join('\n') : 'Belum ada AGENTS.md / BCCLI.md. Tambah dengan /memory <teks>.')
             return
           }
-          const global = /^global\s/i.test(args)
-          const text = global ? args.replace(/^global\s+/i, '') : args
+          const { global, text } = parseMemoryArgs(args)
+          if (!text) {
+            notice('Tulis teksnya: /memory global <teks>.', 'warn')
+            return
+          }
           const file = global ? join(runtime.home, 'BCCLI.md') : join(runtime.cwd, 'AGENTS.md')
           try {
             mkdirSync(dirname(file), { recursive: true })
@@ -333,15 +337,27 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
             return
           }
           runtime.setModel(runtime.modelRef) // pick up the new key
+          const envName = runtime.config.providers[id]?.apiKeyEnv
+          if (envName && runtime.env[envName]) {
+            notice(`Key ${runtime.providerLabel()} tersimpan, tapi ${envName} di environment lebih diutamakan dan tetap dipakai.`, 'warn')
+            return
+          }
           notice(`Key ${runtime.providerLabel()} tersimpan · ${result.models} model.`)
           return
         }
         case 'logout': {
           const id = runtime.modelRef.slice(0, runtime.modelRef.indexOf('/'))
-          removeCredential(id, runtime.env)
+          const removed = removeCredential(id, runtime.env)
           const envName = runtime.config.providers[id]?.apiKeyEnv
           if (envName && runtime.env[envName]) {
-            notice(`Key tersimpan dihapus, tapi ${envName} masih ada di environment dan tetap dipakai.`, 'warn')
+            notice(
+              `${removed ? 'Key tersimpan dihapus, tapi' : 'Tidak ada key tersimpan;'} ${envName} masih ada di environment dan tetap dipakai.`,
+              'warn',
+            )
+            return
+          }
+          if (!removed) {
+            notice(`Tidak ada key tersimpan untuk ${runtime.providerLabel()}.`)
             return
           }
           try {
@@ -395,6 +411,13 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'export': {
           const name = args || `bccli-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.md`
           const file = resolve(runtime.cwd, name)
+          if (existsSync(file)) {
+            const answer = await ask(`${file} sudah ada. Timpa? (y/N)`)
+            if (!answer || !/^y(a|es)?$/i.test(answer.trim())) {
+              notice('Ekspor dibatalkan.')
+              return
+            }
+          }
           try {
             writeFileSync(file, exportMarkdown(runtime.agent.messages, `Sesi BCCLI ${runtime.startedAt.toLocaleString('id-ID')}`))
           } catch (error) {

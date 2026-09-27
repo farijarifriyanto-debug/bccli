@@ -161,6 +161,9 @@ export function createRuntime(opts: {
     resume(previous: Session) {
       session = previous
       agent.load(previous.load())
+      // Token counts and todos belonged to the conversation being left.
+      agent.totalUsage = { inputTokens: 0, outputTokens: 0 }
+      todos.set([])
       checkpoints.clear()
     },
     newSession() {

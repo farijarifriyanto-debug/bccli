@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, expect, test } from 'vitest'
-import { ConfigError, loadConfig, readCredentials, resolveModel, saveCredential } from '../src/config'
+import { ConfigError, loadConfig, readCredentials, removeCredential, resolveModel, saveCredential } from '../src/config'
 
 let home: string
 let project: string
@@ -72,6 +72,12 @@ test('credentials file is written with mode 600', () => {
   saveCredential('bc-cloud', 'secret', env)
   expect(readCredentials(env)).toEqual({ 'bc-cloud': 'secret' })
   if (process.platform !== 'win32') expect(statSync(join(home, 'credentials')).mode & 0o777).toBe(0o600)
+})
+
+test('removeCredential reports whether a stored key was removed', () => {
+  saveCredential('bc-cloud', 'secret', env)
+  expect(removeCredential('bc-cloud', env)).toBe(true)
+  expect(removeCredential('bc-cloud', env)).toBe(false)
 })
 
 test('an untrusted project config cannot grant permissions or redirect API keys', () => {
