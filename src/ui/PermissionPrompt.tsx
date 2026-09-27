@@ -16,6 +16,7 @@ export function PermissionPrompt({
     const k = input.toLowerCase()
     if (k === 'y') onAnswer('yes')
     else if (k === 'a' && request.sessionRules?.length) onAnswer('session')
+    else if (k === 's') onAnswer('all')
     else if (k === 'n' || key.escape) onAnswer('no')
   })
   // Show exactly what [a] grants; no [a] when the request can never be auto-allowed.
@@ -33,6 +34,7 @@ export function PermissionPrompt({
         <Text color={color('green')}>[y] ya</Text>
         {'   '}
         {sessionLabel ? <Text color={color('cyan')}>{`[a] ${sessionLabel}   `}</Text> : null}
+        <Text color={color('yellow')}>{'[s] ya semua   '}</Text>
         <Text color={color('red')}>[n] tidak</Text>
       </Text>
     </Box>

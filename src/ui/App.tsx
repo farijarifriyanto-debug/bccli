@@ -299,6 +299,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const answer = (a: PermissionAnswer) => {
     pending?.resolve(a)
     setAsks((q) => q.slice(1))
+    if (a === 'all') setMode('allowAll')
   }
 
   const cwd = runtime.cwd.startsWith(homedir()) ? `~${runtime.cwd.slice(homedir().length)}` : runtime.cwd

@@ -222,3 +222,19 @@ test('a tool list change during a turn applies from the next turn', async () => 
   await agent.run('lagi', new AbortController().signal)
   expect(provider.requests[2].tools?.map((t) => t.function.name)).not.toContain('read')
 })
+
+test('"all" switches to allowAll so later tools run without asking', async () => {
+  const { agent } = setup([
+    { text: '', toolCalls: [call('write', { path: 'a.txt', content: '1' }, 'w1')] },
+    { text: '', toolCalls: [call('bash', { command: 'node -e "1"' }, 'b1')] },
+    reply('ok'),
+  ])
+  let asks = 0
+  agent.askPermission = async () => {
+    asks++
+    return 'all'
+  }
+  await agent.run('x', new AbortController().signal)
+  expect(asks).toBe(1)
+  expect(agent.permissions.mode).toBe('allowAll')
+})
