@@ -94,3 +94,30 @@ test('an error event inside the stream becomes a ProviderError', async () => {
   const f = vi.fn(async () => sse([chunk({ content: 'x' }), { error: { message: 'upstream exploded' } }]))
   await expect(createProvider({ baseURL: 'http://x', model: 'm', fetch: f }).chat({ messages: [] })).rejects.toThrow(/upstream exploded/)
 })
+
+test('detectRepetition flags a degenerate loop but not normal long text', async () => {
+  const { detectRepetition } = await import('../src/provider')
+  const loop = `Saya BCCLI. Saya membantu_tf${'读取'.repeat(200)}`
+  expect(detectRepetition(loop)).toBe('Saya BCCLI. Saya membantu_tf'.length)
+  expect(detectRepetition(`judul\n${'='.repeat(80)}\nisi`)).toBe(-1)
+  expect(detectRepetition('| a | b |\n|---|---|\n'.repeat(10))).toBe(-1)
+  expect(detectRepetition(' '.repeat(500))).toBe(-1)
+  expect(detectRepetition('normal text '.repeat(5))).toBe(-1)
+})
+
+test('a stream stuck repeating is cut off early with finishReason "repetition"', async () => {
+  let sent = 0
+  const endless = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const piece = sent === 0 ? 'Halo, saya ' : '读取'
+      sent++
+      controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: { content: piece } }] })}\n\n`))
+      await new Promise((r) => setTimeout(r, 0))
+    },
+  })
+  const f = vi.fn(async () => new Response(endless, { headers: { 'content-type': 'text/event-stream' } }))
+  const c = await createProvider({ baseURL: 'http://x', model: 'm', fetch: f }).chat({ messages: [] })
+  expect(c.finishReason).toBe('repetition')
+  expect(c.text).toBe('Halo, saya ')
+  expect(sent).toBeLessThan(1000)
+})
