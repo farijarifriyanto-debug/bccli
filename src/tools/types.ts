@@ -1,4 +1,6 @@
 import type { z } from 'zod'
+import type { AgentEvent, AskPermission } from '../agent'
+import type { Usage } from '../provider'
 
 export type PermissionKind = 'read' | 'edit' | 'bash' | 'fetch'
 
@@ -7,6 +9,10 @@ export interface ToolContext {
   signal: AbortSignal
   /** Absolute paths read in this session; edit/write of existing files require membership. */
   readFiles: Set<string>
+  callId?: string
+  emit?: (event: AgentEvent) => void
+  ask?: AskPermission
+  addUsage?: (usage: Usage) => void
 }
 
 export interface ToolResult {
@@ -26,6 +32,8 @@ export interface Tool<S extends z.ZodType = z.ZodType> {
   preview?(input: z.infer<S>, ctx: ToolContext): Promise<string | undefined>
   /** Cheap pre-check run before asking permission; returns an error message when the call cannot succeed. */
   validate?(input: z.infer<S>, ctx: ToolContext): Promise<string | undefined>
+  /** Consecutive calls whose tool returns true here run concurrently. */
+  parallelSafe?(input: z.infer<S>): boolean
   run(input: z.infer<S>, ctx: ToolContext): Promise<ToolResult>
 }
 

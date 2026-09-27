@@ -32,3 +32,13 @@ test('the live region stays small over a long turn', () => {
   expect(t.live.length).toBe(0)
   expect(t.done.length).toBe(80)
 })
+
+test('parallel tools: a finished tool waits in live until earlier ones finish', () => {
+  let t = applyEvent(empty, { type: 'toolStart', id: 'a', tool: 'task', target: 'x' })
+  t = applyEvent(t, { type: 'toolStart', id: 'b', tool: 'task', target: 'y' })
+  t = applyEvent(t, { type: 'toolEnd', id: 'b', tool: 'task', output: 'ok', isError: false })
+  expect(t.live.map((e) => (e.kind === 'tool' ? e.callId : ''))).toEqual(['a', 'b'])
+  t = applyEvent(t, { type: 'toolEnd', id: 'a', tool: 'task', output: 'ok', isError: false })
+  expect(t.live).toEqual([])
+  expect(t.done.map((e) => (e.kind === 'tool' ? e.callId : ''))).toEqual(['a', 'b'])
+})
