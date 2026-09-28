@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util'
 import { ConfigError, type PermissionMode } from './config'
 import { MODE_ORDER } from './permissions'
+import { isReasoningLevel, type ReasoningLevel, REASONING_LEVELS } from './reasoning'
 
 export interface CliArgs {
   command: 'run' | 'login' | 'models' | 'provider' | 'mcp'
@@ -12,6 +13,7 @@ export interface CliArgs {
   prompt?: string
   print: boolean
   model?: string
+  reasoning?: ReasoningLevel
   continue: boolean
   resume: boolean
   allowAll: boolean
@@ -34,6 +36,7 @@ Pemakaian:
 
 Opsi:
   -m, --model <provider/model>  pilih model, contoh bc-cloud/glm-5.3-flash
+      --reasoning <level>        auto | off | low | medium | high | max
   -c, --continue                lanjutkan sesi terakhir di folder ini
   -r, --resume                  pilih sesi untuk dilanjutkan
       --allow-all               jalankan semua alat tanpa minta izin
@@ -49,6 +52,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     options: {
       print: { type: 'boolean', short: 'p' },
       model: { type: 'string', short: 'm' },
+      reasoning: { type: 'string' },
       continue: { type: 'boolean', short: 'c' },
       resume: { type: 'boolean', short: 'r' },
       'allow-all': { type: 'boolean' },
@@ -62,6 +66,10 @@ export function parseCliArgs(argv: string[]): CliArgs {
       value: { type: 'string', multiple: true },
     },
   })
+  const reasoning = values.reasoning
+  if (reasoning && !isReasoningLevel(reasoning)) {
+    throw new ConfigError(`--reasoning harus salah satu dari: ${REASONING_LEVELS.join(', ')}`)
+  }
   const mode = values['permission-mode']
   if (mode && !MODE_ORDER.includes(mode as PermissionMode)) {
     throw new ConfigError(`--permission-mode harus salah satu dari: ${MODE_ORDER.join(', ')}`)
@@ -75,6 +83,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     prompt: command === 'run' && words.length ? words.join(' ') : undefined,
     print: !!values.print,
     model: values.model,
+    reasoning: reasoning as ReasoningLevel | undefined,
     continue: !!values.continue,
     resume: !!values.resume,
     allowAll: !!values['allow-all'],

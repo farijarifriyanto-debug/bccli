@@ -477,3 +477,51 @@ test('thinking is folded to one line; ctrl+t opens and closes it', async () => {
   expect(lastFrame()).toContain('Thinking disembunyikan')
   expect(rt.agent.messages.at(-1)).toEqual({ role: 'assistant', content: 'Jawabannya 391.' })
 })
+
+
+test('/reasoning direct command persists preference and status bar reflects it', async () => {
+  const rt = makeRuntime([])
+  const { stdin, frames, lastFrame } = render(<App runtime={rt} version="test" />)
+  await wait()
+  await slash(stdin, '/reasoning high')
+  await waitFor(() => rt.reasoning === 'high')
+  expect(rt.reasoning).toBe('high')
+  expect(rt.agent.reasoning).toBe('high')
+  expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).reasoning).toBe('high')
+  expect(lastFrame()).toContain('reasoning: high')
+  expect(frames.join('\n')).toContain('Reasoning: high')
+})
+
+test('/reasoning picker uses ListPicker and rejects unsupported levels for the active provider', async () => {
+  const rt = makeRuntime([])
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  await slash(stdin, '/reasoning')
+  await waitFor(() => frames.some((f) => f.includes('Auto (model default)') && f.includes('Max')))
+  const all = frames.join('\n')
+  expect(all).toContain('Reasoning')
+  expect(all).toContain('Auto (model default)')
+  expect(all).toContain('Off')
+  expect(all).toContain('Low')
+  expect(all).toContain('Medium')
+  expect(all).toContain('High')
+  expect(all).toContain('Max')
+})
+
+
+test('new/resume keep model and reasoning preference unchanged', () => {
+  const rt = makeRuntime([])
+  rt.setReasoning('high')
+  const model = rt.modelRef
+  const first = rt.session
+  first.append({ role: 'user', content: 'saved' })
+  rt.newSession()
+  expect(rt.reasoning).toBe('high')
+  expect(rt.agent.reasoning).toBe('high')
+  expect(rt.modelRef).toBe(model)
+  rt.resume(first)
+  expect(rt.reasoning).toBe('high')
+  expect(rt.agent.reasoning).toBe('high')
+  expect(rt.modelRef).toBe(model)
+  expect(rt.agent.messages).toContainEqual({ role: 'user', content: 'saved' })
+})

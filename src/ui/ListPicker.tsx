@@ -6,6 +6,7 @@ export interface ListItem {
   id: string
   label: string
   hint?: string
+  disabled?: boolean
 }
 
 const VISIBLE = 12
@@ -18,7 +19,7 @@ export function ListPicker({ title, items, onPick }: { title: string; items: Lis
   useInput((input, key) => {
     if (key.upArrow) setIndex(Math.max(0, cursor - 1))
     else if (key.downArrow) setIndex(Math.min(shown.length - 1, cursor + 1))
-    else if (key.return) onPick(shown[cursor]?.id)
+    else if (key.return && !shown[cursor]?.disabled) onPick(shown[cursor]?.id)
     else if (key.escape) onPick(undefined)
     else if (key.backspace || key.delete) {
       setFilter((f) => f.slice(0, -1))
@@ -33,7 +34,7 @@ export function ListPicker({ title, items, onPick }: { title: string; items: Lis
     <Box flexDirection="column" borderStyle="round" borderColor={color('cyan')} paddingX={1}>
       <Text bold>{`${title} (↑↓ enter · ketik untuk menyaring${filter ? `: ${filter}` : ''} · esc batal)`}</Text>
       {shown.slice(start, start + VISIBLE).map((item, i) => (
-        <Text key={item.id} color={start + i === cursor ? color('green') : undefined}>
+        <Text key={item.id} color={start + i === cursor && !item.disabled ? color('green') : undefined} dimColor={item.disabled}>
           {`${start + i === cursor ? '›' : ' '} ${item.label}`}
           {item.hint ? <Text dimColor>{`   ${item.hint}`}</Text> : null}
         </Text>

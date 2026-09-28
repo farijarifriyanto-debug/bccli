@@ -3,6 +3,7 @@ import type { CommandDef } from './extensions'
 export const SLASH_COMMANDS = [
   { name: 'help', description: 'daftar perintah dan pintasan' },
   { name: 'model', description: 'ganti model' },
+  { name: 'reasoning', description: 'atur reasoning: auto/off/low/medium/high/max' },
   { name: 'provider', description: 'tambah/pilih provider AI' },
   { name: 'mcp', description: 'pasang/kelola server MCP' },
   { name: 'new', description: 'sesi baru (sesi lama tetap tersimpan)' },
