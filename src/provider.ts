@@ -226,6 +226,10 @@ async function readJson(res: Response): Promise<Completion> {
 export function createProvider({ baseURL, apiKey, model, providerId, fetch: doFetch = fetch, retryDelayMs = 1000 }: ProviderOptions): Provider {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (apiKey) headers.authorization = `Bearer ${apiKey}`
+  // ACCESS-CONTROL CONTRACT: BotConnector Cloud uses these headers to distinguish BCCLI
+  // from generic API clients. GPT-6 Luna Launch Access is intentionally limited to the
+  // official BotConnector Web App and BCCLI. Do not remove/rename these headers during
+  // provider refactors without coordinating the server-side Luna access guard and tests.
   if (/^https:\/\/api\.botconnector\.id\/v1\/?$/.test(baseURL) && apiKey?.startsWith('bc_live_')) {
     headers['x-botconnector-client'] = 'bccli'
     headers['x-botconnector-client-version'] = '0.4.0'

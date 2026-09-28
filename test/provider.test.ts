@@ -121,3 +121,32 @@ test('a stream stuck repeating is cut off early with finishReason "repetition"',
   expect(c.text).toBe('Halo, saya ')
   expect(sent).toBeLessThan(1000)
 })
+
+
+test('BotConnector BCCLI identity headers remain attached to official Cloud requests', async () => {
+  const f = vi.fn(async () => sse([]))
+  await createProvider({
+    baseURL: 'https://api.botconnector.id/v1',
+    apiKey: 'bc_live_test_key',
+    model: 'gpt-5.6-luna',
+    fetch: f,
+  }).chat({ messages: [] })
+  const [, init] = f.mock.calls[0] as unknown as [string, RequestInit]
+  const headers = init.headers as Record<string, string>
+  expect(headers['x-botconnector-client']).toBe('bccli')
+  expect(headers['x-botconnector-client-version']).toBe('0.4.0')
+})
+
+test('BCCLI identity headers are not leaked to custom/non-BotConnector providers', async () => {
+  const f = vi.fn(async () => sse([]))
+  await createProvider({
+    baseURL: 'https://example.com/v1',
+    apiKey: 'bc_live_test_key',
+    model: 'm',
+    fetch: f,
+  }).chat({ messages: [] })
+  const [, init] = f.mock.calls[0] as unknown as [string, RequestInit]
+  const headers = init.headers as Record<string, string>
+  expect(headers['x-botconnector-client']).toBeUndefined()
+  expect(headers['x-botconnector-client-version']).toBeUndefined()
+})
