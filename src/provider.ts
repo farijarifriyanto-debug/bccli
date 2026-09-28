@@ -1,4 +1,5 @@
 import { splitThinking, ThinkSplitter } from './thinking'
+import { reasoningPayload, type ReasoningLevel } from './reasoning'
 import type { ToolDefinition } from './tools/index'
 
 export interface ToolCall {
@@ -37,6 +38,7 @@ export interface ChatRequest {
   signal?: AbortSignal
   onText?: (delta: string) => void
   onThinking?: (delta: string) => void
+  reasoning?: ReasoningLevel
 }
 
 export interface Provider {
@@ -57,6 +59,7 @@ interface ProviderOptions {
   baseURL: string
   apiKey?: string
   model: string
+  providerId?: string
   fetch?: typeof fetch
   retryDelayMs?: number
 }
@@ -220,9 +223,13 @@ async function readJson(res: Response): Promise<Completion> {
   return { text: split.text, toolCalls, thinking: thinking || undefined, usage: toUsage(body.usage), finishReason: choice?.finish_reason }
 }
 
-export function createProvider({ baseURL, apiKey, model, fetch: doFetch = fetch, retryDelayMs = 1000 }: ProviderOptions): Provider {
+export function createProvider({ baseURL, apiKey, model, providerId, fetch: doFetch = fetch, retryDelayMs = 1000 }: ProviderOptions): Provider {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (apiKey) headers.authorization = `Bearer ${apiKey}`
+  // ACCESS-CONTROL CONTRACT: BotConnector Cloud uses these headers to distinguish BCCLI
+  // from generic API clients. GPT-6 Luna Launch Access is intentionally limited to the
+  // official BotConnector Web App and BCCLI. Do not remove/rename these headers during
+  // provider refactors without coordinating the server-side Luna access guard and tests.
   if (/^https:\/\/api\.botconnector\.id\/v1\/?$/.test(baseURL) && apiKey?.startsWith('bc_live_')) {
     headers['x-botconnector-client'] = 'bccli'
     headers['x-botconnector-client-version'] = '0.4.0'
@@ -249,10 +256,16 @@ export function createProvider({ baseURL, apiKey, model, fetch: doFetch = fetch,
   }
 
   return {
-    async chat({ messages, tools, signal, onText, onThinking }) {
+    async chat({ messages, tools, signal, onText, onThinking, reasoning = 'auto' }) {
+      let reasoningOverride: Record<string, unknown>
+      try {
+        reasoningOverride = reasoningPayload(providerId, reasoning)
+      } catch (error) {
+        throw new ProviderError((error as Error).message)
+      }
       const res = await post(
         '/chat/completions',
-        { model, messages, stream: true, stream_options: { include_usage: true }, ...(tools?.length ? { tools } : {}) },
+        { model, messages, stream: true, stream_options: { include_usage: true }, ...(tools?.length ? { tools } : {}), ...reasoningOverride },
         signal,
       )
       if ((res.headers.get('content-type') ?? '').includes('application/json')) return readJson(res)

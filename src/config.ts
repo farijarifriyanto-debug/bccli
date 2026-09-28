@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { PRESETS } from './presets'
+import type { ReasoningLevel } from './reasoning'
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'allowAll'
 
@@ -14,6 +15,7 @@ export interface ProviderConfig {
 export interface Config {
   model: string
   permissionMode: PermissionMode
+  reasoning: ReasoningLevel
   providers: Record<string, ProviderConfig>
   allow: string[]
   /** Provider ids that came from the (untrusted) project config. */
@@ -32,6 +34,7 @@ export class ConfigError extends Error {}
 const DEFAULT_CONFIG: Config = {
   model: 'bc-cloud/glm-5.3-flash',
   permissionMode: 'default',
+  reasoning: 'auto',
   providers: Object.fromEntries(PRESETS.map((p) => [p.id, { baseURL: p.baseURL, apiKeyEnv: p.apiKeyEnv }])),
   allow: [],
 }
@@ -70,6 +73,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
   return {
     model: project.model ?? global.model ?? DEFAULT_CONFIG.model,
     permissionMode: global.permissionMode ?? DEFAULT_CONFIG.permissionMode,
+    reasoning: global.reasoning ?? DEFAULT_CONFIG.reasoning,
     providers: { ...known, ...fromProject },
     projectProviders: Object.keys(fromProject),
     allow: [...(global.allow ?? [])],

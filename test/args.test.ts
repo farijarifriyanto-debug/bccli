@@ -16,6 +16,11 @@ test('subcommands', () => {
   expect(parseCliArgs(['models']).command).toBe('models')
 })
 
+test('parses reasoning and rejects invalid values', () => {
+  expect(parseCliArgs(['-p', 'fix', '--reasoning', 'high']).reasoning).toBe('high')
+  expect(() => parseCliArgs(['--reasoning', 'extreme'])).toThrow(/auto, off, low, medium, high, max/)
+})
+
 test('rejects unknown permission modes', () => {
   expect(() => parseCliArgs(['--permission-mode', 'yolo'])).toThrow(/default, acceptEdits, plan, allowAll/)
 })
