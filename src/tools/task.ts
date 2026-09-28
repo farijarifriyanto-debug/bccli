@@ -3,6 +3,7 @@ import { Agent, type AgentEvent } from '../agent'
 import type { AgentDef } from '../extensions'
 import type { Permissions } from '../permissions'
 import type { Provider } from '../provider'
+import type { ReasoningLevel } from '../reasoning'
 import { defineTool, type Tool } from './types'
 
 export interface TaskToolOptions {
@@ -13,6 +14,7 @@ export interface TaskToolOptions {
   providerFor: (modelRef: string) => Provider
   systemPrompt: string
   cwd: string
+  reasoning?: () => ReasoningLevel
 }
 
 export function createTaskTool(opts: TaskToolOptions): Tool {
@@ -58,6 +60,7 @@ export function createTaskTool(opts: TaskToolOptions): Tool {
         cwd: opts.cwd,
         maxSteps: def.maxSteps ?? 50,
         label: def.name,
+        reasoning: opts.reasoning?.() ?? 'auto',
         // Subagent edits belong to the parent's turn so /undo reverts them too.
         checkpoint: ctx.checkpoint,
       })

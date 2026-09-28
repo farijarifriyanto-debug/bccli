@@ -1,5 +1,6 @@
 import type { PermissionRequest, Permissions } from './permissions'
 import type { ChatMessage, Provider, ToolCall, Usage } from './provider'
+import type { ReasoningLevel } from './reasoning'
 import { type ToolDefinition, toolDefinitions } from './tools/index'
 import type { Tool, ToolContext } from './tools/types'
 import { recoverTextToolCalls } from './textToolCalls'
@@ -38,6 +39,7 @@ export interface AgentOptions {
   checkpoint?: (absPath: string) => Promise<void>
   /** Subagent name, shown on its permission prompts. */
   label?: string
+  reasoning?: ReasoningLevel
 }
 
 const estimateTokens = (text: string) => Math.ceil(text.length / 4)
@@ -52,6 +54,7 @@ export class Agent {
   totalUsage: Usage = { inputTokens: 0, outputTokens: 0 }
   lastInputTokens = 0
   onEvent: (event: AgentEvent) => void = () => {}
+  reasoning: ReasoningLevel
   askPermission: AskPermission = async () => 'no'
 
   tools: Tool[]
@@ -76,6 +79,7 @@ export class Agent {
     this.maxSteps = opts.maxSteps ?? 50
     this.contextWindow = opts.contextWindow ?? 128_000
     this.systemPrompt = opts.systemPrompt
+    this.reasoning = opts.reasoning ?? 'auto'
   }
 
   setSystemPrompt(text: string): void {
@@ -123,6 +127,7 @@ export class Agent {
       // Some gateways reject tool_calls in history when no tools are declared.
       tools: this.definitions,
       signal,
+      reasoning: this.reasoning,
     })
     this.clear()
     this.push({ role: 'user', content: `Ringkasan percakapan sebelumnya:\n${completion.text}` })
@@ -149,6 +154,7 @@ export class Agent {
           signal,
           onText: (delta) => this.onEvent({ type: 'text', delta }),
           onThinking: (delta) => this.onEvent({ type: 'thinking', delta }),
+          reasoning: this.reasoning,
         })
         if (!completion.toolCalls.length && completion.finishReason !== 'repetition') {
           const recovered = recoverTextToolCalls(completion.text, this.turnDefinitions)
