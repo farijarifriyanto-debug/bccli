@@ -17,6 +17,7 @@ cd project-kamu && bccli
 | `bccli -p "tugas"` | satu tugas tanpa interaksi (skrip/CI) |
 | `bccli -c` / `bccli -r` | lanjutkan sesi terakhir / pilih sesi |
 | `bccli -m provider/model` | pilih model |
+| `bccli --reasoning <auto|off|low|medium|high|max>` | pilih level reasoning untuk invocation ini |
 | `bccli models` | daftar model |
 
 Perintah di dalam sesi (ketik `/` untuk saran, ↑↓ pilih, Enter jalankan):
@@ -25,6 +26,7 @@ Perintah di dalam sesi (ketik `/` untuk saran, ↑↓ pilih, Enter jalankan):
 |---|---|
 | `/help` | daftar perintah dan pintasan |
 | `/model` | ganti model |
+| `/reasoning` | pilih Auto / Off / Low / Medium / High / Max |
 | `/provider` | tambah/pilih provider AI |
 | `/mcp` | pasang/kelola server MCP |
 | `/new` | sesi baru (sesi lama tetap tersimpan) |
@@ -76,7 +78,13 @@ Provider lain yang OpenAI-compatible: pilih **Custom…** di `/provider`, atau
 `/model` menampilkan model dari **semua** provider yang sudah punya key, dikelompokkan
 per provider; ketik untuk menyaring. Pilihan tersimpan sebagai default.
 
+Reasoning dapat dipilih lewat `bccli --reasoning <auto|off|low|medium|high|max>` atau `/reasoning`.
+**Auto** memakai default model/provider dan BCCLI tidak mengirim override reasoning apa pun. BCCLI tidak
+otomatis menurunkan atau menaikkan reasoning effort. Level manual diteruskan bila kontrak provider/model
+mendukungnya; level yang tidak didukung menghasilkan error yang jelas dan tidak di-downgrade diam-diam.
+
 `.bccli/config.json` di dalam project hanya boleh memilih `model` dan menambah provider baru tanpa API key —
+preference `reasoning` hanya dibaca dari config user `~/.bccli/config.json`, bukan dari repo yang di-clone —
 izin (`permissionMode`, `allow`) dan provider yang sudah ada hanya diatur dari `~/.bccli/config.json`,
 supaya repo yang kamu clone tidak bisa memberi dirinya izin penuh atau mencuri API key.
 

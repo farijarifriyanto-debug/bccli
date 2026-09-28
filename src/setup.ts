@@ -11,6 +11,7 @@ import { type AgentDef, type CommandDef, loadAgentDefs, loadCommands, loadSkills
 import { Permissions } from './permissions'
 import { listAllModels, type ModelGroup } from './models'
 import { type ChatMessage, createProvider, type Provider } from './provider'
+import type { ReasoningLevel } from './reasoning'
 import { addProviderKey } from './providerCli'
 import { providerName } from './providers'
 import { Session } from './session'
@@ -27,9 +28,11 @@ export interface Runtime {
   home: string
   config: Config
   modelRef: string
+  reasoning: ReasoningLevel
   agent: Agent
   session: Session
   setModel(ref: string): void
+  setReasoning(level: ReasoningLevel): void
   env: NodeJS.ProcessEnv
   skills: SkillDef[]
   commands: CommandDef[]
@@ -67,9 +70,10 @@ export function createRuntime(opts: {
   const home = bccliHome(env)
   let config = loadConfig(opts.cwd, env)
   let modelRef = opts.args.model ?? config.model
+  let reasoning: ReasoningLevel = opts.args.reasoning ?? config.reasoning
   const makeProvider = (ref: string) => {
     const resolved = resolveModel(config, ref, env)
-    return opts.provider ?? createProvider({ baseURL: resolved.baseURL, apiKey: resolved.apiKey, model: resolved.model })
+    return opts.provider ?? createProvider({ baseURL: resolved.baseURL, apiKey: resolved.apiKey, model: resolved.model, providerId: resolved.providerId })
   }
   const provider = makeProvider(modelRef)
   const mode = opts.args.allowAll ? 'allowAll' : (opts.args.permissionMode ?? config.permissionMode)
@@ -115,6 +119,7 @@ export function createRuntime(opts: {
     providerFor: makeProvider,
     systemPrompt,
     cwd: opts.cwd,
+    reasoning: () => reasoning,
   })
   const agent: Agent = new Agent({
     provider,
@@ -123,6 +128,7 @@ export function createRuntime(opts: {
     systemPrompt,
     cwd: opts.cwd,
     history,
+    reasoning,
     onMessage: (m) => session.append(m),
     onReset: () => session.reset(),
     onTurnStart: () => checkpoints.beginTurn(),
@@ -165,6 +171,9 @@ export function createRuntime(opts: {
     get modelRef() {
       return modelRef
     },
+    get reasoning() {
+      return reasoning
+    },
     agent,
     get session() {
       return session
@@ -195,6 +204,10 @@ export function createRuntime(opts: {
     setModel(ref: string) {
       agent.provider = makeProvider(ref)
       modelRef = ref
+    },
+    setReasoning(level: ReasoningLevel) {
+      reasoning = level
+      agent.reasoning = level
     },
   }
 }

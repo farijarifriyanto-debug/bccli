@@ -8,6 +8,7 @@ import type { AgentEvent, PermissionAnswer, PermissionAsk } from '../agent'
 import { BUILTIN_AGENTS } from '../agents'
 import { expandCommand, parseSlash, SLASH_COMMANDS } from '../commands'
 import { removeCredential } from '../config'
+import { assertReasoningSupported, parseReasoningLevel, REASONING_LEVELS, supportedReasoningLevels, type ReasoningLevel } from '../reasoning'
 import { Session } from '../session'
 import { osc52 } from '../slash/copy'
 import { gitDiff } from '../slash/diff'
@@ -67,6 +68,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [busy, setBusy] = useState(false)
   const [startedAt, setStartedAt] = useState(0)
   const [mode, setMode] = useState<PermissionMode>(runtime.agent.permissions.mode)
+  const [reasoning, setReasoning] = useState<ReasoningLevel>(runtime.reasoning)
   const [tokens, setTokens] = useState(runtime.agent.totalUsage.inputTokens + runtime.agent.totalUsage.outputTokens)
   // Parallel tools (e.g. two subagents) can ask at the same time: queue them, show one at a time.
   const [asks, setAsks] = useState<{ id: number; request: PermissionAsk; resolve(a: PermissionAnswer): void }[]>([])
@@ -163,6 +165,41 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           }
           controller.current = null
           setBusy(false)
+          return
+        }
+        case 'reasoning': {
+          const apply = (value: string) => {
+            try {
+              const level = parseReasoningLevel(value, '/reasoning')
+              const providerId = runtime.modelRef.slice(0, runtime.modelRef.indexOf('/'))
+              assertReasoningSupported(providerId, level)
+              runtime.setReasoning(level)
+              writeGlobalConfig({ reasoning: level }, runtime.env)
+              setReasoning(level)
+              notice(`Reasoning: ${level} (tersimpan sebagai default)`)
+            } catch (error) {
+              notice((error as Error).message, 'error')
+            }
+          }
+          if (args) {
+            apply(args)
+            return
+          }
+          const providerId = runtime.modelRef.slice(0, runtime.modelRef.indexOf('/'))
+          const supported = supportedReasoningLevels(providerId)
+          setListPicker({
+            title: 'Reasoning',
+            items: REASONING_LEVELS.map((level) => ({
+              id: level,
+              label: level === 'auto' ? 'Auto (model default)' : level.charAt(0).toUpperCase() + level.slice(1),
+              disabled: !supported.includes(level),
+              hint: supported.includes(level) ? undefined : 'tidak didukung provider ini',
+            })),
+            onPick: (id) => {
+              setListPicker(null)
+              if (id) apply(id)
+            },
+          })
           return
         }
         case 'model': {
@@ -731,7 +768,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         <Text key={`${i}-${q}`} dimColor>{`  ⏳ antri: ${q}`}</Text>
       ))}
       <PromptInput disabled={!!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu || !!listPicker} history={history} cwd={runtime.cwd} onSubmit={onPrompt} extraCommands={extraCommands} />
-      <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} />
+      <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} reasoning={reasoning} />
     </Box>
   )
 }

@@ -204,3 +204,31 @@ test('subagent file writes go through the parent checkpoint hook (undoable)', as
   )
   expect(seen).toEqual([join(cwd, 'n.txt')])
 })
+
+
+test('subagents inherit the parent reasoning preference', async () => {
+  const requests: ChatRequest[] = []
+  const provider = router(
+    {
+      PARENT: [{ text: '', toolCalls: [call('task', { agent: 'explore', description: 'cek', prompt: 'cek' }, 't1')] }, { text: 'done', toolCalls: [] }],
+      'read-only research agent': [{ text: 'found', toolCalls: [] }],
+    },
+    requests,
+  )
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-task-reasoning-'))
+  const permissions = new Permissions('default', [], cwd)
+  const task = createTaskTool({
+    agents: BUILTIN_AGENTS,
+    baseTools: () => ALL_TOOLS,
+    permissions,
+    provider: () => provider,
+    providerFor: () => provider,
+    systemPrompt: 'S',
+    cwd,
+    reasoning: () => 'high',
+  })
+  const agent = new Agent({ provider, tools: [...ALL_TOOLS, task], permissions, systemPrompt: 'PARENT-SYSTEM', cwd, reasoning: 'high' })
+  await agent.run('go', new AbortController().signal)
+  const child = requests.find((r) => String(r.messages[0].content).includes('read-only research agent'))!
+  expect(child.reasoning).toBe('high')
+})
