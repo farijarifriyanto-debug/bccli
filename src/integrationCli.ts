@@ -446,10 +446,15 @@ function agentToolDefaultModel(models: string[]): string {
 }
 
 async function connectCodex(deps: IntegrationDeps): Promise<void> {
+  if (readState('codex', deps.env)) disconnect('codex', deps)
+
   const home = homeDir(deps.env)
   const codexHome = deps.env.CODEX_HOME || join(home, '.codex')
   const profilePath = join(codexHome, 'botconnector.config.toml')
   const launcher = join(integrationHome(deps.env), process.platform === 'win32' ? 'codex-botconnector.cmd' : 'codex-botconnector')
+  if (existsSync(profilePath)) {
+    throw new ConfigError('Codex sudah memiliki botconnector.config.toml. BCCLI tidak akan menimpanya.')
+  }
   const profileBackup = safeBackup(profilePath, deps.env)
   const launcherBackup = safeBackup(launcher, deps.env)
   const secret = ensureSecret(deps.env)
