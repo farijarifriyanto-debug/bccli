@@ -99,6 +99,10 @@ BCCLI dapat memasang BotConnector sebagai provider untuk agent lain:
 | `bccli connect aider` | hubungkan Aider ke BotConnector |
 | `bccli connect cline` | hubungkan Cline CLI ke BotConnector |
 | `bccli connect deepseek-harness` / `bccli connect dsh` | hubungkan DeepSeek Harness ke BotConnector |
+| `bccli connect cursor` | buat guided setup Cursor + warning override Base URL |
+| `bccli connect openai-cli` | buat launcher OpenAI CLI khusus BotConnector |
+| `bccli connect openai-sdk` | buat env profile untuk OpenAI Python/Node SDK |
+| `bccli connect openai-compatible` | buat env profile universal OpenAI-compatible |
 | `bccli disconnect <agent>` | pulihkan config sebelum integrasi |
 
 OpenCode memakai config global `~/.config/opencode/opencode.json`. BCCLI mengambil katalog model BotConnector saat connect,

@@ -151,3 +151,54 @@ test('connect dsh preserves existing provider and restores exact files on discon
   expect(readFileSync(settingsPath, 'utf8')).toBe(originalSettings)
   expect(readFileSync(envPath, 'utf8')).toBe(originalEnv)
 })
+
+
+test('connect openai-sdk writes dedicated env profile and disconnect removes it', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  const deps = { env: e, cwd: e.HOME, out: () => {}, err: () => {}, fetch: vi.fn() }
+  await runIntegrationCommand(parseCliArgs(['connect', 'openai-sdk']), deps)
+  const path = join(e.BCCLI_HOME, 'integrations', 'openai-sdk.env')
+  const text = readFileSync(path, 'utf8')
+  expect(text).toContain('OPENAI_BASE_URL=https://api.botconnector.id/v1')
+  expect(text).toContain('OPENAI_API_KEY=bc_live_secret')
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'openai-sdk']), deps)
+  expect(() => readFileSync(path, 'utf8')).toThrow()
+})
+
+test('connect openai-compatible writes universal env profile', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  await runIntegrationCommand(parseCliArgs(['connect', 'openai-compatible']), {
+    env: e, cwd: e.HOME, out: () => {}, err: () => {}, fetch: vi.fn(),
+  })
+  const text = readFileSync(join(e.BCCLI_HOME, 'integrations', 'openai-compatible.env'), 'utf8')
+  expect(text).toContain('OPENAI_BASE_URL=https://api.botconnector.id/v1')
+  expect(text).toContain('OPENAI_API_KEY=bc_live_secret')
+})
+
+test('connect cursor creates guided profile without embedding the API key', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  await runIntegrationCommand(parseCliArgs(['connect', 'cursor']), {
+    env: e, cwd: e.HOME, out: () => {}, err: () => {}, fetch: vi.fn(),
+  })
+  const text = readFileSync(join(e.BCCLI_HOME, 'integrations', 'cursor.txt'), 'utf8')
+  expect(text).toContain('Override OpenAI Base URL')
+  expect(text).toContain('https://api.botconnector.id/v1')
+  expect(text).toContain('API key file:')
+  expect(text).not.toContain('bc_live_secret')
+})
+
+test('connect openai-cli creates launcher that reads the BCCLI key file', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  await runIntegrationCommand(parseCliArgs(['connect', 'openai-cli']), {
+    env: e, cwd: e.HOME, out: () => {}, err: () => {}, fetch: vi.fn(),
+  })
+  const ext = process.platform === 'win32' ? '.cmd' : ''
+  const text = readFileSync(join(e.BCCLI_HOME, 'integrations', `openai-botconnector${ext}`), 'utf8')
+  expect(text).toContain('OPENAI_BASE_URL')
+  expect(text).toContain('openai')
+  expect(text).not.toContain('bc_live_secret')
+})
