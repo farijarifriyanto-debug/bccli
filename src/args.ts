@@ -34,7 +34,7 @@ Pemakaian:
   bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <nama>|remove <nama>    kelola server MCP (katalog, atau --url <url>)
   bccli integrations             lihat status integrasi agent eksternal
-  bccli connect <agent>          hubungkan BotConnector ke agent (opencode, aider, cline, deepseek-harness/dsh)
+  bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible
   bccli disconnect <agent>       lepas integrasi dan pulihkan config sebelumnya
 
 Opsi:

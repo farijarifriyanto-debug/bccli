@@ -99,6 +99,12 @@ BCCLI dapat memasang BotConnector sebagai provider untuk agent lain:
 | `bccli connect aider` | hubungkan Aider ke BotConnector |
 | `bccli connect cline` | hubungkan Cline CLI ke BotConnector |
 | `bccli connect deepseek-harness` / `bccli connect dsh` | hubungkan DeepSeek Harness ke BotConnector |
+| `bccli connect codex` | buat profile Codex Responses API + launcher BotConnector |
+| `bccli connect claude-code` | buat launcher Claude Code via Anthropic Messages compatibility |
+| `bccli connect cursor` | buat guided setup Cursor + warning override Base URL |
+| `bccli connect openai-cli` | buat launcher OpenAI CLI khusus BotConnector |
+| `bccli connect openai-sdk` | buat env profile untuk OpenAI Python/Node SDK |
+| `bccli connect openai-compatible` | buat env profile universal OpenAI-compatible |
 | `bccli disconnect <agent>` | pulihkan config sebelum integrasi |
 
 OpenCode memakai config global `~/.config/opencode/opencode.json`. BCCLI mengambil katalog model BotConnector saat connect,
@@ -112,6 +118,11 @@ endpoint lain, BCCLI menolak menimpanya. Cline sendiri menyimpan API key provide
 DeepSeek Harness memakai custom provider `botconnector` di `$DSH_HOME/settings.yaml` dengan
 `api: openai-completions` dan `apiKeyEnv: BOTCONNECTOR_API_KEY`; key diletakkan pada blok BCCLI di
 `$DSH_HOME/.env`. Provider DSH lain tetap dipertahankan.
+
+Codex memakai profile `$CODEX_HOME/botconnector.config.toml` dengan `wire_api = "responses"` dan launcher
+BCCLI yang membaca key dari storage BCCLI saat dijalankan. Claude Code memakai launcher terisolasi dengan
+`ANTHROPIC_BASE_URL=https://api.botconnector.id` dan endpoint kompatibilitas `/v1/messages` + token counting.
+Login/config utama Codex dan Claude Code tidak ditimpa.
 
 External agent memanggil BotConnector langsung, jadi discovery model tidak memakai identitas khusus BCCLI.
 Akses yang memang dibatasi ke BCCLI/Web App (misalnya Luna launch access) tidak otomatis diwariskan.
