@@ -325,6 +325,115 @@ async function connectDeepSeekHarness(deps: IntegrationDeps): Promise<void> {
   deps.out('Provider: botconnector (OpenAI Chat Completions)')
 }
 
+
+function managedProfilePath(target: IntegrationTarget, env: NodeJS.ProcessEnv, ext = 'env'): string {
+  return join(integrationHome(env), target + '.' + ext)
+}
+
+function writeOpenAiEnvProfile(target: IntegrationTarget, deps: IntegrationDeps): string {
+  const secret = ensureSecret(deps.env)
+  const key = readFileSync(secret, 'utf8').trim()
+  const path = managedProfilePath(target, deps.env)
+  const backup = safeBackup(path, deps.env)
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, [
+    'OPENAI_BASE_URL=' + BASE_URL,
+    'OPENAI_API_KEY=' + key,
+    '',
+  ].join('\n'), { mode: 0o600 })
+  try { chmodSync(path, 0o600) } catch {}
+  writeState(target, {
+    target,
+    files: [{ path, ...backup }],
+    createdAt: new Date().toISOString(),
+  }, deps.env)
+  return path
+}
+
+async function connectOpenAiCli(deps: IntegrationDeps): Promise<void> {
+  const secret = ensureSecret(deps.env)
+  const dir = integrationHome(deps.env)
+  const launcher = join(dir, process.platform === 'win32' ? 'openai-botconnector.cmd' : 'openai-botconnector')
+  const backup = safeBackup(launcher, deps.env)
+  mkdirSync(dir, { recursive: true })
+
+  if (process.platform === 'win32') {
+    const keyFile = secret.replace(/\//g, '\\')
+    writeFileSync(launcher, [
+      '@echo off',
+      'set "OPENAI_BASE_URL=' + BASE_URL + '"',
+      'for /f "usebackq delims=" %%A in ("' + keyFile + '") do set "OPENAI_API_KEY=%%A"',
+      'openai %*',
+      '',
+    ].join('\r\n'))
+  } else {
+    const keyFile = secret.replace(/'/g, "'\\''")
+    writeFileSync(launcher, [
+      '#!/bin/sh',
+      "export OPENAI_BASE_URL='" + BASE_URL + "'",
+      'export OPENAI_API_KEY="$(cat \'' + keyFile + '\')"',
+      'exec openai "$@"',
+      '',
+    ].join('\n'), { mode: 0o700 })
+    try { chmodSync(launcher, 0o700) } catch {}
+  }
+
+  writeState('openai-cli', {
+    target: 'openai-cli',
+    files: [{ path: launcher, ...backup }],
+    createdAt: new Date().toISOString(),
+  }, deps.env)
+  deps.out('OpenAI CLI profile BotConnector siap.')
+  deps.out('Launcher: ' + launcher)
+  deps.out('Launcher tidak menyimpan API key di dalam script; key dibaca dari storage BCCLI saat dijalankan.')
+}
+
+async function connectOpenAiSdk(deps: IntegrationDeps): Promise<void> {
+  const path = writeOpenAiEnvProfile('openai-sdk', deps)
+  deps.out('OpenAI SDK profile BotConnector siap.')
+  deps.out('Env profile: ' + path)
+  deps.out('Python dan Node OpenAI SDK dapat membaca OPENAI_BASE_URL dan OPENAI_API_KEY dari profile ini.')
+}
+
+async function connectOpenAiCompatible(deps: IntegrationDeps): Promise<void> {
+  const path = writeOpenAiEnvProfile('openai-compatible', deps)
+  deps.out('Profile OpenAI-compatible BotConnector siap.')
+  deps.out('Env profile: ' + path)
+  deps.out('Base URL: ' + BASE_URL)
+}
+
+async function connectCursor(deps: IntegrationDeps): Promise<void> {
+  const secret = ensureSecret(deps.env)
+  const path = managedProfilePath('cursor', deps.env, 'txt')
+  const backup = safeBackup(path, deps.env)
+  const keyFile = secret.replace(/\\/g, '/')
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, [
+    'BotConnector -> Cursor guided setup',
+    '',
+    'Base URL: ' + BASE_URL,
+    'API key file: ' + keyFile,
+    '',
+    'Cursor Settings -> Models:',
+    '1. Enable/add your OpenAI API key.',
+    '2. Enable Override OpenAI Base URL.',
+    '3. Set the override URL to ' + BASE_URL + '.',
+    '4. Use Chat/Agent only; Cursor Tab/autocomplete remains on Cursor infrastructure.',
+    '',
+    'Important: Cursor currently applies the OpenAI Base URL override globally to OpenAI-family model requests.',
+    'Disable the override before switching back to Cursor-managed OpenAI-family models.',
+    '',
+  ].join('\n'))
+  writeState('cursor', {
+    target: 'cursor',
+    files: [{ path, ...backup }],
+    createdAt: new Date().toISOString(),
+  }, deps.env)
+  deps.out('Cursor guided setup profile dibuat.')
+  deps.out('Panduan: ' + path)
+  deps.out('BCCLI tidak mengedit storage internal Cursor karena format override tersebut bukan konfigurasi eksternal yang stabil.')
+}
+
 function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {
   const state = readState(target, deps.env)
   if (!state) {
