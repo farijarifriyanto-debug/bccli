@@ -1,9 +1,11 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { parseDocument } from 'yaml'
 import type { CliArgs } from './args'
 import { bccliHome, ConfigError, loadConfig, readCredentials, resolveModel } from './config'
 
-type IntegrationTarget = 'opencode' | 'aider'
+type IntegrationTarget = 'opencode' | 'aider' | 'cline' | 'deepseek-harness'
 
 export interface IntegrationDeps {
   env: NodeJS.ProcessEnv
@@ -35,8 +37,9 @@ function keyPath(env: NodeJS.ProcessEnv): string {
 }
 
 function parseTarget(raw: string | undefined): IntegrationTarget {
-  if (raw === 'opencode' || raw === 'aider') return raw
-  throw new ConfigError('Agent harus salah satu dari: opencode, aider')
+  if (raw === 'opencode' || raw === 'aider' || raw === 'cline' || raw === 'deepseek-harness') return raw
+  if (raw === 'dsh') return 'deepseek-harness'
+  throw new ConfigError('Agent harus salah satu dari: opencode, aider, cline, deepseek-harness (alias: dsh)')
 }
 
 function homeDir(env: NodeJS.ProcessEnv): string {
@@ -83,12 +86,10 @@ async function botConnectorModels(deps: IntegrationDeps): Promise<string[]> {
   const resolved = resolveModel(config, config.model, deps.env)
   const key = readCredentials(deps.env)['bc-cloud'] || resolved.apiKey
   if (!key) throw new ConfigError('API key BotConnector belum tersedia. Jalankan bccli login bc-cloud terlebih dahulu.')
+  // External agents call BotConnector directly, so model discovery must not
+  // inherit BCCLI-only access (for example Luna launch access).
   const response = await deps.fetch(`${BASE_URL}/models`, {
-    headers: {
-      authorization: `Bearer ${key}`,
-      'x-botconnector-client': 'bccli',
-      'x-botconnector-client-version': '0.4.0',
-    },
+    headers: { authorization: `Bearer ${key}` },
   })
   if (!response.ok) throw new ConfigError(`Katalog model BotConnector gagal dimuat (HTTP ${response.status}).`)
   const payload = await response.json() as { data?: Array<{ id?: string }> }
