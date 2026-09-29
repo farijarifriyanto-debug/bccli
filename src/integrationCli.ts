@@ -457,12 +457,12 @@ async function connectCodex(deps: IntegrationDeps): Promise<void> {
   const model = agentToolDefaultModel(models)
 
   const profile = [
-    'model = ' + JSON.stringify(model),
+    `model = ${JSON.stringify(model)}`,
     'model_provider = "botconnector"',
     '',
     '[model_providers.botconnector]',
     'name = "BotConnector"',
-    'base_url = "' + BASE_URL + '"',
+    `base_url = "${BASE_URL}"`,
     'env_key = "BOTCONNECTOR_API_KEY"',
     'wire_api = "responses"',
     'requires_openai_auth = false',
@@ -479,7 +479,7 @@ async function connectCodex(deps: IntegrationDeps): Promise<void> {
     writeFileSync(launcher, [
       '@echo off',
       'set "BOTCONNECTOR_API_KEY="',
-      'for /f "usebackq delims=" %%A in ("' + keyFile + '") do set "BOTCONNECTOR_API_KEY=%%A"',
+      `for /f "usebackq delims=" %%A in ("${keyFile}") do set "BOTCONNECTOR_API_KEY=%%A"`,
       'codex -p botconnector %*',
       '',
     ].join('\r\n'))
@@ -487,7 +487,7 @@ async function connectCodex(deps: IntegrationDeps): Promise<void> {
     const keyFile = secret.replace(/'/g, "'\\''")
     writeFileSync(launcher, [
       '#!/bin/sh',
-      'export BOTCONNECTOR_API_KEY="$(cat \'' + keyFile + '\')"',
+      `export BOTCONNECTOR_API_KEY="$(cat '${keyFile}')"`,
       'exec codex -p botconnector "$@"',
       '',
     ].join('\n'), { mode: 0o700 })
@@ -500,9 +500,9 @@ async function connectCodex(deps: IntegrationDeps): Promise<void> {
     createdAt:new Date().toISOString(),
   }, deps.env)
   deps.out('Codex CLI terhubung ke BotConnector Responses API.')
-  deps.out('Profile: ' + profilePath)
-  deps.out('Launcher: ' + launcher)
-  deps.out('Default coding model: ' + model)
+  deps.out(`Profile: ${profilePath}`)
+  deps.out(`Launcher: ${launcher}`)
+  deps.out(`Default coding model: ${model}`)
 }
 
 async function connectClaudeCode(deps: IntegrationDeps): Promise<void> {
@@ -520,12 +520,12 @@ async function connectClaudeCode(deps: IntegrationDeps): Promise<void> {
       'set "ANTHROPIC_AUTH_TOKEN="',
       'set "CLAUDE_CODE_OAUTH_TOKEN="',
       'set "ANTHROPIC_API_KEY="',
-      'for /f "usebackq delims=" %%A in ("' + keyFile + '") do set "ANTHROPIC_API_KEY=%%A"',
+      `for /f "usebackq delims=" %%A in ("${keyFile}") do set "ANTHROPIC_API_KEY=%%A"`,
       'set "ANTHROPIC_BASE_URL=https://api.botconnector.id"',
-      'set "ANTHROPIC_MODEL=' + model + '"',
-      'set "ANTHROPIC_DEFAULT_OPUS_MODEL=' + model + '"',
-      'set "ANTHROPIC_DEFAULT_SONNET_MODEL=' + model + '"',
-      'set "ANTHROPIC_DEFAULT_HAIKU_MODEL=' + model + '"',
+      `set "ANTHROPIC_MODEL=${model}"`,
+      `set "ANTHROPIC_DEFAULT_OPUS_MODEL=${model}"`,
+      `set "ANTHROPIC_DEFAULT_SONNET_MODEL=${model}"`,
+      `set "ANTHROPIC_DEFAULT_HAIKU_MODEL=${model}"`,
       'claude %*',
       '',
     ].join('\r\n'))
@@ -534,12 +534,12 @@ async function connectClaudeCode(deps: IntegrationDeps): Promise<void> {
     writeFileSync(launcher, [
       '#!/bin/sh',
       'unset ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN',
-      'export ANTHROPIC_API_KEY="$(cat \'' + keyFile + '\')"',
+      `export ANTHROPIC_API_KEY="$(cat '${keyFile}')"`,
       "export ANTHROPIC_BASE_URL='https://api.botconnector.id'",
-      "export ANTHROPIC_MODEL='" + model + "'",
-      "export ANTHROPIC_DEFAULT_OPUS_MODEL='" + model + "'",
-      "export ANTHROPIC_DEFAULT_SONNET_MODEL='" + model + "'",
-      "export ANTHROPIC_DEFAULT_HAIKU_MODEL='" + model + "'",
+      `export ANTHROPIC_MODEL='${model}'`,
+      `export ANTHROPIC_DEFAULT_OPUS_MODEL='${model}'`,
+      `export ANTHROPIC_DEFAULT_SONNET_MODEL='${model}'`,
+      `export ANTHROPIC_DEFAULT_HAIKU_MODEL='${model}'`,
       'exec claude "$@"',
       '',
     ].join('\n'), { mode:0o700 })
@@ -552,8 +552,8 @@ async function connectClaudeCode(deps: IntegrationDeps): Promise<void> {
     createdAt:new Date().toISOString(),
   }, deps.env)
   deps.out('Claude Code terhubung ke BotConnector Anthropic Messages compatibility API.')
-  deps.out('Launcher: ' + launcher)
-  deps.out('Default coding model: ' + model)
+  deps.out(`Launcher: ${launcher}`)
+  deps.out(`Default coding model: ${model}`)
 }
 
 function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {

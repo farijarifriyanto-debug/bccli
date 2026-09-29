@@ -202,3 +202,55 @@ test('connect openai-cli creates launcher that reads the BCCLI key file', async 
   expect(text).toContain('openai')
   expect(text).not.toContain('bc_live_secret')
 })
+
+
+test('connect codex creates Responses provider profile and keyless launcher', async () => {
+  const e = env()
+  const codexHome = join(e.HOME, '.codex-test')
+  const ee = { ...e, CODEX_HOME: codexHome }
+  saveCredential('bc-cloud', 'bc_live_secret', ee)
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [{ id: 'agnes-3.0-flash' }, { id: 'ling-3.0-flash' }, { id: 'mimo-v2.5' }],
+  }), { status: 200 }))
+  const deps = { env: ee, cwd: e.HOME, out: () => {}, err: () => {}, fetch }
+  await runIntegrationCommand(parseCliArgs(['connect', 'codex']), deps)
+
+  const profilePath = join(codexHome, 'botconnector.config.toml')
+  const ext = process.platform === 'win32' ? '.cmd' : ''
+  const launcherPath = join(e.BCCLI_HOME, 'integrations', `codex-botconnector${ext}`)
+  const profile = readFileSync(profilePath, 'utf8')
+  const launcher = readFileSync(launcherPath, 'utf8')
+  expect(profile).toContain('wire_api = "responses"')
+  expect(profile).toContain('env_key = "BOTCONNECTOR_API_KEY"')
+  expect(profile).toContain('base_url = "https://api.botconnector.id/v1"')
+  expect(profile).toContain('model = "ling-3.0-flash"')
+  expect(profile).not.toContain('bc_live_secret')
+  expect(launcher).toContain('codex -p botconnector')
+  expect(launcher).not.toContain('bc_live_secret')
+
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'codex']), deps)
+  expect(() => readFileSync(profilePath, 'utf8')).toThrow()
+  expect(() => readFileSync(launcherPath, 'utf8')).toThrow()
+})
+
+test('connect claude-code creates Messages launcher without embedding key', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [{ id: 'agnes-3.0-flash' }, { id: 'ling-3.0-flash' }],
+  }), { status: 200 }))
+  const deps = { env: e, cwd: e.HOME, out: () => {}, err: () => {}, fetch }
+  await runIntegrationCommand(parseCliArgs(['connect', 'claude-code']), deps)
+
+  const ext = process.platform === 'win32' ? '.cmd' : ''
+  const launcherPath = join(e.BCCLI_HOME, 'integrations', `claude-botconnector${ext}`)
+  const launcher = readFileSync(launcherPath, 'utf8')
+  expect(launcher).toContain('ANTHROPIC_BASE_URL=https://api.botconnector.id')
+  expect(launcher).toContain('ANTHROPIC_MODEL=ling-3.0-flash')
+  expect(launcher).toContain('ANTHROPIC_AUTH_TOKEN=')
+  expect(launcher).toContain('claude')
+  expect(launcher).not.toContain('bc_live_secret')
+
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'claude-code']), deps)
+  expect(() => readFileSync(launcherPath, 'utf8')).toThrow()
+})
