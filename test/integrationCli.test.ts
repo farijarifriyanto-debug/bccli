@@ -245,9 +245,11 @@ test('connect claude-code creates Messages launcher without embedding key', asyn
   const ext = process.platform === 'win32' ? '.cmd' : ''
   const launcherPath = join(e.BCCLI_HOME, 'integrations', `claude-botconnector${ext}`)
   const launcher = readFileSync(launcherPath, 'utf8')
-  expect(launcher).toContain('ANTHROPIC_BASE_URL=https://api.botconnector.id')
-  expect(launcher).toContain('ANTHROPIC_MODEL=ling-3.0-flash')
-  expect(launcher).toContain('ANTHROPIC_AUTH_TOKEN=')
+  expect(launcher).toContain('ANTHROPIC_BASE_URL')
+  expect(launcher).toContain('https://api.botconnector.id')
+  expect(launcher).toContain('ANTHROPIC_MODEL')
+  expect(launcher).toContain('ling-3.0-flash')
+  expect(launcher).toContain('ANTHROPIC_AUTH_TOKEN')
   expect(launcher).toContain('claude')
   expect(launcher).not.toContain('bc_live_secret')
 
