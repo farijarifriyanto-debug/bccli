@@ -117,7 +117,8 @@ endpoint lain, BCCLI menolak menimpanya. Cline sendiri menyimpan API key provide
 
 DeepSeek Harness memakai custom provider `botconnector` di `$DSH_HOME/settings.yaml` dengan
 `api: openai-completions` dan `apiKeyEnv: BOTCONNECTOR_API_KEY`; key diletakkan pada blok BCCLI di
-`$DSH_HOME/.env`. Provider DSH lain tetap dipertahankan.
+`$DSH_HOME/.env`. Provider DSH lain tetap dipertahankan. Setelah connect, jalankan profile web dengan
+`dsh web` (setara dengan `dsh --profile web`); `dsh` tanpa profile memang ditolak oleh DSH 0.1.x.
 
 Codex memakai profile `$CODEX_HOME/botconnector.config.toml` dengan `wire_api = "responses"` dan launcher
 BCCLI yang membaca key dari storage BCCLI saat dijalankan. Claude Code memakai launcher terisolasi dengan

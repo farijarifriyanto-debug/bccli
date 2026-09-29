@@ -138,8 +138,11 @@ test('connect dsh preserves existing provider and restores exact files on discon
   const fetch = vi.fn(async () => new Response(JSON.stringify({
     data: [{ id: 'glm-5.3-flash' }, { id: 'qwen3.8-flash' }],
   }), { status: 200 }))
-  const deps = { env: ee, cwd: e.HOME, out: () => {}, err: () => {}, fetch }
+  const output: string[] = []
+  const deps = { env: ee, cwd: e.HOME, out: (s: string) => output.push(s), err: () => {}, fetch }
   await runIntegrationCommand(parseCliArgs(['connect', 'dsh']), deps)
+  expect(output).toContain('Jalankan: dsh web')
+  expect(output).toContain('Bentuk panjang yang setara: dsh --profile web')
   const yml = readFileSync(settingsPath, 'utf8')
   const denv = readFileSync(envPath, 'utf8')
   expect(yml).toContain('ollama-local')
