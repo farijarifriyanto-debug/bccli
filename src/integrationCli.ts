@@ -217,7 +217,7 @@ async function connectCline(deps: IntegrationDeps): Promise<void> {
   let doc: Record<string, unknown> = { version: 1, modes: {}, providers: {} }
   if (existsSync(path)) {
     try { doc = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown> }
-    catch { throw new ConfigError('Config Cline tidak valid JSON: ' + path) }
+    catch { throw new ConfigError(`Config Cline tidak valid JSON: ${path}`) }
   }
   const providers = (doc.providers && typeof doc.providers === 'object' && !Array.isArray(doc.providers))
     ? { ...(doc.providers as Record<string, unknown>) }
@@ -242,15 +242,15 @@ async function connectCline(deps: IntegrationDeps): Promise<void> {
   doc.providers = providers
 
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, JSON.stringify(doc, null, 2) + '\n', { mode: 0o600 })
+  writeFileSync(path, `${JSON.stringify(doc, null, 2)}\n`, { mode: 0o600 })
   try { chmodSync(path, 0o600) } catch {}
   writeState('cline', {
     target: 'cline',
     files: [{ path, ...backup }],
     createdAt: new Date().toISOString(),
   }, deps.env)
-  deps.out('Cline terhubung ke BotConnector (' + models.length + ' model tersedia; default ' + model + ').')
-  deps.out('Config: ' + path)
+  deps.out(`Cline terhubung ke BotConnector (${models.length} model tersedia; default ${model}).`)
+  deps.out(`Config: ${path}`)
   deps.out('Catatan: Cline menyimpan API key provider di providers.json miliknya.')
 }
 
@@ -265,7 +265,7 @@ function stripDshEnvBlock(input: string): string {
   const after = end + DSH_ENV_END.length
   const left = input.slice(0, start).trimEnd()
   const right = input.slice(after).trimStart()
-  return right ? left + '\n' + right : left
+  return right ? `${left}\n${right}` : left
 }
 
 async function connectDeepSeekHarness(deps: IntegrationDeps): Promise<void> {
@@ -281,11 +281,11 @@ async function connectDeepSeekHarness(deps: IntegrationDeps): Promise<void> {
 
   const source = existsSync(settingsPath) ? readFileSync(settingsPath, 'utf8') : '{}\n'
   const doc = parseDocument(source)
-  if (doc.errors.length) throw new ConfigError('Config DeepSeek Harness tidak valid YAML: ' + settingsPath)
+  if (doc.errors.length) throw new ConfigError(`Config DeepSeek Harness tidak valid YAML: ${settingsPath}`)
 
   const existingProvider = doc.getIn(['llm-pi-ai', 'providers', PROVIDER_ID]) as { baseURL?: string } | undefined
   if (existingProvider?.baseURL && existingProvider.baseURL.replace(/\/+$/, '') !== BASE_URL) {
-    throw new ConfigError('DeepSeek Harness sudah memiliki provider "' + PROVIDER_ID + '" dengan endpoint lain.')
+    throw new ConfigError(`DeepSeek Harness sudah memiliki provider "${PROVIDER_ID}" dengan endpoint lain.`)
   }
 
   doc.setIn(['llm-pi-ai', 'providers', PROVIDER_ID], {
@@ -301,10 +301,10 @@ async function connectDeepSeekHarness(deps: IntegrationDeps): Promise<void> {
   let envText = existsSync(envPath) ? readFileSync(envPath, 'utf8') : ''
   envText = stripDshEnvBlock(envText)
   if (/^\s*BOTCONNECTOR_API_KEY\s*=/m.test(envText)) {
-    throw new ConfigError('$DSH_HOME/.env sudah memiliki BOTCONNECTOR_API_KEY di luar blok BCCLI: ' + envPath)
+    throw new ConfigError(`$DSH_HOME/.env sudah memiliki BOTCONNECTOR_API_KEY di luar blok BCCLI: ${envPath}`)
   }
-  const managed = [DSH_ENV_BEGIN, 'BOTCONNECTOR_API_KEY=' + key, DSH_ENV_END].join('\n')
-  const mergedEnv = envText.trim() ? envText.trimEnd() + '\n\n' + managed + '\n' : managed + '\n'
+  const managed = [DSH_ENV_BEGIN, `BOTCONNECTOR_API_KEY=${key}`, DSH_ENV_END].join('\n')
+  const mergedEnv = envText.trim() ? `${envText.trimEnd()}\n\n${managed}\n` : `${managed}\n`
 
   mkdirSync(dshHome, { recursive: true })
   writeFileSync(settingsPath, doc.toString())
@@ -315,8 +315,8 @@ async function connectDeepSeekHarness(deps: IntegrationDeps): Promise<void> {
     files: [{ path: settingsPath, ...settingsBackup }, { path: envPath, ...envBackup }],
     createdAt: new Date().toISOString(),
   }, deps.env)
-  deps.out('DeepSeek Harness terhubung ke BotConnector (' + models.length + ' model).')
-  deps.out('Config: ' + settingsPath)
+  deps.out(`DeepSeek Harness terhubung ke BotConnector (${models.length} model).`)
+  deps.out(`Config: ${settingsPath}`)
   deps.out('Provider: botconnector (OpenAI Chat Completions)')
 }
 
