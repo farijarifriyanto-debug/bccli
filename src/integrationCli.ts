@@ -446,51 +446,32 @@ function agentToolDefaultModel(models: string[]): string {
 }
 
 async function connectCodex(deps: IntegrationDeps): Promise<void> {
-  if (readState('codex', deps.env)) disconnect('codex', deps)
-
   const home = homeDir(deps.env)
   const codexHome = deps.env.CODEX_HOME || join(home, '.codex')
-  const configPath = join(codexHome, 'config.toml')
+  const profilePath = join(codexHome, 'botconnector.config.toml')
   const launcher = join(integrationHome(deps.env), process.platform === 'win32' ? 'codex-botconnector.cmd' : 'codex-botconnector')
-  const configBackup = safeBackup(configPath, deps.env)
+  const profileBackup = safeBackup(profilePath, deps.env)
   const launcherBackup = safeBackup(launcher, deps.env)
   const secret = ensureSecret(deps.env)
   const models = await botConnectorModels(deps)
   const model = agentToolDefaultModel(models)
 
-  const begin = '# BEGIN BCCLI BOTCONNECTOR'
-  const end = '# END BCCLI BOTCONNECTOR'
-  let existing = existsSync(configPath) ? readFileSync(configPath, 'utf8') : ''
-  const managedStart = existing.indexOf(begin)
-  if (managedStart >= 0) {
-    const managedEnd = existing.indexOf(end, managedStart)
-    if (managedEnd < 0) throw new ConfigError('Blok BCCLI pada config Codex tidak lengkap.')
-    existing = (existing.slice(0, managedStart) + existing.slice(managedEnd + end.length)).trim()
-  }
-  if (/^\s*\[model_providers\.botconnector\]\s*$/m.test(existing) ||
-      /^\s*\[profiles\.botconnector\]\s*$/m.test(existing)) {
-    throw new ConfigError('Codex sudah memiliki provider/profile "botconnector" sendiri. BCCLI tidak akan menimpanya.')
-  }
-
-  const managed = [
-    begin,
+  const profile = [
+    `model = ${JSON.stringify(model)}`,
+    'model_provider = "botconnector"',
+    '',
     '[model_providers.botconnector]',
     'name = "BotConnector"',
-    'base_url = "' + BASE_URL + '"',
+    `base_url = "${BASE_URL}"`,
     'env_key = "BOTCONNECTOR_API_KEY"',
     'wire_api = "responses"',
     'requires_openai_auth = false',
     'supports_websockets = false',
     'supports_standalone_web_search = false',
     '',
-    '[profiles.botconnector]',
-    'model = ' + JSON.stringify(model),
-    'model_provider = "botconnector"',
-    end,
   ].join('\n')
-  const merged = existing.trim() ? existing.trimEnd() + '\n\n' + managed + '\n' : managed + '\n'
   mkdirSync(codexHome, { recursive: true })
-  writeFileSync(configPath, merged)
+  writeFileSync(profilePath, profile)
 
   mkdirSync(dirname(launcher), { recursive: true })
   if (process.platform === 'win32') {
@@ -498,7 +479,7 @@ async function connectCodex(deps: IntegrationDeps): Promise<void> {
     writeFileSync(launcher, [
       '@echo off',
       'set "BOTCONNECTOR_API_KEY="',
-      'for /f "usebackq delims=" %%A in ("' + keyFile + '") do set "BOTCONNECTOR_API_KEY=%%A"',
+      `for /f "usebackq delims=" %%A in ("${keyFile}") do set "BOTCONNECTOR_API_KEY=%%A"`,
       'codex -p botconnector %*',
       '',
     ].join('\r\n'))
@@ -506,7 +487,7 @@ async function connectCodex(deps: IntegrationDeps): Promise<void> {
     const keyFile = secret.replace(/'/g, "'\\''")
     writeFileSync(launcher, [
       '#!/bin/sh',
-      'export BOTCONNECTOR_API_KEY="$(cat \'' + keyFile + '\')"',
+      `export BOTCONNECTOR_API_KEY="$(cat '${keyFile}')"`,
       'exec codex -p botconnector "$@"',
       '',
     ].join('\n'), { mode: 0o700 })
@@ -515,13 +496,13 @@ async function connectCodex(deps: IntegrationDeps): Promise<void> {
 
   writeState('codex', {
     target:'codex',
-    files:[{ path:configPath, ...configBackup }, { path:launcher, ...launcherBackup }],
+    files:[{ path:profilePath, ...profileBackup }, { path:launcher, ...launcherBackup }],
     createdAt:new Date().toISOString(),
   }, deps.env)
   deps.out('Codex CLI terhubung ke BotConnector Responses API.')
-  deps.out('Config: ' + configPath)
-  deps.out('Launcher: ' + launcher)
-  deps.out('Default coding model: ' + model)
+  deps.out(`Profile: ${profilePath}`)
+  deps.out(`Launcher: ${launcher}`)
+  deps.out(`Default coding model: ${model}`)
 }
 
 async function connectClaudeCode(deps: IntegrationDeps): Promise<void> {
