@@ -97,12 +97,25 @@ BCCLI dapat memasang BotConnector sebagai provider untuk agent lain:
 | `bccli integrations` | lihat status integrasi |
 | `bccli connect opencode` | hubungkan OpenCode ke BotConnector |
 | `bccli connect aider` | hubungkan Aider ke BotConnector |
+| `bccli connect cline` | hubungkan Cline CLI ke BotConnector |
+| `bccli connect deepseek-harness` / `bccli connect dsh` | hubungkan DeepSeek Harness ke BotConnector |
 | `bccli disconnect <agent>` | pulihkan config sebelum integrasi |
 
 OpenCode memakai config global `~/.config/opencode/opencode.json`. BCCLI mengambil katalog model BotConnector saat connect,
 menjaga config provider lain, dan menyimpan secret di file terpisah di `~/.bccli/integrations/`.
 Aider memakai `~/.aider.conf.yml` yang menunjuk ke env file BCCLI terpisah; BCCLI menolak menimpa setting
-OpenAI/env-file Aider yang sudah ada. Sebelum mengubah config eksternal, BCCLI membuat backup agar disconnect dapat memulihkannya.
+OpenAI/env-file Aider yang sudah ada.
+
+Cline memakai provider `openai-compatible` di `~/.cline/data/settings/providers.json`. Jika slot itu sudah dipakai
+endpoint lain, BCCLI menolak menimpanya. Cline sendiri menyimpan API key provider di file tersebut.
+
+DeepSeek Harness memakai custom provider `botconnector` di `$DSH_HOME/settings.yaml` dengan
+`api: openai-completions` dan `apiKeyEnv: BOTCONNECTOR_API_KEY`; key diletakkan pada blok BCCLI di
+`$DSH_HOME/.env`. Provider DSH lain tetap dipertahankan.
+
+External agent memanggil BotConnector langsung, jadi discovery model tidak memakai identitas khusus BCCLI.
+Akses yang memang dibatasi ke BCCLI/Web App (misalnya Luna launch access) tidak otomatis diwariskan.
+Sebelum mengubah config eksternal, BCCLI membuat backup agar disconnect dapat memulihkannya.
 
 ## Internet
 
