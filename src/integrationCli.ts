@@ -4,7 +4,7 @@ import { parseDocument } from 'yaml'
 import type { CliArgs } from './args'
 import { bccliHome, ConfigError, loadConfig, readCredentials, resolveModel } from './config'
 
-type IntegrationTarget = 'opencode' | 'aider' | 'cline' | 'deepseek-harness' | 'cursor' | 'openai-cli' | 'openai-sdk' | 'openai-compatible'
+type IntegrationTarget = 'opencode' | 'aider' | 'cline' | 'deepseek-harness' | 'cursor' | 'openai-cli' | 'openai-sdk' | 'openai-compatible' | 'codex' | 'claude-code'
 
 export interface IntegrationDeps {
   env: NodeJS.ProcessEnv
@@ -38,11 +38,12 @@ function keyPath(env: NodeJS.ProcessEnv): string {
 function parseTarget(raw: string | undefined): IntegrationTarget {
   if (
     raw === 'opencode' || raw === 'aider' || raw === 'cline' || raw === 'deepseek-harness' ||
-    raw === 'cursor' || raw === 'openai-cli' || raw === 'openai-sdk' || raw === 'openai-compatible'
+    raw === 'cursor' || raw === 'openai-cli' || raw === 'openai-sdk' || raw === 'openai-compatible' ||
+    raw === 'codex' || raw === 'claude-code'
   ) return raw
   if (raw === 'dsh') return 'deepseek-harness'
   throw new ConfigError(
-    'Agent harus salah satu dari: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible',
+    'Agent harus salah satu dari: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code',
   )
 }
 
@@ -434,6 +435,127 @@ async function connectCursor(deps: IntegrationDeps): Promise<void> {
   deps.out('BCCLI tidak mengedit storage internal Cursor karena format override tersebut bukan konfigurasi eksternal yang stabil.')
 }
 
+
+function agentToolDefaultModel(models: string[]): string {
+  for (const id of ['ling-3.0-flash', 'mimo-v2.5', 'deepseek-v4-flash']) {
+    if (models.includes(id)) return id
+  }
+  const first = models[0]
+  if (!first) throw new ConfigError('Katalog BotConnector tidak memiliki model untuk coding agent eksternal.')
+  return first
+}
+
+async function connectCodex(deps: IntegrationDeps): Promise<void> {
+  const home = homeDir(deps.env)
+  const codexHome = deps.env.CODEX_HOME || join(home, '.codex')
+  const profilePath = join(codexHome, 'botconnector.config.toml')
+  const launcher = join(integrationHome(deps.env), process.platform === 'win32' ? 'codex-botconnector.cmd' : 'codex-botconnector')
+  const profileBackup = safeBackup(profilePath, deps.env)
+  const launcherBackup = safeBackup(launcher, deps.env)
+  const secret = ensureSecret(deps.env)
+  const models = await botConnectorModels(deps)
+  const model = agentToolDefaultModel(models)
+
+  const profile = [
+    'model = ' + JSON.stringify(model),
+    'model_provider = "botconnector"',
+    '',
+    '[model_providers.botconnector]',
+    'name = "BotConnector"',
+    'base_url = "' + BASE_URL + '"',
+    'env_key = "BOTCONNECTOR_API_KEY"',
+    'wire_api = "responses"',
+    'requires_openai_auth = false',
+    'supports_websockets = false',
+    'supports_standalone_web_search = false',
+    '',
+  ].join('\n')
+  mkdirSync(codexHome, { recursive: true })
+  writeFileSync(profilePath, profile)
+
+  mkdirSync(dirname(launcher), { recursive: true })
+  if (process.platform === 'win32') {
+    const keyFile = secret.replace(/\//g, '\\')
+    writeFileSync(launcher, [
+      '@echo off',
+      'set "BOTCONNECTOR_API_KEY="',
+      'for /f "usebackq delims=" %%A in ("' + keyFile + '") do set "BOTCONNECTOR_API_KEY=%%A"',
+      'codex -p botconnector %*',
+      '',
+    ].join('\r\n'))
+  } else {
+    const keyFile = secret.replace(/'/g, "'\\''")
+    writeFileSync(launcher, [
+      '#!/bin/sh',
+      'export BOTCONNECTOR_API_KEY="$(cat \'' + keyFile + '\')"',
+      'exec codex -p botconnector "$@"',
+      '',
+    ].join('\n'), { mode: 0o700 })
+    try { chmodSync(launcher, 0o700) } catch {}
+  }
+
+  writeState('codex', {
+    target:'codex',
+    files:[{ path:profilePath, ...profileBackup }, { path:launcher, ...launcherBackup }],
+    createdAt:new Date().toISOString(),
+  }, deps.env)
+  deps.out('Codex CLI terhubung ke BotConnector Responses API.')
+  deps.out('Profile: ' + profilePath)
+  deps.out('Launcher: ' + launcher)
+  deps.out('Default coding model: ' + model)
+}
+
+async function connectClaudeCode(deps: IntegrationDeps): Promise<void> {
+  const secret = ensureSecret(deps.env)
+  const models = await botConnectorModels(deps)
+  const model = agentToolDefaultModel(models)
+  const launcher = join(integrationHome(deps.env), process.platform === 'win32' ? 'claude-botconnector.cmd' : 'claude-botconnector')
+  const backup = safeBackup(launcher, deps.env)
+  mkdirSync(dirname(launcher), { recursive: true })
+
+  if (process.platform === 'win32') {
+    const keyFile = secret.replace(/\//g, '\\')
+    writeFileSync(launcher, [
+      '@echo off',
+      'set "ANTHROPIC_AUTH_TOKEN="',
+      'set "CLAUDE_CODE_OAUTH_TOKEN="',
+      'set "ANTHROPIC_API_KEY="',
+      'for /f "usebackq delims=" %%A in ("' + keyFile + '") do set "ANTHROPIC_API_KEY=%%A"',
+      'set "ANTHROPIC_BASE_URL=https://api.botconnector.id"',
+      'set "ANTHROPIC_MODEL=' + model + '"',
+      'set "ANTHROPIC_DEFAULT_OPUS_MODEL=' + model + '"',
+      'set "ANTHROPIC_DEFAULT_SONNET_MODEL=' + model + '"',
+      'set "ANTHROPIC_DEFAULT_HAIKU_MODEL=' + model + '"',
+      'claude %*',
+      '',
+    ].join('\r\n'))
+  } else {
+    const keyFile = secret.replace(/'/g, "'\\''")
+    writeFileSync(launcher, [
+      '#!/bin/sh',
+      'unset ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN',
+      'export ANTHROPIC_API_KEY="$(cat \'' + keyFile + '\')"',
+      "export ANTHROPIC_BASE_URL='https://api.botconnector.id'",
+      "export ANTHROPIC_MODEL='" + model + "'",
+      "export ANTHROPIC_DEFAULT_OPUS_MODEL='" + model + "'",
+      "export ANTHROPIC_DEFAULT_SONNET_MODEL='" + model + "'",
+      "export ANTHROPIC_DEFAULT_HAIKU_MODEL='" + model + "'",
+      'exec claude "$@"',
+      '',
+    ].join('\n'), { mode:0o700 })
+    try { chmodSync(launcher, 0o700) } catch {}
+  }
+
+  writeState('claude-code', {
+    target:'claude-code',
+    files:[{ path:launcher, ...backup }],
+    createdAt:new Date().toISOString(),
+  }, deps.env)
+  deps.out('Claude Code terhubung ke BotConnector Anthropic Messages compatibility API.')
+  deps.out('Launcher: ' + launcher)
+  deps.out('Default coding model: ' + model)
+}
+
 function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {
   const state = readState(target, deps.env)
   if (!state) {
@@ -453,7 +575,7 @@ function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {
 }
 
 function listIntegrations(deps: IntegrationDeps): void {
-  for (const target of ['opencode', 'aider', 'cline', 'deepseek-harness', 'cursor', 'openai-cli', 'openai-sdk', 'openai-compatible'] as const) {
+  for (const target of ['opencode', 'aider', 'cline', 'deepseek-harness', 'cursor', 'openai-cli', 'openai-sdk', 'openai-compatible', 'codex', 'claude-code'] as const) {
     deps.out(`${target}\t${readState(target, deps.env) ? 'connected' : 'not connected'}`)
   }
 }
@@ -475,6 +597,8 @@ export async function runIntegrationCommand(args: CliArgs, deps: IntegrationDeps
   else if (target === 'cursor') await connectCursor(deps)
   else if (target === 'openai-cli') await connectOpenAiCli(deps)
   else if (target === 'openai-sdk') await connectOpenAiSdk(deps)
-  else await connectOpenAiCompatible(deps)
+  else if (target === 'openai-compatible') await connectOpenAiCompatible(deps)
+  else if (target === 'codex') await connectCodex(deps)
+  else await connectClaudeCode(deps)
   return 0
 }
