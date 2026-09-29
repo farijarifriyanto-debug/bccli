@@ -324,6 +324,8 @@ async function connectDeepSeekHarness(deps: IntegrationDeps): Promise<void> {
   deps.out(`DeepSeek Harness terhubung ke BotConnector (${models.length} model).`)
   deps.out(`Config: ${settingsPath}`)
   deps.out('Provider: botconnector (OpenAI Chat Completions)')
+  deps.out('Jalankan: dsh web')
+  deps.out('Bentuk panjang yang setara: dsh --profile web')
 }
 
 
