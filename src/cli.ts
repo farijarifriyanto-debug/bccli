@@ -29,6 +29,16 @@ async function main(): Promise<number> {
     const { readSecret } = await import('./login')
     return runProviderCommand(args, { env: process.env, cwd, out: (s) => console.log(s), err: (s) => console.error(s), readSecret })
   }
+  if (args.command === 'connect' || args.command === 'disconnect' || args.command === 'integrations') {
+    const { runIntegrationCommand } = await import('./integrationCli')
+    return runIntegrationCommand(args, {
+      env: process.env,
+      cwd,
+      out: (s) => console.log(s),
+      err: (s) => console.error(s),
+      fetch: globalThis.fetch,
+    })
+  }
   if (args.command === 'models') {
     const config = loadConfig(cwd)
     const resolved = resolveModel(config, args.model ?? config.model)

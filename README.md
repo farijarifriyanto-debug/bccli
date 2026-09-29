@@ -4,7 +4,7 @@ Agent AI coding dari BotConnector yang bekerja di terminal: membaca kode, menged
 dan menjalankan perintah — dengan izin kamu.
 
 ```bash
-npm i -g @botconnector/bccli@next    # v0.2 beta, butuh Node.js 22+
+npm i -g @botconnector/bccli@next    # beta terbaru, butuh Node.js 22+
 bccli login                     # simpan API key BotConnector Cloud
 cd project-kamu && bccli
 ```
@@ -87,6 +87,22 @@ mendukungnya; level yang tidak didukung menghasilkan error yang jelas dan tidak 
 preference `reasoning` hanya dibaca dari config user `~/.bccli/config.json`, bukan dari repo yang di-clone —
 izin (`permissionMode`, `allow`) dan provider yang sudah ada hanya diatur dari `~/.bccli/config.json`,
 supaya repo yang kamu clone tidak bisa memberi dirinya izin penuh atau mencuri API key.
+
+## Integrasi agent eksternal
+
+BCCLI dapat memasang BotConnector sebagai provider untuk agent lain:
+
+| Perintah | Fungsi |
+|---|---|
+| `bccli integrations` | lihat status integrasi |
+| `bccli connect opencode` | hubungkan OpenCode ke BotConnector |
+| `bccli connect aider` | hubungkan Aider ke BotConnector |
+| `bccli disconnect <agent>` | pulihkan config sebelum integrasi |
+
+OpenCode memakai config global `~/.config/opencode/opencode.json`. BCCLI mengambil katalog model BotConnector saat connect,
+menjaga config provider lain, dan menyimpan secret di file terpisah di `~/.bccli/integrations/`.
+Aider memakai `~/.aider.conf.yml` yang menunjuk ke env file BCCLI terpisah; BCCLI menolak menimpa setting
+OpenAI/env-file Aider yang sudah ada. Sebelum mengubah config eksternal, BCCLI membuat backup agar disconnect dapat memulihkannya.
 
 ## Internet
 

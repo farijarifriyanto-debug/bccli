@@ -4,7 +4,7 @@ import { MODE_ORDER } from './permissions'
 import { isReasoningLevel, type ReasoningLevel, REASONING_LEVELS } from './reasoning'
 
 export interface CliArgs {
-  command: 'run' | 'login' | 'models' | 'provider' | 'mcp'
+  command: 'run' | 'login' | 'models' | 'provider' | 'mcp' | 'connect' | 'disconnect' | 'integrations'
   subArgs: string[]
   url?: string
   name?: string
@@ -33,6 +33,9 @@ Pemakaian:
   bccli models                  daftar model dari provider aktif
   bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <nama>|remove <nama>    kelola server MCP (katalog, atau --url <url>)
+  bccli integrations             lihat status integrasi agent eksternal
+  bccli connect <agent>          hubungkan BotConnector ke agent (opencode, aider)
+  bccli disconnect <agent>       lepas integrasi dan pulihkan config sebelumnya
 
 Opsi:
   -m, --model <provider/model>  pilih model, contoh bc-cloud/glm-5.3-flash
@@ -75,7 +78,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     throw new ConfigError(`--permission-mode harus salah satu dari: ${MODE_ORDER.join(', ')}`)
   }
   const [first, ...rest] = positionals
-  const SUBCOMMANDS = ['login', 'models', 'provider', 'mcp']
+  const SUBCOMMANDS = ['login', 'models', 'provider', 'mcp', 'connect', 'disconnect', 'integrations']
   const command = SUBCOMMANDS.includes(first) ? (first as CliArgs['command']) : 'run'
   const words = command === 'run' ? positionals : rest
   return {
@@ -95,7 +98,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     help: !!values.help,
     version: !!values.version,
     loginProvider: command === 'login' ? (rest[0] ?? 'bc-cloud') : undefined,
-    subArgs: command === 'provider' || command === 'mcp' ? rest : [],
+    subArgs: ['provider', 'mcp', 'connect', 'disconnect', 'integrations'].includes(command) ? rest : [],
     url: values.url,
     name: values.name,
     keyEnv: values['key-env'],
