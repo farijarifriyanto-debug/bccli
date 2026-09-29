@@ -4,7 +4,7 @@ import { parseDocument } from 'yaml'
 import type { CliArgs } from './args'
 import { bccliHome, ConfigError, loadConfig, readCredentials, resolveModel } from './config'
 
-type IntegrationTarget = 'opencode' | 'aider' | 'cline' | 'deepseek-harness'
+type IntegrationTarget = 'opencode' | 'aider' | 'cline' | 'deepseek-harness' | 'cursor' | 'openai-cli' | 'openai-sdk' | 'openai-compatible'
 
 export interface IntegrationDeps {
   env: NodeJS.ProcessEnv
@@ -36,9 +36,14 @@ function keyPath(env: NodeJS.ProcessEnv): string {
 }
 
 function parseTarget(raw: string | undefined): IntegrationTarget {
-  if (raw === 'opencode' || raw === 'aider' || raw === 'cline' || raw === 'deepseek-harness') return raw
+  if (
+    raw === 'opencode' || raw === 'aider' || raw === 'cline' || raw === 'deepseek-harness' ||
+    raw === 'cursor' || raw === 'openai-cli' || raw === 'openai-sdk' || raw === 'openai-compatible'
+  ) return raw
   if (raw === 'dsh') return 'deepseek-harness'
-  throw new ConfigError('Agent harus salah satu dari: opencode, aider, cline, deepseek-harness (alias: dsh)')
+  throw new ConfigError(
+    'Agent harus salah satu dari: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible',
+  )
 }
 
 function homeDir(env: NodeJS.ProcessEnv): string {
@@ -339,7 +344,7 @@ function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {
 }
 
 function listIntegrations(deps: IntegrationDeps): void {
-  for (const target of ['opencode', 'aider', 'cline', 'deepseek-harness'] as const) {
+  for (const target of ['opencode', 'aider', 'cline', 'deepseek-harness', 'cursor', 'openai-cli', 'openai-sdk', 'openai-compatible'] as const) {
     deps.out(`${target}\t${readState(target, deps.env) ? 'connected' : 'not connected'}`)
   }
 }
@@ -357,6 +362,10 @@ export async function runIntegrationCommand(args: CliArgs, deps: IntegrationDeps
   if (target === 'opencode') await connectOpenCode(deps)
   else if (target === 'aider') await connectAider(deps)
   else if (target === 'cline') await connectCline(deps)
-  else await connectDeepSeekHarness(deps)
+  else if (target === 'deepseek-harness') await connectDeepSeekHarness(deps)
+  else if (target === 'cursor') await connectCursor(deps)
+  else if (target === 'openai-cli') await connectOpenAiCli(deps)
+  else if (target === 'openai-sdk') await connectOpenAiSdk(deps)
+  else await connectOpenAiCompatible(deps)
   return 0
 }
