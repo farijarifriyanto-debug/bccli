@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util'
 import { ConfigError, type PermissionMode } from './config'
 import { MODE_ORDER } from './permissions'
-import { isReasoningLevel, type ReasoningLevel, REASONING_LEVELS } from './reasoning'
+import { isReasoningLevel, REASONING_LEVELS, type ReasoningLevel } from './reasoning'
 
 export interface CliArgs {
   command: 'run' | 'login' | 'models' | 'provider' | 'mcp' | 'connect' | 'disconnect' | 'integrations'
@@ -34,7 +34,7 @@ Pemakaian:
   bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <nama>|remove <nama>    kelola server MCP (katalog, atau --url <url>)
   bccli integrations             lihat status integrasi agent eksternal
-  bccli connect <agent>          hubungkan BotConnector ke agent (opencode, aider)
+  bccli connect <agent>          hubungkan BotConnector ke agent (opencode, aider, cline, deepseek-harness/dsh)
   bccli disconnect <agent>       lepas integrasi dan pulihkan config sebelumnya
 
 Opsi:
