@@ -1,6 +1,6 @@
 {
   "name": "@botconnector/bccli",
-  "version": "0.4.0-beta.11",
+  "version": "0.4.0-beta.12",
   "description": "BCCLI — BotConnector AI coding agent for the terminal",
   "type": "module",
   "bin": {
