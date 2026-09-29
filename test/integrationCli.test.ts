@@ -209,17 +209,23 @@ test('connect codex creates Responses provider profile and keyless launcher', as
   const codexHome = join(e.HOME, '.codex-test')
   const ee = { ...e, CODEX_HOME: codexHome }
   saveCredential('bc-cloud', 'bc_live_secret', ee)
+  mkdirSync(codexHome, { recursive: true })
+  const originalConfig = 'approval_policy = "on-request"\n'
+  writeFileSync(join(codexHome, 'config.toml'), originalConfig)
   const fetch = vi.fn(async () => new Response(JSON.stringify({
     data: [{ id: 'agnes-3.0-flash' }, { id: 'ling-3.0-flash' }, { id: 'mimo-v2.5' }],
   }), { status: 200 }))
   const deps = { env: ee, cwd: e.HOME, out: () => {}, err: () => {}, fetch }
   await runIntegrationCommand(parseCliArgs(['connect', 'codex']), deps)
 
-  const profilePath = join(codexHome, 'botconnector.config.toml')
+  const profilePath = join(codexHome, 'config.toml')
   const ext = process.platform === 'win32' ? '.cmd' : ''
-  const launcherPath = join(e.BCCLI_HOME, 'integrations', `codex-botconnector${ext}`)
+  const launcherPath = join(e.BCCLI_HOME, 'integrations', 'codex-botconnector' + ext)
   const profile = readFileSync(profilePath, 'utf8')
   const launcher = readFileSync(launcherPath, 'utf8')
+  expect(profile).toContain('approval_policy = "on-request"')
+  expect(profile).toContain('[model_providers.botconnector]')
+  expect(profile).toContain('[profiles.botconnector]')
   expect(profile).toContain('wire_api = "responses"')
   expect(profile).toContain('env_key = "BOTCONNECTOR_API_KEY"')
   expect(profile).toContain('base_url = "https://api.botconnector.id/v1"')
@@ -229,7 +235,7 @@ test('connect codex creates Responses provider profile and keyless launcher', as
   expect(launcher).not.toContain('bc_live_secret')
 
   await runIntegrationCommand(parseCliArgs(['disconnect', 'codex']), deps)
-  expect(() => readFileSync(profilePath, 'utf8')).toThrow()
+  expect(readFileSync(profilePath, 'utf8')).toBe(originalConfig)
   expect(() => readFileSync(launcherPath, 'utf8')).toThrow()
 })
 
