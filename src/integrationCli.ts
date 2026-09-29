@@ -1,6 +1,5 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { spawnSync } from 'node:child_process'
 import { parseDocument } from 'yaml'
 import type { CliArgs } from './args'
 import { bccliHome, ConfigError, loadConfig, readCredentials, resolveModel } from './config'
@@ -195,6 +194,132 @@ async function connectAider(deps: IntegrationDeps): Promise<void> {
   deps.out(`Config: ${configPath}`)
 }
 
+
+function externalDefaultModel(models: string[], deps: IntegrationDeps): string {
+  const config = loadConfig(deps.cwd)
+  const preferred = config.model.startsWith('bc-cloud/') ? config.model.slice('bc-cloud/'.length) : ''
+  if (preferred && models.includes(preferred)) return preferred
+  const first = models[0]
+  if (!first) throw new ConfigError('Katalog BotConnector tidak memiliki model yang dapat dipakai agent eksternal.')
+  return first
+}
+
+async function connectCline(deps: IntegrationDeps): Promise<void> {
+  const home = homeDir(deps.env)
+  const dataDir = deps.env.CLINE_DATA_DIR || join(home, '.cline', 'data')
+  const path = join(dataDir, 'settings', 'providers.json')
+  const backup = safeBackup(path, deps.env)
+  const secret = ensureSecret(deps.env)
+  const key = readFileSync(secret, 'utf8').trim()
+  const models = await botConnectorModels(deps)
+  const model = externalDefaultModel(models, deps)
+
+  let doc: Record<string, unknown> = { version: 1, modes: {}, providers: {} }
+  if (existsSync(path)) {
+    try { doc = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown> }
+    catch { throw new ConfigError('Config Cline tidak valid JSON: ' + path) }
+  }
+  const providers = (doc.providers && typeof doc.providers === 'object' && !Array.isArray(doc.providers))
+    ? { ...(doc.providers as Record<string, unknown>) }
+    : {}
+  const current = providers['openai-compatible'] as { settings?: { baseUrl?: string } } | undefined
+  const currentBase = current?.settings?.baseUrl
+  if (currentBase && currentBase.replace(/\/+$/, '') !== BASE_URL) {
+    throw new ConfigError(
+      'Cline sudah memakai provider openai-compatible lain (' + currentBase + '). ' +
+      'BCCLI tidak akan menimpanya; disconnect/ubah provider tersebut lebih dulu.',
+    )
+  }
+
+  providers['openai-compatible'] = {
+    settings: { provider: 'openai-compatible', apiKey: key, model, baseUrl: BASE_URL },
+    updatedAt: new Date().toISOString(),
+    tokenSource: 'manual',
+  }
+  doc.version = typeof doc.version === 'number' ? doc.version : 1
+  doc.lastUsedProvider = 'openai-compatible'
+  doc.modes = (doc.modes && typeof doc.modes === 'object') ? doc.modes : {}
+  doc.providers = providers
+
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, JSON.stringify(doc, null, 2) + '\n', { mode: 0o600 })
+  try { chmodSync(path, 0o600) } catch {}
+  writeState('cline', {
+    target: 'cline',
+    files: [{ path, ...backup }],
+    createdAt: new Date().toISOString(),
+  }, deps.env)
+  deps.out('Cline terhubung ke BotConnector (' + models.length + ' model tersedia; default ' + model + ').')
+  deps.out('Config: ' + path)
+  deps.out('Catatan: Cline menyimpan API key provider di providers.json miliknya.')
+}
+
+const DSH_ENV_BEGIN = '# BEGIN BCCLI BOTCONNECTOR'
+const DSH_ENV_END = '# END BCCLI BOTCONNECTOR'
+
+function stripDshEnvBlock(input: string): string {
+  const start = input.indexOf(DSH_ENV_BEGIN)
+  if (start < 0) return input
+  const end = input.indexOf(DSH_ENV_END, start)
+  if (end < 0) return input
+  const after = end + DSH_ENV_END.length
+  const left = input.slice(0, start).trimEnd()
+  const right = input.slice(after).trimStart()
+  return right ? left + '\n' + right : left
+}
+
+async function connectDeepSeekHarness(deps: IntegrationDeps): Promise<void> {
+  const home = homeDir(deps.env)
+  const dshHome = deps.env.DSH_HOME || join(home, '.dsh')
+  const settingsPath = join(dshHome, 'settings.yaml')
+  const envPath = join(dshHome, '.env')
+  const settingsBackup = safeBackup(settingsPath, deps.env)
+  const envBackup = safeBackup(envPath, deps.env)
+  const secret = ensureSecret(deps.env)
+  const key = readFileSync(secret, 'utf8').trim()
+  const models = await botConnectorModels(deps)
+
+  const source = existsSync(settingsPath) ? readFileSync(settingsPath, 'utf8') : '{}\n'
+  const doc = parseDocument(source)
+  if (doc.errors.length) throw new ConfigError('Config DeepSeek Harness tidak valid YAML: ' + settingsPath)
+
+  const existingProvider = doc.getIn(['llm-pi-ai', 'providers', PROVIDER_ID]) as { baseURL?: string } | undefined
+  if (existingProvider?.baseURL && existingProvider.baseURL.replace(/\/+$/, '') !== BASE_URL) {
+    throw new ConfigError('DeepSeek Harness sudah memiliki provider "' + PROVIDER_ID + '" dengan endpoint lain.')
+  }
+
+  doc.setIn(['llm-pi-ai', 'providers', PROVIDER_ID], {
+    displayName: 'BotConnector',
+    apiKeyEnv: 'BOTCONNECTOR_API_KEY',
+    api: 'openai-completions',
+    baseURL: BASE_URL,
+    defaultInput: ['text'],
+    compat: { supportsDeveloperRole: false, maxTokensField: 'max_tokens' },
+    models: models.map((id) => ({ id, name: id })),
+  })
+
+  let envText = existsSync(envPath) ? readFileSync(envPath, 'utf8') : ''
+  envText = stripDshEnvBlock(envText)
+  if (/^\s*BOTCONNECTOR_API_KEY\s*=/m.test(envText)) {
+    throw new ConfigError('$DSH_HOME/.env sudah memiliki BOTCONNECTOR_API_KEY di luar blok BCCLI: ' + envPath)
+  }
+  const managed = [DSH_ENV_BEGIN, 'BOTCONNECTOR_API_KEY=' + key, DSH_ENV_END].join('\n')
+  const mergedEnv = envText.trim() ? envText.trimEnd() + '\n\n' + managed + '\n' : managed + '\n'
+
+  mkdirSync(dshHome, { recursive: true })
+  writeFileSync(settingsPath, doc.toString())
+  writeFileSync(envPath, mergedEnv, { mode: 0o600 })
+  try { chmodSync(envPath, 0o600) } catch {}
+  writeState('deepseek-harness', {
+    target: 'deepseek-harness',
+    files: [{ path: settingsPath, ...settingsBackup }, { path: envPath, ...envBackup }],
+    createdAt: new Date().toISOString(),
+  }, deps.env)
+  deps.out('DeepSeek Harness terhubung ke BotConnector (' + models.length + ' model).')
+  deps.out('Config: ' + settingsPath)
+  deps.out('Provider: botconnector (OpenAI Chat Completions)')
+}
+
 function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {
   const state = readState(target, deps.env)
   if (!state) {
@@ -214,7 +339,7 @@ function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {
 }
 
 function listIntegrations(deps: IntegrationDeps): void {
-  for (const target of ['opencode', 'aider'] as const) {
+  for (const target of ['opencode', 'aider', 'cline', 'deepseek-harness'] as const) {
     deps.out(`${target}\t${readState(target, deps.env) ? 'connected' : 'not connected'}`)
   }
 }
@@ -230,6 +355,8 @@ export async function runIntegrationCommand(args: CliArgs, deps: IntegrationDeps
     return 0
   }
   if (target === 'opencode') await connectOpenCode(deps)
-  else await connectAider(deps)
+  else if (target === 'aider') await connectAider(deps)
+  else if (target === 'cline') await connectCline(deps)
+  else await connectDeepSeekHarness(deps)
   return 0
 }
