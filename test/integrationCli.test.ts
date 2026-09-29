@@ -151,3 +151,114 @@ test('connect dsh preserves existing provider and restores exact files on discon
   expect(readFileSync(settingsPath, 'utf8')).toBe(originalSettings)
   expect(readFileSync(envPath, 'utf8')).toBe(originalEnv)
 })
+
+
+test('connect openai-sdk writes dedicated env profile and disconnect removes it', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  const deps = { env: e, cwd: e.HOME, out: () => {}, err: () => {}, fetch: vi.fn() }
+  await runIntegrationCommand(parseCliArgs(['connect', 'openai-sdk']), deps)
+  const path = join(e.BCCLI_HOME, 'integrations', 'openai-sdk.env')
+  const text = readFileSync(path, 'utf8')
+  expect(text).toContain('OPENAI_BASE_URL=https://api.botconnector.id/v1')
+  expect(text).toContain('OPENAI_API_KEY=bc_live_secret')
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'openai-sdk']), deps)
+  expect(() => readFileSync(path, 'utf8')).toThrow()
+})
+
+test('connect openai-compatible writes universal env profile', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  await runIntegrationCommand(parseCliArgs(['connect', 'openai-compatible']), {
+    env: e, cwd: e.HOME, out: () => {}, err: () => {}, fetch: vi.fn(),
+  })
+  const text = readFileSync(join(e.BCCLI_HOME, 'integrations', 'openai-compatible.env'), 'utf8')
+  expect(text).toContain('OPENAI_BASE_URL=https://api.botconnector.id/v1')
+  expect(text).toContain('OPENAI_API_KEY=bc_live_secret')
+})
+
+test('connect cursor creates guided profile without embedding the API key', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  await runIntegrationCommand(parseCliArgs(['connect', 'cursor']), {
+    env: e, cwd: e.HOME, out: () => {}, err: () => {}, fetch: vi.fn(),
+  })
+  const text = readFileSync(join(e.BCCLI_HOME, 'integrations', 'cursor.txt'), 'utf8')
+  expect(text).toContain('Override OpenAI Base URL')
+  expect(text).toContain('https://api.botconnector.id/v1')
+  expect(text).toContain('API key file:')
+  expect(text).not.toContain('bc_live_secret')
+})
+
+test('connect openai-cli creates launcher that reads the BCCLI key file', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  await runIntegrationCommand(parseCliArgs(['connect', 'openai-cli']), {
+    env: e, cwd: e.HOME, out: () => {}, err: () => {}, fetch: vi.fn(),
+  })
+  const ext = process.platform === 'win32' ? '.cmd' : ''
+  const text = readFileSync(join(e.BCCLI_HOME, 'integrations', `openai-botconnector${ext}`), 'utf8')
+  expect(text).toContain('OPENAI_BASE_URL')
+  expect(text).toContain('openai')
+  expect(text).not.toContain('bc_live_secret')
+})
+
+
+test('connect codex creates Responses provider profile and keyless launcher', async () => {
+  const e = env()
+  const codexHome = join(e.HOME, '.codex-test')
+  const ee = { ...e, CODEX_HOME: codexHome }
+  saveCredential('bc-cloud', 'bc_live_secret', ee)
+  mkdirSync(codexHome, { recursive: true })
+  const originalConfig = 'approval_policy = "on-request"\n'
+  writeFileSync(join(codexHome, 'config.toml'), originalConfig)
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [{ id: 'agnes-3.0-flash' }, { id: 'ling-3.0-flash' }, { id: 'mimo-v2.5' }],
+  }), { status: 200 }))
+  const deps = { env: ee, cwd: e.HOME, out: () => {}, err: () => {}, fetch }
+  await runIntegrationCommand(parseCliArgs(['connect', 'codex']), deps)
+
+  const profilePath = join(codexHome, 'botconnector.config.toml')
+  const ext = process.platform === 'win32' ? '.cmd' : ''
+  const launcherPath = join(e.BCCLI_HOME, 'integrations', `codex-botconnector${ext}`)
+  const profile = readFileSync(profilePath, 'utf8')
+  const launcher = readFileSync(launcherPath, 'utf8')
+  expect(readFileSync(join(codexHome, 'config.toml'), 'utf8')).toBe(originalConfig)
+  expect(profile).toContain('[model_providers.botconnector]')
+  expect(profile).toContain('wire_api = "responses"')
+  expect(profile).toContain('env_key = "BOTCONNECTOR_API_KEY"')
+  expect(profile).toContain('base_url = "https://api.botconnector.id/v1"')
+  expect(profile).toContain('model = "ling-3.0-flash"')
+  expect(profile).not.toContain('bc_live_secret')
+  expect(launcher).toContain('codex -p botconnector')
+  expect(launcher).not.toContain('bc_live_secret')
+
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'codex']), deps)
+  expect(() => readFileSync(profilePath, 'utf8')).toThrow()
+  expect(readFileSync(join(codexHome, 'config.toml'), 'utf8')).toBe(originalConfig)
+  expect(() => readFileSync(launcherPath, 'utf8')).toThrow()
+})
+
+test('connect claude-code creates Messages launcher without embedding key', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [{ id: 'agnes-3.0-flash' }, { id: 'ling-3.0-flash' }],
+  }), { status: 200 }))
+  const deps = { env: e, cwd: e.HOME, out: () => {}, err: () => {}, fetch }
+  await runIntegrationCommand(parseCliArgs(['connect', 'claude-code']), deps)
+
+  const ext = process.platform === 'win32' ? '.cmd' : ''
+  const launcherPath = join(e.BCCLI_HOME, 'integrations', `claude-botconnector${ext}`)
+  const launcher = readFileSync(launcherPath, 'utf8')
+  expect(launcher).toContain('ANTHROPIC_BASE_URL')
+  expect(launcher).toContain('https://api.botconnector.id')
+  expect(launcher).toContain('ANTHROPIC_MODEL')
+  expect(launcher).toContain('ling-3.0-flash')
+  expect(launcher).toContain('ANTHROPIC_AUTH_TOKEN')
+  expect(launcher).toContain('claude')
+  expect(launcher).not.toContain('bc_live_secret')
+
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'claude-code']), deps)
+  expect(() => readFileSync(launcherPath, 'utf8')).toThrow()
+})
