@@ -1,9 +1,10 @@
 import type { PermissionRequest, Permissions } from './permissions'
 import type { ChatMessage, Provider, ToolCall, Usage } from './provider'
 import type { ReasoningLevel } from './reasoning'
+import { recoverTextToolCalls } from './textToolCalls'
 import { type ToolDefinition, toolDefinitions } from './tools/index'
 import type { Tool, ToolContext } from './tools/types'
-import { recoverTextToolCalls } from './textToolCalls'
+import { pruneOldFetches, WebBudget } from './webBudget'
 
 export type AgentEvent =
   | { type: 'text'; delta: string }
@@ -63,6 +64,7 @@ export class Agent {
   private turnTools: Tool[]
   private turnDefinitions: ToolDefinition[]
   private readonly readFiles = new Set<string>()
+  private readonly webBudget = new WebBudget()
   private readonly maxSteps: number
   // ponytail: one window for every model; read it from /v1/models metadata when providers expose it.
   private readonly contextWindow: number
@@ -111,12 +113,14 @@ export class Agent {
   load(messages: ChatMessage[]): void {
     this.messages = messages
     this.readFiles.clear()
+    this.webBudget.reset()
     this.lastInputTokens = 0
   }
 
   clear(): void {
     this.messages = []
     this.readFiles.clear()
+    this.webBudget.reset()
     this.lastInputTokens = 0
     this.opts.onReset?.()
   }
@@ -139,6 +143,7 @@ export class Agent {
     this.turnTools = this.tools
     this.turnDefinitions = this.definitions
     this.opts.onTurnStart?.()
+    this.webBudget.startTurn()
     try {
       if (this.lastInputTokens > this.contextWindow * 0.8) await this.compact(signal)
       this.push({ role: 'user', content: text })
@@ -148,6 +153,7 @@ export class Agent {
           // The summary ends with an assistant turn; restate the task so the model has something to answer.
           this.push({ role: 'user', content: `Lanjutkan tugas ini sesuai ringkasan di atas: ${text}` })
         }
+        pruneOldFetches(this.messages)
         let completion = await this.provider.chat({
           messages: [{ role: 'system', content: this.systemPrompt }, ...this.messages],
           tools: this.turnDefinitions,
@@ -256,6 +262,8 @@ export class Agent {
     }
     const input = parsed.data
     const target = tool.target(input)
+    const overBudget = tool.name === 'fetch' ? this.webBudget.take() : undefined
+    if (overBudget) return fail(overBudget, target)
     const ctx: ToolContext = {
       cwd: this.opts.cwd,
       signal,
@@ -305,6 +313,7 @@ export class Agent {
     } catch (error) {
       result = { output: `Error: ${(error as Error).message}`, isError: true }
     }
+    if (tool.name === 'fetch' && !result.isError) this.webBudget.record(result.output.length)
     this.onEvent({ type: 'toolEnd', id: call.id, tool: tool.name, output: result.output, display: result.display, isError: !!result.isError })
     return result.output
   }
