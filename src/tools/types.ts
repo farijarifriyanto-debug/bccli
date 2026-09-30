@@ -13,6 +13,8 @@ export interface ToolContext {
   emit?: (event: AgentEvent) => void
   ask?: AskPermission
   addUsage?: (usage: Usage) => void
+  /** A fetch that was answered from cache calls this so it does not count against the per-turn fetch limit. */
+  refundFetch?: () => void
   /** Called with the absolute path before a file is written, so the change can be undone. */
   checkpoint?: (absPath: string) => Promise<void>
 }

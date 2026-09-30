@@ -130,3 +130,14 @@ test('agent: old fetch results are stubbed in what the model receives (in batche
   expect(sent.filter(isStub)).toHaveLength(3)
   expect(sent.slice(-5).every((c) => c.length === 36_000)).toBe(true)
 })
+
+test('refund gives back a reservation so cached fetches do not use up the per-turn limit', () => {
+  const b = new WebBudget({ perTurn: 2 })
+  expect(b.take()).toBeUndefined()
+  b.refund()
+  expect(b.take()).toBeUndefined()
+  expect(b.take()).toBeUndefined()
+  expect(b.take()).toContain('Batas 2 fetch')
+  b.refund()
+  expect(b.take()).toBeUndefined()
+})
