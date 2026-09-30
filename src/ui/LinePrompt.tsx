@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
+import { isFocusReport } from './focusReport'
 import { color } from './theme'
 
 export function LinePrompt({ label, mask, onSubmit, onCancel }: { label: string; mask?: boolean; onSubmit(value: string): void; onCancel(): void }) {
@@ -8,7 +9,7 @@ export function LinePrompt({ label, mask, onSubmit, onCancel }: { label: string;
     if (key.return) onSubmit(value.trim())
     else if (key.escape) onCancel()
     else if (key.backspace || key.delete) setValue((v) => v.slice(0, -1))
-    else if (!key.ctrl && !key.meta && !key.tab && !key.upArrow && !key.downArrow) setValue((v) => v + input.replace(/[\r\n]/g, ''))
+    else if (!key.ctrl && !key.meta && !key.tab && !key.upArrow && !key.downArrow && !isFocusReport(input)) setValue((v) => v + input.replace(/[\r\n]/g, ''))
   })
   const shown = mask ? '•'.repeat(value.length) : value
   return (
