@@ -2,6 +2,7 @@ import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import { SLASH_COMMANDS } from '../commands'
 import { completeFile } from './complete'
+import { isFocusReport } from './focusReport'
 import { color } from './theme'
 
 export interface PromptInputProps {
@@ -82,7 +83,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }:
         edit((v) => completeFile(v, cwd))
         return
       }
-      if (key.ctrl || key.meta || key.escape || key.tab || key.leftArrow || key.rightArrow) return
+      if (key.ctrl || key.meta || key.escape || key.tab || key.leftArrow || key.rightArrow || isFocusReport(input)) return
       edit((v) => v + input.replace(/\r/g, '\n'))
     },
     { isActive: !disabled },
