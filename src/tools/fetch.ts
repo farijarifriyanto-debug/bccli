@@ -168,7 +168,10 @@ export function createFetchTool(opts: FetchToolOptions = {}) {
       if (askKeenable) {
         const key = `x\n${input.url}\n${prompt}`
         const hit = recall<string>(key)
-        if (hit) return { output: hit, display: withCost(hit, 'kutipan fokus · cache') }
+        if (hit) {
+          ctx.refundFetch?.()
+          return { output: hit, display: withCost(hit, 'kutipan fokus · cache') }
+        }
         const out = await extractWithKeenable(keenableURL, input.url, prompt, ctx.signal)
         if (out) {
           const output = `[Kutipan dari ${input.url} untuk "${prompt}" (diekstrak Keenable). Kalau jawabannya "tidak ada", coba fetch tanpa prompt.]\n${out}`
@@ -179,6 +182,7 @@ export function createFetchTool(opts: FetchToolOptions = {}) {
 
       let page = recall<Page>(`p\n${input.url}`)
       const cached = !!page
+      if (cached) ctx.refundFetch?.()
       if (!page) {
         const loaded = await loadPage(input.url, ctx.signal)
         if ('error' in loaded) return { output: loaded.error, isError: true }

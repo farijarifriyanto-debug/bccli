@@ -61,6 +61,10 @@ export class WebBudget {
   startTurn(): void {
     this.fetches = 0
   }
+  /** Gives back a reservation, e.g. when the fetch was served from cache and cost nothing. */
+  refund(): void {
+    if (this.fetches > 0) this.fetches--
+  }
   reset(): void {
     this.fetches = 0
     this.chars = 0
