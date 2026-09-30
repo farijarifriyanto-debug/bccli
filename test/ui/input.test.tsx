@@ -21,6 +21,19 @@ test('typing and enter submits trimmed text, then clears', async () => {
   expect(lastFrame()).not.toContain('halo')
 })
 
+test('terminal focus in/out reports are not typed into the prompt', async () => {
+  const { stdin, lastFrame } = render(<PromptInput history={[]} cwd="." onSubmit={() => {}} />)
+  await tick()
+  stdin.write('\x1b[I')
+  await tick()
+  stdin.write('ab')
+  await tick()
+  stdin.write('\x1b[O')
+  await tick()
+  expect(lastFrame()).toContain('> ab')
+  expect(lastFrame()).not.toMatch(/\[[IO]/)
+})
+
 test('backslash + enter inserts a newline', async () => {
   const onSubmit = vi.fn()
   const { stdin, lastFrame } = render(<PromptInput history={[]} cwd="." onSubmit={onSubmit} />)

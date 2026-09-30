@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
+import { isFocusReport } from './focusReport'
 import { color } from './theme'
 
 export interface ListItem {
@@ -24,7 +25,7 @@ export function ListPicker({ title, items, onPick }: { title: string; items: Lis
     else if (key.backspace || key.delete) {
       setFilter((f) => f.slice(0, -1))
       setIndex(0)
-    } else if (!key.ctrl && !key.meta && !key.tab && input) {
+    } else if (!key.ctrl && !key.meta && !key.tab && input && !isFocusReport(input)) {
       setFilter((f) => f + input)
       setIndex(0)
     }

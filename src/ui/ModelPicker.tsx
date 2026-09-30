@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import type { ModelGroup } from '../models'
+import { isFocusReport } from './focusReport'
 import { color } from './theme'
 
 type Row = { kind: 'header'; text: string } | { kind: 'model'; ref: string; label: string }
@@ -32,7 +33,7 @@ export function ModelPicker({ groups, current, onPick }: { groups: ModelGroup[];
     else if (key.backspace || key.delete) {
       setFilter((f) => f.slice(0, -1))
       setIndex(0)
-    } else if (!key.ctrl && !key.meta && !key.tab && input) {
+    } else if (!key.ctrl && !key.meta && !key.tab && input && !isFocusReport(input)) {
       setFilter((f) => f + input)
       setIndex(0)
     }
