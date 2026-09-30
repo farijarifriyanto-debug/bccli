@@ -132,6 +132,15 @@ test('reopening the same URL is served from the session cache', async () => {
   expect(again.display).toContain('cache')
 })
 
+test('a cached fetch refunds its budget reservation, a fresh one does not', async () => {
+  let refunds = 0
+  const counting = { ...ctx, refundFetch: () => void refunds++ }
+  await fetchTool.run({ url: `${base}/long` }, counting)
+  expect(refunds).toBe(0)
+  await fetchTool.run({ url: `${base}/long`, offset: 12_000 }, counting)
+  expect(refunds).toBe(1)
+})
+
 test('the result shows what the fetch cost in tokens', async () => {
   const r = await fetchTool.run({ url: `${base}/long` }, ctx)
   expect(r.display).toMatch(/~\d+ token/)

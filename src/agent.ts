@@ -272,6 +272,7 @@ export class Agent {
       emit: (event) => this.onEvent(event),
       ask: (req) => this.askPermission(req),
       checkpoint: this.opts.checkpoint,
+      refundFetch: () => this.webBudget.refund(),
       addUsage: (u) => {
         this.totalUsage.inputTokens += u.inputTokens
         this.totalUsage.outputTokens += u.outputTokens
