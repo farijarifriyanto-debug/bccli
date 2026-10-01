@@ -1,44 +1,68 @@
-import { Box, Text } from 'ink'
+import { Box, Text, useStdout } from 'ink'
 import type { ReactNode } from 'react'
+import { layoutTable, parseInline, parseTable, type Seg } from './table'
 import { color } from './theme'
 
-function inline(line: string): ReactNode[] {
-  return line.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) => {
-    if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) {
-      return (
-        <Text key={i} bold>
-          {part.slice(2, -2)}
-        </Text>
-      )
-    }
-    if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) {
-      return (
-        <Text key={i} color={color('cyan')}>
-          {part.slice(1, -1)}
-        </Text>
-      )
-    }
-    return part
-  })
+function segment(seg: Seg, key: number): ReactNode {
+  if (seg.style === 'bold') {
+    return (
+      <Text key={key} bold>
+        {seg.text}
+      </Text>
+    )
+  }
+  if (seg.style === 'code') {
+    return (
+      <Text key={key} color={color('cyan')}>
+        {seg.text}
+      </Text>
+    )
+  }
+  if (seg.style === 'dim') {
+    return (
+      <Text key={key} dimColor>
+        {seg.text}
+      </Text>
+    )
+  }
+  return seg.text
 }
 
-export function Markdown({ text }: { text: string }) {
-  let inCode = false
+const inline = (line: string): ReactNode[] => parseInline(line).map(segment)
+
+/**
+ * `indent` is how many columns the surrounding UI already uses (a bullet, a border), so tables are sized to
+ * what is really left of the terminal width.
+ */
+export function Markdown({ text, indent = 2 }: { text: string; indent?: number }) {
+  const { stdout } = useStdout()
+  const width = Math.max(20, (stdout?.columns ?? 80) - indent - 1)
+  const lines = text.split('\n')
   const rows: ReactNode[] = []
-  text.split('\n').forEach((line, i) => {
+  let inCode = false
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
     if (line.trimStart().startsWith('```')) {
       inCode = !inCode
-      return
+      continue
     }
-    rows.push(
-      inCode ? (
+    if (inCode) {
+      rows.push(
         <Text key={i} color={color('cyan')}>
           {`  ${line}`}
-        </Text>
-      ) : (
-        <Text key={i}>{line ? inline(line) : ' '}</Text>
-      ),
-    )
-  })
+        </Text>,
+      )
+      continue
+    }
+    const parsed = parseTable(lines, i)
+    if (parsed) {
+      layoutTable(parsed.table, width).forEach((tableLine, n) => {
+        rows.push(<Text key={`${i}-${n}`}>{tableLine.length ? tableLine.map(segment) : ' '}</Text>)
+      })
+      i = parsed.end - 1
+      continue
+    }
+    rows.push(<Text key={i}>{line ? inline(line) : ' '}</Text>)
+  }
   return <Box flexDirection="column">{rows}</Box>
 }
