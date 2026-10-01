@@ -3,6 +3,8 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { PRESETS } from './presets'
 import type { ReasoningLevel } from './reasoning'
+import { t } from './i18n'
+import type { Lang } from './i18n'
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'allowAll'
 
@@ -16,6 +18,8 @@ export interface Config {
   model: string
   permissionMode: PermissionMode
   reasoning: ReasoningLevel
+  /** Interface language; only the global config is read for it. */
+  language?: Lang
   providers: Record<string, ProviderConfig>
   allow: string[]
   /** Provider ids that came from the (untrusted) project config. */
@@ -48,7 +52,7 @@ export function readJsonConfig(path: string): Partial<Config> {
   try {
     return JSON.parse(readFileSync(path, 'utf8'))
   } catch (error) {
-    throw new ConfigError(`Config tidak valid: ${path} (${(error as Error).message})`)
+    throw new ConfigError(t('Invalid config: {path} ({error})', { path, error: (error as Error).message }))
   }
 }
 
@@ -101,16 +105,16 @@ export function saveCredential(providerId: string, key: string, env: NodeJS.Proc
 export function resolveModel(config: Config, modelRef: string, env: NodeJS.ProcessEnv = process.env): ResolvedModel {
   const slash = modelRef.indexOf('/')
   if (slash <= 0 || slash === modelRef.length - 1) {
-    throw new ConfigError(`Model harus berformat provider/model, contoh bc-cloud/glm-5.3-flash (dapat: ${modelRef})`)
+    throw new ConfigError(t('Model must be in provider/model format, e.g. bc-cloud/glm-5.3-flash (got: {ref})', { ref: modelRef }))
   }
   const providerId = modelRef.slice(0, slash)
   const provider = config.providers[providerId]
   if (!provider) {
-    throw new ConfigError(`Provider "${providerId}" tidak ada di config. Tersedia: ${Object.keys(config.providers).join(', ')}`)
+    throw new ConfigError(t('Provider "{id}" is not in the config. Available: {list}', { id: providerId, list: Object.keys(config.providers).join(', ') }))
   }
   const apiKey = (provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined) || readCredentials(env)[providerId] || undefined
   if (provider.apiKeyEnv && !apiKey) {
-    throw new ConfigError(`API key untuk ${providerId} belum ada. Jalankan \`bccli login\` atau set env ${provider.apiKeyEnv}.`)
+    throw new ConfigError(t('No API key for {id} yet. Run `bccli login` or set the env var {env}.', { id: providerId, env: provider.apiKeyEnv }))
   }
   return { providerId, model: modelRef.slice(slash + 1), baseURL: provider.baseURL.replace(/\/+$/, ''), apiKey }
 }

@@ -1,4 +1,5 @@
 import type { Runtime } from './setup'
+import { t } from './i18n'
 
 interface Writer {
   write(s: string): unknown
@@ -17,7 +18,7 @@ export async function runPrint(
 ): Promise<number> {
   rt.interaction.approvePlan = async () => {
     if (opts.allowAll) return 'allowAll'
-    io.err.write('Rencana butuh persetujuan; jalankan dengan --allow-all.\n')
+    io.err.write(`${t('Plan needs approval; run with --allow-all.')}\n`)
     return 'no'
   }
   let failed = false
@@ -35,11 +36,11 @@ export async function runPrint(
         if (event.isError) io.err.write(`  ✗ ${event.output.split('\n')[0]}\n`)
         break
       case 'stepLimit':
-        io.err.write('Batas langkah tercapai.\n')
+        io.err.write(`${t('Step limit reached.')}\n`)
         failed = true
         break
       case 'aborted':
-        io.err.write('Dibatalkan.\n')
+        io.err.write(`${t('Cancelled.')}\n`)
         failed = true
         break
       case 'error':
@@ -49,7 +50,7 @@ export async function runPrint(
     }
   }
   rt.agent.askPermission = async (req) => {
-    io.err.write(`  Butuh izin untuk ${req.tool}. Jalankan dengan --allow-all atau --allowed-tools ${req.kind}.\n`)
+    io.err.write(`  ${t('Needs permission for {tool}. Run with --allow-all or --allowed-tools {kind}.', { tool: req.tool, kind: req.kind })}\n`)
     return 'no'
   }
   const controller = new AbortController()

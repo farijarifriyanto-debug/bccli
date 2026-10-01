@@ -2,8 +2,9 @@ import { Box, Text, useInput } from 'ink'
 import type { PermissionAnswer, PermissionAsk } from '../agent'
 import { DiffView } from './DiffView'
 import { color } from './theme'
+import { t } from '../i18n'
 
-const VERB: Record<string, string> = { edit: 'edit', write: 'tulis', bash: 'jalankan', fetch: 'ambil' }
+const VERB: Record<string, string> = { edit: 'edit', write: 'write', bash: 'run', fetch: 'fetch' }
 
 export function PermissionPrompt({
   request,
@@ -24,18 +25,18 @@ export function PermissionPrompt({
   const sessionLabel = !rules.length
     ? null
     : request.kind === 'edit'
-      ? 'ya untuk semua edit di project ini, sesi ini'
-      : `ya sesi ini untuk ${rules.join(', ')}`
+      ? t('yes for all edits in this project, this session')
+      : t('yes this session for {rules}', { rules: rules.join(', ') })
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={color('yellow')} paddingX={1}>
-      <Text bold>{`${request.agent ? `[${request.agent}] ` : ''}Izinkan ${VERB[request.tool] ?? request.tool} ${request.target}?`}</Text>
+      <Text bold>{`${request.agent ? `[${request.agent}] ` : ''}${t('Allow {verb} {target}?', { verb: t(VERB[request.tool] ?? request.tool), target: request.target })}`}</Text>
       {request.preview ? <DiffView diff={request.preview} /> : null}
       <Text>
-        <Text color={color('green')}>[y] ya</Text>
+        <Text color={color('green')}>{t('[y] yes')}</Text>
         {'   '}
         {sessionLabel ? <Text color={color('cyan')}>{`[a] ${sessionLabel}   `}</Text> : null}
-        <Text color={color('yellow')}>{'[s] ya semua   '}</Text>
-        <Text color={color('red')}>[n] tidak</Text>
+        <Text color={color('yellow')}>{t('[s] yes to all   ')}</Text>
+        <Text color={color('red')}>{t('[n] no')}</Text>
       </Text>
     </Box>
   )

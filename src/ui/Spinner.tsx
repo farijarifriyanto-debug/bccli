@@ -1,6 +1,7 @@
 import { Text } from 'ink'
 import { useEffect, useState } from 'react'
 import { ACCENT, color } from './theme'
+import { t } from '../i18n'
 
 const FRAMES = ['·', '✢', '✳', '✶', '✻', '✽']
 
@@ -11,5 +12,5 @@ export function Spinner({ label, startedAt }: { label: string; startedAt: number
     return () => clearInterval(id)
   }, [])
   const seconds = Math.floor((Date.now() - startedAt) / 1000)
-  return <Text color={color(ACCENT)}>{`${FRAMES[tick % FRAMES.length]} ${label}… (${seconds} dtk · esc batal)`}</Text>
+  return <Text color={color(ACCENT)}>{`${FRAMES[tick % FRAMES.length]} ${t('{label}… ({seconds}s · esc to cancel)', { label, seconds })}`}</Text>
 }

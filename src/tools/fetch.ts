@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { defineTool } from './types'
+import { t } from '../i18n'
 
 const MAX_CHARS = 12_000
 const FOCUS_CHUNKS = 3
@@ -49,13 +50,13 @@ function describeFetchError(error: unknown): string {
   const cause = (error as { cause?: { code?: string; message?: string } }).cause
   const code = cause?.code ?? ''
   const detail = cause?.message ?? (error as Error).message
-  if ((error as Error).name === 'TimeoutError') return 'tidak ada jawaban dalam 30 detik'
-  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return `${detail} — DNS tidak menemukan host (salah ketik, offline, atau diblokir DNS/ISP)`
+  if ((error as Error).name === 'TimeoutError') return 'no response within 30 seconds'
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return `${detail} — DNS could not find the host (typo, offline, or blocked by DNS/ISP)`
   if (/CERT|SELF_SIGNED|UNABLE_TO/.test(code)) {
-    return `${detail} — sertifikat TLS ditolak; sering karena antivirus/proxy yang memeriksa HTTPS. Coba jalankan dengan NODE_OPTIONS=--use-system-ca`
+    return `${detail} — TLS certificate rejected; often caused by an antivirus or proxy that inspects HTTPS. Try running with NODE_OPTIONS=--use-system-ca`
   }
   if (/ECONNRESET|ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|UND_ERR_CONNECT_TIMEOUT|UND_ERR_SOCKET/.test(code)) {
-    return `${detail} — koneksi gagal (firewall, proxy, atau situs diblokir jaringan)`
+    return `${detail} — connection failed (firewall, proxy, or the site is blocked by the network)`
   }
   return code ? `${detail} (${code})` : detail
 }
@@ -141,7 +142,7 @@ export interface FetchToolOptions {
 }
 
 const ACCEPT = 'text/markdown, text/html;q=0.9, text/plain;q=0.8, */*;q=0.5'
-const withCost = (text: string, what: string) => `${what} · ~${tokensOf(text)} token`
+const withCost = (text: string, what: string) => `${what} · ${t('~{n} tokens', { n: tokensOf(text) })}`
 
 export function createFetchTool(opts: FetchToolOptions = {}) {
   const keenableURL = opts.keenableURL === undefined ? 'https://api.keenable.ai/v1/fetch/public' : opts.keenableURL
@@ -160,7 +161,7 @@ export function createFetchTool(opts: FetchToolOptions = {}) {
     kind: 'fetch',
     target: (input) => input.url,
     async run(input, ctx) {
-      if (!/^https?:\/\//i.test(input.url)) return { output: 'URL harus diawali http:// atau https://', isError: true }
+      if (!/^https?:\/\//i.test(input.url)) return { output: 'URL must start with http:// or https://', isError: true }
       const target = new URL(input.url)
       const prompt = input.prompt?.trim()
       const askKeenable = !!prompt && !input.offset && !!keenableURL && !target.username && !target.password && !isPrivate(target.hostname)
@@ -170,13 +171,13 @@ export function createFetchTool(opts: FetchToolOptions = {}) {
         const hit = recall<string>(key)
         if (hit) {
           ctx.refundFetch?.()
-          return { output: hit, display: withCost(hit, 'kutipan fokus · cache') }
+          return { output: hit, display: withCost(hit, t('focused excerpt · cache')) }
         }
         const out = await extractWithKeenable(keenableURL, input.url, prompt, ctx.signal)
         if (out) {
-          const output = `[Kutipan dari ${input.url} untuk "${prompt}" (diekstrak Keenable). Kalau jawabannya "tidak ada", coba fetch tanpa prompt.]\n${out}`
+          const output = `[Excerpt from ${input.url} for "${prompt}" (extracted by Keenable). If it says the answer is not there, try fetch without a prompt.]\n${out}`
           remember(key, output, output.length)
-          return { output, display: withCost(output, 'kutipan fokus (Keenable)') }
+          return { output, display: withCost(output, t('focused excerpt (Keenable)')) }
         }
       }
 
@@ -195,22 +196,22 @@ export function createFetchTool(opts: FetchToolOptions = {}) {
       if (prompt && !input.offset) {
         const picked = pickRelevant(text, prompt)
         if (picked) {
-          const output = `[Kutipan paling relevan dari ${input.url} untuk "${prompt}" (${text.length} karakter total). Halaman penuh: fetch tanpa prompt.]\n${picked}`
-          return { output, display: withCost(output, `kutipan fokus (lokal)${via}`) }
+          const output = `[Most relevant excerpt from ${input.url} for "${prompt}" (${text.length} characters total). Full page: fetch without a prompt.]\n${picked}`
+          return { output, display: withCost(output, `${t('focused excerpt (local)')}${via}`) }
         }
       }
 
       const offset = input.offset ?? 0
       if (offset >= text.length && text.length > 0) {
-        return { output: `offset ${offset} melewati akhir halaman (${text.length} karakter).`, isError: true }
+        return { output: `offset ${offset} is past the end of the page (${text.length} characters).`, isError: true }
       }
       const end = Math.min(offset + MAX_CHARS, text.length)
       let output = text.slice(offset, end)
       if (end < text.length || truncated) {
         const total = truncated ? `${text.length}+` : text.length
-        output += `\n… [dipotong: karakter ${offset}-${end} dari ${total}. Lanjut dengan offset=${end}, atau pakai prompt untuk kutipan terfokus.]`
+        output += `\n… [truncated: characters ${offset}-${end} of ${total}. Continue with offset=${end}, or use prompt for a focused excerpt.]`
       }
-      const size = truncated ? 'lebih dari 5 MB, dipotong' : `${text.length} karakter`
+      const size = truncated ? t('over 5 MB, truncated') : t('{n} characters', { n: text.length })
       return { output, display: withCost(output, `${size}${via}`) }
     },
   })
@@ -244,19 +245,19 @@ async function loadPage(inputUrl: string, signal: AbortSignal): Promise<{ text: 
       const next = new URL(location, url)
       if (next.host !== url.host) {
         await res.body?.cancel()
-        return { error: `Redirect ke host lain: ${next.href}. Panggil fetch lagi dengan URL itu kalau memang perlu (akan diminta izin).` }
+        return { error: `Redirect to another host: ${next.href}. Call fetch again with that URL if needed (permission will be requested).` }
       }
       await res.body?.cancel()
       url = next
     }
   } catch (error) {
-    return { error: `Gagal mengambil ${inputUrl}: ${describeFetchError(error)}` }
+    return { error: `Failed to fetch ${inputUrl}: ${describeFetchError(error)}` }
   }
-  if (!res) return { error: `Gagal mengambil ${inputUrl}` }
+  if (!res) return { error: `Failed to fetch ${inputUrl}` }
   const { text: body, truncated } = await readCapped(res)
   const type = res.headers.get('content-type') ?? ''
   const text = type.includes('html') ? htmlToText(body) : body
-  if (!res.ok) return { error: `HTTP ${res.status} dari ${inputUrl}: ${text.slice(0, 500)}` }
+  if (!res.ok) return { error: `HTTP ${res.status} from ${inputUrl}: ${text.slice(0, 500)}` }
   return { text, truncated, at: Date.now() }
 }
 

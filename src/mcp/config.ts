@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { ConfigError } from '../config'
+import { t } from '../i18n'
 
 export type McpServerConfig =
   | { type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> }
@@ -22,7 +23,7 @@ function readJson<T>(path: string, fallback: T): T {
   try {
     return JSON.parse(readFileSync(path, 'utf8'))
   } catch (error) {
-    throw new ConfigError(`File MCP tidak valid: ${path} (${(error as Error).message})`)
+    throw new ConfigError(t('Invalid MCP file: {path} ({error})', { path, error: (error as Error).message }))
   }
 }
 

@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { diffLines, formatDiff } from '../diff'
 import { errorCode, resolvePath } from './paths'
 import { defineTool } from './types'
+import { t } from '../i18n'
 
 export const writeTool = defineTool({
   name: 'write',
@@ -17,7 +18,7 @@ export const writeTool = defineTool({
   target: (input) => input.path,
   async validate(input, ctx) {
     const abs = resolvePath(ctx.cwd, input.path)
-    return existsSync(abs) && !ctx.readFiles.has(abs) ? `${input.path} sudah ada. Baca dulu dengan read sebelum menimpanya.` : undefined
+    return existsSync(abs) && !ctx.readFiles.has(abs) ? `${input.path} already exists. Read it with read before overwriting it.` : undefined
   },
   async preview(input, ctx) {
     const abs = resolvePath(ctx.cwd, input.path)
@@ -27,17 +28,17 @@ export const writeTool = defineTool({
   async run(input, ctx) {
     const abs = resolvePath(ctx.cwd, input.path)
     if (existsSync(abs) && !ctx.readFiles.has(abs)) {
-      return { output: `${input.path} sudah ada. Baca dulu dengan read sebelum menimpanya.`, isError: true }
+      return { output: `${input.path} already exists. Read it with read before overwriting it.`, isError: true }
     }
     try {
       await ctx.checkpoint?.(abs)
       await mkdir(dirname(abs), { recursive: true })
       await writeFile(abs, input.content)
     } catch (error) {
-      return { output: `Gagal menulis ${input.path}: ${errorCode(error)}`, isError: true }
+      return { output: `Failed to write ${input.path}: ${errorCode(error)}`, isError: true }
     }
     ctx.readFiles.add(abs)
     const lines = input.content.split('\n').length
-    return { output: `Menulis ${input.path} (${lines} baris).`, display: `${lines} baris ditulis` }
+    return { output: `Wrote ${input.path} (${lines} lines).`, display: t('{lines} lines written', { lines }) }
   },
 })

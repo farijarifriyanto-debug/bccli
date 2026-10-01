@@ -107,8 +107,8 @@ test('unknown agent, unknown tools in a custom agent, and unknown provider are e
   )
   await agent.run('go', new AbortController().signal)
   const results = requests.at(-1)!.messages.filter((m) => m.role === 'tool').map((m) => String(m.content))
-  expect(results[0]).toMatch(/Agent "ghost" tidak ada/)
-  expect(results[1]).toMatch(/alat tidak dikenal: teleport/)
+  expect(results[0]).toMatch(/Agent "ghost" does not exist/)
+  expect(results[1]).toMatch(/unknown tools: teleport/)
   expect(results[2]).toMatch(/Provider "nope"/)
 })
 

@@ -28,6 +28,7 @@ Perintah di dalam sesi (ketik `/` untuk saran, ↑↓ pilih, Enter jalankan):
 | `/model` | ganti model |
 | `/reasoning` | pilih Auto / Off / Low / Medium / High / Max |
 | `/provider` | tambah/pilih provider AI |
+| `/language` | ganti bahasa tampilan (`en` / `id`) |
 | `/mcp` | pasang/kelola server MCP |
 | `/new` | sesi baru (sesi lama tetap tersimpan) |
 | `/resume` | lanjutkan sesi lain di folder ini |
@@ -55,6 +56,19 @@ Shift+Tab ganti mode izin: `default` → `acceptEdits` → `plan` → `allowAll`
 
 Mode `-p` tidak pernah bertanya: alat yang butuh izin ditolak, kecuali memakai
 `--allow-all` atau `--allowed-tools bash,edit,fetch`.
+
+## Bahasa
+
+Tampilan BCCLI (bantuan, pesan, prompt izin) memakai **bahasa Inggris secara default**. Bahasa Indonesia tetap tersedia:
+
+```bash
+bccli --lang id          # hanya untuk satu kali jalan
+BCCLI_LANG=id bccli      # lewat environment
+/language id             # di dalam sesi; disimpan di ~/.bccli/config.json ("language")
+```
+
+Urutan prioritas: `--lang`, lalu `BCCLI_LANG`, lalu `language` di config, lalu Inggris. Bahasa jawaban model mengikuti bahasa yang kamu tulis, dan
+pesan alat yang dibaca model (hasil tool, galat) selalu berbahasa Inggris supaya tidak mengganggu bahasa jawabannya.
 
 ## Provider
 

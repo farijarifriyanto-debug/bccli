@@ -41,24 +41,25 @@ import { PlanApproval } from './PlanApproval'
 import { TodoList } from './TodoList'
 import { ToolBlock } from './ToolBlock'
 import { applyEvent, type Entry, endTurn, entry, type Transcript } from './transcript'
+import { getLanguage, locale, parseLang, setLanguage, t } from '../i18n'
 
 
 function helpText(runtime: Runtime): string {
   const custom = runtime.commands.filter((c) => !SLASH_COMMANDS.some((b) => b.name === c.name))
   return [
-    ...SLASH_COMMANDS.map((c) => `/${c.name.padEnd(12)} ${c.description}`),
-    ...(custom.length ? ['', 'Perintah custom:', ...custom.map((c) => `/${c.name.padEnd(8)} ${c.description ?? ''}`)] : []),
-    ...(runtime.skills.length ? ['', 'Skill:', ...runtime.skills.map((s) => `/${s.name.padEnd(8)} ${s.description.slice(0, 60)}`)] : []),
+    ...SLASH_COMMANDS.map((c) => `/${c.name.padEnd(12)} ${t(c.description)}`),
+    ...(custom.length ? ['', t('Custom commands:'), ...custom.map((c) => `/${c.name.padEnd(8)} ${c.description ?? ''}`)] : []),
+    ...(runtime.skills.length ? ['', t('Skills:'), ...runtime.skills.map((s) => `/${s.name.padEnd(8)} ${s.description.slice(0, 60)}`)] : []),
     '',
-    'shift+tab  ganti mode izin    esc  batalkan giliran',
-    'ctrl+o     output alat terakhir lengkap    \\ + enter  baris baru',
-    'ctrl+t     buka/tutup thinking model',
-    '@file + tab  lengkapi nama file    ↑↓  riwayat input',
+    t('shift+tab  switch permission mode    esc  cancel the turn'),
+    t('ctrl+o     full output of the last tool    \\ + enter  new line'),
+    t('ctrl+t     show/hide the model’s thinking'),
+    t('@file + tab  complete file names    ↑↓  input history'),
   ].join('\n')
 }
 
 const INIT_PROMPT =
-  'Pelajari project ini (struktur folder, file package/build, perintah test dan lint, konvensi kode yang terlihat). Lalu buat AGENTS.md di root project, atau perbarui bila sudah ada, berisi: cara build, test, dan lint; struktur singkat; konvensi penting. Ringkas dan faktual, hanya yang benar-benar ada di project.'
+  'Study this project (folder structure, package/build files, test and lint commands, visible code conventions). Then create AGENTS.md in the project root, or update it if it already exists, covering: how to build, test, and lint; a short structure overview; important conventions. Keep it concise and factual, only what actually exists in the project.'
 
 const labelFor = (runtime: Runtime, ref: string) => `${ref.slice(ref.indexOf('/') + 1)} · ${runtime.providerLabel()}`
 
@@ -92,11 +93,11 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const extraCommands = [
     ...runtime.commands
       .filter((c) => !SLASH_COMMANDS.some((b) => b.name === c.name.toLowerCase()))
-      .map((c) => ({ name: c.name.toLowerCase(), description: c.description ?? 'perintah custom' })),
+      .map((c) => ({ name: c.name.toLowerCase(), description: c.description ?? t('custom command') })),
     ...runtime.skills
       .filter((s) => !runtime.commands.some((c) => c.name.toLowerCase() === s.name.toLowerCase()))
       .filter((s) => !SLASH_COMMANDS.some((b) => b.name === s.name.toLowerCase()))
-      .map((s) => ({ name: s.name, description: `skill · ${s.description.slice(0, 50)}` })),
+      .map((s) => ({ name: s.name, description: t('skill · {description}', { description: s.description.slice(0, 50) }) })),
   ]
   const lastTool = useRef<{ tool: string; target: string; output: string } | null>(null)
   const toolTargets = useRef(new Map<string, string>())
@@ -147,11 +148,11 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'clear':
           runtime.agent.clear()
           setTokens(0)
-          notice('Percakapan dikosongkan.')
+          notice(t('Conversation cleared.'))
           return
         case 'cost': {
           const u = runtime.agent.totalUsage
-          notice(`${u.inputTokens.toLocaleString('id-ID')} token masuk · ${u.outputTokens.toLocaleString('id-ID')} token keluar`)
+          notice(t('{input} tokens in · {output} tokens out', { input: u.inputTokens.toLocaleString(locale()), output: u.outputTokens.toLocaleString(locale()) }))
           return
         }
         case 'compact': {
@@ -161,7 +162,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           try {
             await runtime.agent.compact(controller.current.signal)
           } catch (error) {
-            notice(`Gagal meringkas: ${(error as Error).message}`, 'error')
+            notice(t('Could not summarize: {error}', { error: (error as Error).message }), 'error')
           }
           controller.current = null
           setBusy(false)
@@ -176,7 +177,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
               runtime.setReasoning(level)
               writeGlobalConfig({ reasoning: level }, runtime.env)
               setReasoning(level)
-              notice(`Reasoning: ${level} (tersimpan sebagai default)`)
+              notice(t('Reasoning: {level} (saved as default)', { level }))
             } catch (error) {
               notice((error as Error).message, 'error')
             }
@@ -193,7 +194,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
               id: level,
               label: level === 'auto' ? 'Auto (model default)' : level.charAt(0).toUpperCase() + level.slice(1),
               disabled: !supported.includes(level),
-              hint: supported.includes(level) ? undefined : 'tidak didukung provider ini',
+              hint: supported.includes(level) ? undefined : t('not supported by this provider'),
             })),
             onPick: (id) => {
               setListPicker(null)
@@ -208,7 +209,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
               runtime.setModel(args)
               writeGlobalConfig({ model: args }, runtime.env)
               setModelLabel(labelFor(runtime, args))
-              notice(`Model: ${args} (tersimpan sebagai default)`)
+              notice(t('Model: {model} (saved as default)', { model: args }))
             } catch (error) {
               notice((error as Error).message, 'error')
             }
@@ -217,7 +218,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           try {
             setPicker(await runtime.listModels())
           } catch (error) {
-            notice(`Tidak bisa mengambil daftar model: ${(error as Error).message}`, 'error')
+            notice(t('Cannot fetch the model list: {error}', { error: (error as Error).message }), 'error')
           }
           return
         }
@@ -225,7 +226,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           const installed = readMcpFile(globalMcpPath(runtime.home))
           const states = runtime.mcp.states()
           const items = [
-            ...CATALOG.map((c) => ({ name: c.name, description: c.description, installed: !!installed[c.name] })),
+            ...CATALOG.map((c) => ({ name: c.name, description: t(c.description), installed: !!installed[c.name] })),
             ...Object.keys(installed)
               .filter((n) => !CATALOG.some((c) => c.name === n))
               .map((n) => ({ name: n, description: '(custom)', installed: true })),
@@ -239,7 +240,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'new':
           runtime.newSession()
           setTokens(0)
-          notice('Sesi baru dimulai. Sesi sebelumnya tetap tersimpan (/resume).')
+          notice(t('New session started. The previous session stays saved (/resume).'))
           return
         case 'session':
           notice(
@@ -255,15 +256,15 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'resume': {
           const others = Session.list(runtime.home, runtime.cwd).filter((s) => s.session.file !== runtime.session.file)
           if (!others.length) {
-            notice('Belum ada sesi lain di folder ini.')
+            notice(t('No other sessions in this folder yet.'))
             return
           }
           setListPicker({
-            title: 'Lanjutkan sesi',
+            title: t('Continue a session'),
             items: others.map((s) => ({
               id: s.session.file,
-              label: `${s.mtime.toLocaleString('id-ID')}  ${s.preview || '(kosong)'}`,
-              hint: `${s.session.load().length} pesan`,
+              label: `${s.mtime.toLocaleString(locale())}  ${s.preview || t('(empty)')}`,
+              hint: t('{n} messages', { n: s.session.load().length }),
             })),
             onPick: (id) => {
               setListPicker(null)
@@ -280,7 +281,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
                   entry({ kind: 'header' }),
                   entry({
                     kind: 'notice',
-                    text: `Melanjutkan sesi (${runtime.agent.messages.length} pesan tersimpan · ${chat.length} chat user/assistant ditampilkan).`,
+                    text: t('Resuming the session ({messages} messages saved · {chat} user/assistant chats shown).', { messages: runtime.agent.messages.length, chat: chat.length }),
                     tone: 'info',
                   }),
                   ...chat.map((m) =>
@@ -314,7 +315,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           notice(skillsText(runtime.skills, runtime.commands))
           return
         case 'doctor': {
-          notice('Memeriksa…')
+          notice(t('Checking…'))
           const c = runtime.config
           notice(
             await doctorText(
@@ -335,20 +336,20 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'permissions': {
           const rules = runtime.agent.permissions.list()
           if (!rules.length) {
-            notice('Belum ada izin tersimpan. Izin dari jawaban [a] dan dari config akan muncul di sini.')
+            notice(t('No saved permissions yet. Permissions from [a] answers and from the config will appear here.'))
             return
           }
           setListPicker({
-            title: 'Izin aktif (enter: cabut izin sesi)',
-            items: rules.map((r) => ({ id: r.rule, label: r.rule, hint: r.source === 'config' ? 'config' : 'sesi ini' })),
+            title: t('Active permissions (enter: revoke a session permission)'),
+            items: rules.map((r) => ({ id: r.rule, label: r.rule, hint: r.source === 'config' ? 'config' : t('this session') })),
             onPick: (id) => {
               setListPicker(null)
               const rule = rules.find((r) => r.rule === id)
               if (!rule) return
-              if (rule.source === 'config') notice(`${rule.rule} berasal dari config/flag; hapus dari ~/.bccli/config.json untuk mencabutnya.`, 'warn')
+              if (rule.source === 'config') notice(t('{rule} comes from the config/flag; remove it from ~/.bccli/config.json to revoke it.', { rule: rule.rule }), 'warn')
               else {
                 runtime.agent.permissions.revoke(rule.rule)
-                notice(`Izin ${rule.rule} dicabut.`)
+                notice(t('Permission {rule} revoked.', { rule: rule.rule }))
               }
             },
           })
@@ -357,12 +358,12 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'memory': {
           if (!args) {
             const files = instructionFiles(runtime.cwd, runtime.home)
-            notice(files.length ? files.map((f) => `${f.path} (${f.lines} baris)`).join('\n') : 'Belum ada AGENTS.md / BCCLI.md. Tambah dengan /memory <teks>.')
+            notice(files.length ? files.map((f) => t('{path} ({lines} lines)', { path: f.path, lines: f.lines })).join('\n') : t('No AGENTS.md / BCCLI.md yet. Add one with /memory <text>.'))
             return
           }
           const { global, text } = parseMemoryArgs(args)
           if (!text) {
-            notice('Tulis teksnya: /memory global <teks>.', 'warn')
+            notice(t('Write the text: /memory global <text>.'), 'warn')
             return
           }
           const file = global ? join(runtime.home, 'BCCLI.md') : join(runtime.cwd, 'AGENTS.md')
@@ -370,19 +371,38 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
             mkdirSync(dirname(file), { recursive: true })
             appendMemory(file, text)
           } catch (error) {
-            notice(`Gagal menulis ${file}: ${(error as Error).message}`, 'error')
+            notice(t('Could not write {file}: {error}', { file, error: (error as Error).message }), 'error')
             return
           }
           runtime.rebuildSystemPrompt()
-          notice(`Ditambahkan ke ${file}.`)
+          notice(t('Added to {file}.', { file }))
           return
         }
         case 'init':
           void runTurn(INIT_PROMPT)
           return
+        case 'language': {
+          if (!args) {
+            notice(t('Language: {lang}. Change it with /language en or /language id.', { lang: getLanguage() }))
+            return
+          }
+          const wanted = parseLang(args)
+          if (!wanted) {
+            notice(t('Unknown language "{lang}". Use en or id.', { lang: args }), 'warn')
+            return
+          }
+          setLanguage(wanted)
+          try {
+            writeGlobalConfig({ language: wanted }, runtime.env)
+          } catch (error) {
+            notice(t('Could not save the language: {error}', { error: (error as Error).message }), 'error')
+          }
+          notice(t('Language set to {lang} (saved as default).', { lang: wanted }))
+          return
+        }
         case 'login': {
           const id = runtime.modelRef.slice(0, runtime.modelRef.indexOf('/'))
-          const key = await ask(`API key untuk ${runtime.providerLabel()}`, true)
+          const key = await ask(t('API key for {provider}', { provider: runtime.providerLabel() }), true)
           if (!key) return
           const result = await runtime.addProviderKey(id, key)
           if (!result.ok) {
@@ -392,10 +412,10 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           runtime.setModel(runtime.modelRef) // pick up the new key
           const envName = runtime.config.providers[id]?.apiKeyEnv
           if (envName && runtime.env[envName]) {
-            notice(`Key ${runtime.providerLabel()} tersimpan, tapi ${envName} di environment lebih diutamakan dan tetap dipakai.`, 'warn')
+            notice(t('Key for {provider} saved, but {env} in the environment takes precedence and is still used.', { provider: runtime.providerLabel(), env: envName }), 'warn')
             return
           }
-          notice(`Key ${runtime.providerLabel()} tersimpan · ${result.models} model.`)
+          notice(t('Key for {provider} saved · {n} models.', { provider: runtime.providerLabel(), n: result.models }))
           return
         }
         case 'logout': {
@@ -404,13 +424,13 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           const envName = runtime.config.providers[id]?.apiKeyEnv
           if (envName && runtime.env[envName]) {
             notice(
-              `${removed ? 'Key tersimpan dihapus, tapi' : 'Tidak ada key tersimpan;'} ${envName} masih ada di environment dan tetap dipakai.`,
+              removed ? t('Stored key deleted, but {env} is still set in the environment and is still used.', { env: envName }) : t('No stored key; {env} is still set in the environment and is still used.', { env: envName }),
               'warn',
             )
             return
           }
           if (!removed) {
-            notice(`Tidak ada key tersimpan untuk ${runtime.providerLabel()}.`)
+            notice(t('No stored key for {provider}.', { provider: runtime.providerLabel() }))
             return
           }
           try {
@@ -422,7 +442,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
             }
             runtime.agent.provider = { chat: fail, listModels: fail }
           }
-          notice(`Key ${runtime.providerLabel()} dihapus. Pakai /login atau /provider untuk menambah lagi.`)
+          notice(t('Key for {provider} deleted. Use /login or /provider to add one again.', { provider: runtime.providerLabel() }))
           return
         }
         case 'diff':
@@ -431,17 +451,17 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'undo': {
           const result = await runtime.checkpoints.undo()
           if (!result) {
-            notice('Tidak ada edit file yang bisa dibatalkan.')
+            notice(t('No file edits to undo.'))
             return
           }
           const rel = (p: string) => relative(runtime.cwd, p) || p
           notice(
             [
-              result.failed.length ? `Gagal dikembalikan: ${result.failed.map(rel).join(', ')}` : '',
-              result.restored.length ? `Dikembalikan: ${result.restored.map(rel).join(', ')}` : '',
-              result.deleted.length ? `Dihapus (file baru): ${result.deleted.map(rel).join(', ')}` : '',
-              result.skipped.length ? `Terlalu besar untuk disimpan, tidak diubah: ${result.skipped.map(rel).join(', ')}` : '',
-              'Catatan: perubahan lewat perintah bash tidak bisa di-undo.',
+              result.failed.length ? t('Could not restore: {files}', { files: result.failed.map(rel).join(', ') }) : '',
+              result.restored.length ? t('Restored: {files}', { files: result.restored.map(rel).join(', ') }) : '',
+              result.deleted.length ? t('Deleted (new files): {files}', { files: result.deleted.map(rel).join(', ') }) : '',
+              result.skipped.length ? t('Too large to back up, left unchanged: {files}', { files: result.skipped.map(rel).join(', ') }) : '',
+              t('Note: changes made through bash commands cannot be undone.'),
             ]
               .filter(Boolean)
               .join('\n'),
@@ -451,33 +471,33 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'copy': {
           const last = runtime.agent.messages.findLast((m) => m.role === 'assistant' && typeof m.content === 'string' && m.content.trim())
           if (!last || typeof last.content !== 'string') {
-            notice('Belum ada jawaban untuk disalin.')
+            notice(t('No answer to copy yet.'))
             return
           }
           process.stdout.write(osc52(last.content, !!process.env.TMUX))
           const file = join(runtime.home, 'last-answer.md')
           mkdirSync(runtime.home, { recursive: true })
           writeFileSync(file, last.content)
-          notice(`Disalin ke clipboard (bila terminal mendukung OSC 52) dan disimpan di ${file}.`)
+          notice(t('Copied to the clipboard (if the terminal supports OSC 52) and saved to {file}.', { file }))
           return
         }
         case 'export': {
           const name = args || `bccli-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.md`
           const file = resolve(runtime.cwd, name)
           if (existsSync(file)) {
-            const answer = await ask(`${file} sudah ada. Timpa? (y/N)`)
+            const answer = await ask(t('{file} already exists. Overwrite? (y/N)', { file }))
             if (!answer || !/^y(a|es)?$/i.test(answer.trim())) {
-              notice('Ekspor dibatalkan.')
+              notice(t('Export cancelled.'))
               return
             }
           }
           try {
-            writeFileSync(file, exportMarkdown(runtime.agent.messages, `Sesi BCCLI ${runtime.startedAt.toLocaleString('id-ID')}`))
+            writeFileSync(file, exportMarkdown(runtime.agent.messages, t('BCCLI session {when}', { when: runtime.startedAt.toLocaleString(locale()) })))
           } catch (error) {
-            notice(`Gagal menulis ${file}: ${(error as Error).message}`, 'error')
+            notice(t('Could not write {file}: {error}', { file, error: (error as Error).message }), 'error')
             return
           }
-          notice(`Percakapan disimpan di ${file}.`)
+          notice(t('Conversation saved to {file}.', { file }))
           return
         }
         case 'provider': {
@@ -488,7 +508,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           return
         }
         default:
-          notice(`Perintah tidak dikenal: /${name}. Ketik /help.`, 'warn')
+          notice(t('Unknown command: /{name}. Type /help.', { name }), 'warn')
       }
     },
     [runtime, notice, exit, version, runTurn, ask],
@@ -518,7 +538,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         try {
           body = parseFrontmatter(readFileSync(skill.file, 'utf8')).body
         } catch (error) {
-          notice(`Skill ${skill.name} tidak bisa dibaca: ${(error as NodeJS.ErrnoException).code ?? (error as Error).message}`, 'error')
+          notice(t('Skill {name} cannot be read: {error}', { name: skill.name, error: (error as NodeJS.ErrnoException).code ?? (error as Error).message }), 'error')
           return
         }
         void runTurn(`${body}\n\nARGUMENTS: ${slash.args}`)
@@ -559,10 +579,11 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       controller.current?.abort()
       if (queued.length) {
         setQueued([])
-        notice(`${queued.length} pesan antrian dibatalkan.`, 'warn')
+        notice(t('{n} queued messages cancelled.', { n: queued.length }), 'warn')
       }
     } else if (key.ctrl && input === 't') {
       const next = !showThinking
+      const toggled = next ? t('Thinking shown (ctrl+t to hide).') : t('Thinking hidden (ctrl+t to show).')
       setShowThinking(next)
       setTranscript((t) => {
         // Scrollback is printed once, so an already finished thinking block is reprinted open.
@@ -573,7 +594,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           done: [
             ...t.done,
             ...(reprint ? [entry({ kind: 'thinking', text: last.text, open: true })] : []),
-            entry({ kind: 'notice', text: next ? 'Thinking ditampilkan (ctrl+t untuk menutup).' : 'Thinking disembunyikan (ctrl+t untuk membuka).', tone: 'info' }),
+            entry({ kind: 'notice', text: toggled, tone: 'info' }),
           ],
         }
       })
@@ -590,24 +611,24 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     if (item.installed) {
       removeGlobalServer(runtime.home, item.name)
       await runtime.mcp.remove(item.name)
-      notice(`MCP ${item.name} dihapus.`)
+      notice(t('MCP {name} removed.', { name: item.name }))
       return
     }
     const entry = CATALOG.find((c) => c.name === item.name)
     if (!entry) return
     const values: Record<string, string> = {}
     for (const input of entry.inputs ?? []) {
-      const v = await ask(input.label, !!input.secret)
+      const v = await ask(t(input.label), !!input.secret)
       if (!v) return
       values[input.key] = v
     }
     const config = fillTemplate(entry.config, values)
     addGlobalServer(runtime.home, entry.name, config)
-    notice(`MCP ${entry.name} dipasang, menghubungkan…`)
+    notice(t('MCP {name} installed, connecting…', { name: entry.name }))
     await runtime.mcp.add({ name: entry.name, config, source: 'global' })
     const state = runtime.mcp.states().find((s) => s.name === entry.name)
-    if (state?.status === 'ready') notice(`MCP ${entry.name} aktif · ${state.tools} alat.`)
-    else notice(`MCP ${entry.name} gagal: ${state?.error ?? 'tidak diketahui'}`, 'error')
+    if (state?.status === 'ready') notice(t('MCP {name} active · {n} tools.', { name: entry.name, n: state.tools }))
+    else notice(t('MCP {name} failed: {error}', { name: entry.name, error: state?.error ?? t('unknown') }), 'error')
   }
 
   const pickProvider = async (id: string | 'custom' | undefined) => {
@@ -625,7 +646,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     const c = runtime.config
     const keyless = !c.providers[target].apiKeyEnv && PRESETS.some((p) => p.id === target)
     if (!hasKey(c, target, runtime.env) || id === 'custom') {
-      const key = keyless ? '' : await ask(`API key untuk ${providerName(c, target)}`, true)
+      const key = keyless ? '' : await ask(t('API key for {provider}', { provider: providerName(c, target) }), true)
       if (key === undefined) return
       const result = await runtime.addProviderKey(target, key)
       if (!result.ok) {
@@ -686,13 +707,13 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           const lines = text.split('\n').length
           return (
             <Box key={e.id} marginTop={1}>
-              <Text dimColor>{`✻ Berpikir · ${lines} baris · ctrl+t buka`}</Text>
+              <Text dimColor>{t('✻ Thinking · {n} lines · ctrl+t to show', { n: lines })}</Text>
             </Box>
           )
         }
         return (
           <Box key={e.id} marginTop={1} flexDirection="column">
-            <Text dimColor>✻ Berpikir (ctrl+t tutup)</Text>
+            <Text dimColor>{t('✻ Thinking (ctrl+t to hide)')}</Text>
             <Box paddingLeft={2}>
               <Text dimColor italic>
                 {text}
@@ -722,7 +743,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       {transcript.live.map(renderEntry)}
       {busy && !pending && !planAsk ? (
         <Box marginTop={1}>
-          <Spinner label="Berpikir" startedAt={startedAt} />
+          <Spinner label={t('Thinking')} startedAt={startedAt} />
         </Box>
       ) : null}
       {pending ? <PermissionPrompt key={pending.id} request={pending.request} onAnswer={answer} /> : null}
@@ -765,7 +786,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       ) : null}
       <TodoList items={todos} />
       {queued.map((q, i) => (
-        <Text key={`${i}-${q}`} dimColor>{`  ⏳ antri: ${q}`}</Text>
+        <Text key={`${i}-${q}`} dimColor>{t('  ⏳ queued: {q}', { q })}</Text>
       ))}
       <PromptInput disabled={!!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu || !!listPicker} history={history} cwd={runtime.cwd} onSubmit={onPrompt} extraCommands={extraCommands} />
       <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} reasoning={reasoning} />

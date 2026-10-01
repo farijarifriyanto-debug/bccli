@@ -2,6 +2,7 @@ import { type Config, readCredentials } from './config'
 import { PRESETS } from './presets'
 import { createProvider } from './provider'
 import { hasKey, providerName } from './providers'
+import { t } from './i18n'
 
 export interface ModelGroup {
   providerId: string
@@ -49,7 +50,7 @@ export async function listAllModels(
       } catch {
         // Local servers that are not running are simply not shown.
         if (local && !opts.only) return undefined
-        return { providerId: id, providerName: providerName(config, id), models: [], error: 'tidak bisa dihubungi' }
+        return { providerId: id, providerName: providerName(config, id), models: [], error: t('could not be reached') }
       } finally {
         clearTimeout(timer)
       }

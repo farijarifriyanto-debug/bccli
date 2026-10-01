@@ -2,6 +2,7 @@ import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import { isFocusReport } from './focusReport'
 import { color } from './theme'
+import { t } from '../i18n'
 
 export interface ListItem {
   id: string
@@ -33,14 +34,14 @@ export function ListPicker({ title, items, onPick }: { title: string; items: Lis
   const start = Math.max(0, Math.min(cursor - 5, shown.length - VISIBLE))
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={color('cyan')} paddingX={1}>
-      <Text bold>{`${title} (↑↓ enter · ketik untuk menyaring${filter ? `: ${filter}` : ''} · esc batal)`}</Text>
+      <Text bold>{t('{title} (↑↓ enter · type to filter{filter} · esc cancel)', { title, filter: filter ? `: ${filter}` : '' })}</Text>
       {shown.slice(start, start + VISIBLE).map((item, i) => (
         <Text key={item.id} color={start + i === cursor && !item.disabled ? color('green') : undefined} dimColor={item.disabled}>
           {`${start + i === cursor ? '›' : ' '} ${item.label}`}
           {item.hint ? <Text dimColor>{`   ${item.hint}`}</Text> : null}
         </Text>
       ))}
-      {shown.length ? null : <Text dimColor>Tidak ada yang cocok.</Text>}
+      {shown.length ? null : <Text dimColor>{t('No matches.')}</Text>}
     </Box>
   )
 }

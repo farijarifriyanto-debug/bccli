@@ -12,7 +12,7 @@ export function createSkillTool(skills: SkillDef[]): Tool {
     target: (input) => input.name,
     async run(input) {
       const skill = skills.find((s) => s.name === input.name)
-      if (!skill) return { output: `Skill "${input.name}" tidak ada. Tersedia: ${skills.map((s) => s.name).join(', ') || '(tidak ada)'}`, isError: true }
+      if (!skill) return { output: `Skill "${input.name}" does not exist. Available: ${skills.map((s) => s.name).join(', ') || '(none)'}`, isError: true }
       const { body } = parseFrontmatter(readFileSync(skill.file, 'utf8'))
       return { output: `Base directory for this skill: ${skill.dir}\n\n${body}`, display: skill.description.slice(0, 60) }
     },

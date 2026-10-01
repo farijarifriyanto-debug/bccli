@@ -53,5 +53,5 @@ test('reports a clear error when every provider fails', async () => {
   const tool = createWebSearchTool({ botconnector: () => undefined, keenableURL: 'http://127.0.0.1:1/none' })
   const r = await tool.run({ query: 'rtx' }, ctx)
   expect(r.isError).toBe(true)
-  expect(r.output).toMatch(/Web search gagal/)
+  expect(r.output).toMatch(/Web search failed/)
 })

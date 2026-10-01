@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util'
 import { ConfigError, type PermissionMode } from './config'
 import { MODE_ORDER } from './permissions'
 import { isReasoningLevel, REASONING_LEVELS, type ReasoningLevel } from './reasoning'
+import { type Lang, parseLang, t } from './i18n'
 
 export interface CliArgs {
   command: 'run' | 'login' | 'models' | 'provider' | 'mcp' | 'connect' | 'disconnect' | 'integrations'
@@ -14,6 +15,7 @@ export interface CliArgs {
   print: boolean
   model?: string
   reasoning?: ReasoningLevel
+  lang?: Lang
   continue: boolean
   resume: boolean
   allowAll: boolean
@@ -24,29 +26,33 @@ export interface CliArgs {
   loginProvider?: string
 }
 
-export const HELP_TEXT = `BCCLI — agent AI BotConnector di terminal
+const HELP = `BCCLI — BotConnector's AI coding agent for the terminal
 
-Pemakaian:
-  bccli [tugas]                 mode interaktif (opsional langsung dengan tugas)
-  bccli -p "tugas"              jalankan satu tugas tanpa interaksi (skrip/CI)
-  bccli login [provider]        simpan API key (default: bc-cloud)
-  bccli models                  daftar model dari provider aktif
-  bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
-  bccli mcp list|add <nama>|remove <nama>    kelola server MCP (katalog, atau --url <url>)
-  bccli integrations             lihat status integrasi agent eksternal
+Usage:
+  bccli [task]                  interactive mode (optionally start with a task)
+  bccli -p "task"               run one task without interaction (scripts/CI)
+  bccli login [provider]        save an API key (default: bc-cloud)
+  bccli models                  list models from the active provider
+  bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
+  bccli mcp list|add <name>|remove <name>    manage MCP servers (catalog, or --url <url>)
+  bccli integrations             show the status of external agent integrations
   bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible
-  bccli disconnect <agent>       lepas integrasi dan pulihkan config sebelumnya
+  bccli disconnect <agent>       remove an integration and restore the previous config
 
-Opsi:
-  -m, --model <provider/model>  pilih model, contoh bc-cloud/glm-5.3-flash
+Options:
+  -m, --model <provider/model>  choose a model, e.g. bc-cloud/glm-5.3-flash
       --reasoning <level>        auto | off | low | medium | high | max
-  -c, --continue                lanjutkan sesi terakhir di folder ini
-  -r, --resume                  pilih sesi untuk dilanjutkan
-      --allow-all               jalankan semua alat tanpa minta izin
-      --allowed-tools <a,b>     alat yang boleh tanpa izin: bash, edit, fetch
+  -c, --continue                continue the last session in this folder
+  -r, --resume                  pick a session to continue
+      --allow-all               run all tools without asking for permission
+      --allowed-tools <a,b>     tools allowed without asking: bash, edit, fetch
       --permission-mode <mode>  default | acceptEdits | plan | allowAll
-  -v, --version                 versi
-  -h, --help                    bantuan ini`
+      --lang <en|id>            interface language (default: en; or BCCLI_LANG, or "language" in config)
+  -v, --version                 version
+  -h, --help                    this help`
+
+/** Help text in the current language (call it after the language is set). */
+export const helpText = (): string => t(HELP)
 
 export function parseCliArgs(argv: string[]): CliArgs {
   const { values, positionals } = parseArgs({
@@ -56,6 +62,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
       print: { type: 'boolean', short: 'p' },
       model: { type: 'string', short: 'm' },
       reasoning: { type: 'string' },
+      lang: { type: 'string' },
       continue: { type: 'boolean', short: 'c' },
       resume: { type: 'boolean', short: 'r' },
       'allow-all': { type: 'boolean' },
@@ -71,12 +78,13 @@ export function parseCliArgs(argv: string[]): CliArgs {
   })
   const reasoning = values.reasoning
   if (reasoning && !isReasoningLevel(reasoning)) {
-    throw new ConfigError(`--reasoning harus salah satu dari: ${REASONING_LEVELS.join(', ')}`)
+    throw new ConfigError(t('--reasoning must be one of: {levels}', { levels: REASONING_LEVELS.join(', ') }))
   }
   const mode = values['permission-mode']
   if (mode && !MODE_ORDER.includes(mode as PermissionMode)) {
-    throw new ConfigError(`--permission-mode harus salah satu dari: ${MODE_ORDER.join(', ')}`)
+    throw new ConfigError(t('--permission-mode must be one of: {modes}', { modes: MODE_ORDER.join(', ') }))
   }
+  if (values.lang !== undefined && !parseLang(values.lang)) throw new ConfigError(t('--lang must be one of: en, id'))
   const [first, ...rest] = positionals
   const SUBCOMMANDS = ['login', 'models', 'provider', 'mcp', 'connect', 'disconnect', 'integrations']
   const command = SUBCOMMANDS.includes(first) ? (first as CliArgs['command']) : 'run'
@@ -87,6 +95,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     print: !!values.print,
     model: values.model,
     reasoning: reasoning as ReasoningLevel | undefined,
+    lang: parseLang(values.lang),
     continue: !!values.continue,
     resume: !!values.resume,
     allowAll: !!values['allow-all'],

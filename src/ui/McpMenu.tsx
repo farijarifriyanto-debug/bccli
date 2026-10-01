@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import { color } from './theme'
+import { t } from '../i18n'
 
 export interface McpMenuItem {
   name: string
@@ -22,7 +23,7 @@ export function McpMenu({ items, onPick }: { items: McpMenuItem[]; onPick(name: 
   })
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={color('cyan')} paddingX={1}>
-      <Text bold>Server MCP (enter: pasang / hapus · esc tutup) · ✓ aktif ○ belum ✗ error</Text>
+      <Text bold>{t('MCP servers (enter: install / remove · esc close) · ✓ active ○ not installed ✗ error')}</Text>
       {items.map((item, i) => (
         <Text key={item.name} color={i === index ? color('green') : undefined}>
           {`${i === index ? '›' : ' '} ${MARK[item.status]} ${item.name.padEnd(12)}`}

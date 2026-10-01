@@ -1,3 +1,5 @@
+import { t } from '../i18n'
+
 export interface DoctorDeps {
   which: (cmd: string) => boolean | Promise<boolean>
   nodeVersion: string
@@ -9,14 +11,14 @@ export async function doctorText(
   deps: DoctorDeps,
 ): Promise<string> {
   const major = Number(deps.nodeVersion.replace(/^v/, '').split('.')[0])
-  const lines = [major >= 22 ? `✓ Node ${deps.nodeVersion}` : `✗ Node ${deps.nodeVersion} (butuh ≥ 22)`]
-  for (const p of input.providers) lines.push(p.ready ? `✓ ${p.name}` : `○ ${p.name} (belum ada key)`)
+  const lines = [major >= 22 ? `✓ Node ${deps.nodeVersion}` : t('✗ Node {version} (needs ≥ 22)', { version: deps.nodeVersion })]
+  for (const p of input.providers) lines.push(p.ready ? `✓ ${p.name}` : t('○ {name} (no key yet)', { name: p.name }))
   const cmds = ['rg', 'git', 'npx', 'uvx']
   // Run the network check and the PATH lookups together so neither waits on the other.
   const [connection, found] = await Promise.all([
     deps.listModels().then(
-      (models) => `✓ Koneksi ${input.activeProvider} (${models.length} model)`,
-      (error: Error) => `✗ Koneksi ${input.activeProvider}: ${error.message}`,
+      (models) => t('✓ Connection {provider} ({n} models)', { provider: input.activeProvider, n: models.length }),
+      (error: Error) => t('✗ Connection {provider}: {error}', { provider: input.activeProvider, error: error.message }),
     ),
     Promise.all(cmds.map(async (cmd) => deps.which(cmd))),
   ])

@@ -5,6 +5,7 @@ import { recoverTextToolCalls } from './textToolCalls'
 import { type ToolDefinition, toolDefinitions } from './tools/index'
 import type { Tool, ToolContext } from './tools/types'
 import { pruneOldFetches, WebBudget } from './webBudget'
+import { t } from './i18n'
 
 export type AgentEvent =
   | { type: 'text'; delta: string }
@@ -134,8 +135,8 @@ export class Agent {
       reasoning: this.reasoning,
     })
     this.clear()
-    this.push({ role: 'user', content: `Ringkasan percakapan sebelumnya:\n${completion.text}` })
-    this.push({ role: 'assistant', content: 'Oke, saya lanjutkan dari ringkasan ini.' })
+    this.push({ role: 'user', content: `Summary of the previous conversation:\n${completion.text}` })
+    this.push({ role: 'assistant', content: 'OK, I will continue from this summary.' })
     this.onEvent({ type: 'compacted' })
   }
 
@@ -151,7 +152,7 @@ export class Agent {
         if (step > 0 && this.lastInputTokens > this.contextWindow * 0.8) {
           await this.compact(signal)
           // The summary ends with an assistant turn; restate the task so the model has something to answer.
-          this.push({ role: 'user', content: `Lanjutkan tugas ini sesuai ringkasan di atas: ${text}` })
+          this.push({ role: 'user', content: `Continue this task using the summary above: ${text}` })
         }
         pruneOldFetches(this.messages)
         let completion = await this.provider.chat({
@@ -196,7 +197,7 @@ export class Agent {
           this.onEvent({ type: 'textReplace', text: completion.text })
           this.onEvent({
             type: 'error',
-            message: 'Model terjebak mengulang teks, jawaban dihentikan. Coba ulangi atau ganti model dengan /model.',
+            message: t('The model got stuck repeating text, so the answer was stopped. Try again or switch models with /model.'),
           })
           return
         }
@@ -208,7 +209,7 @@ export class Agent {
         let i = 0
         while (i < calls.length) {
           if (signal.aborted) {
-            for (const pending of calls.slice(i)) this.push({ role: 'tool', tool_call_id: pending.id, content: 'Dibatalkan oleh user.' })
+            for (const pending of calls.slice(i)) this.push({ role: 'tool', tool_call_id: pending.id, content: 'Cancelled by the user.' })
             this.onEvent({ type: 'aborted' })
             return
           }
@@ -237,7 +238,7 @@ export class Agent {
       const noTools = (error as { status?: number }).status === 400 && /tool/i.test(message)
       this.onEvent({
         type: 'error',
-        message: noTools ? `${message}\nModel ini sepertinya tidak mendukung tool calling. Coba model lain dengan /model.` : message,
+        message: noTools ? `${message}\n${t('This model may not support tool calling. Try another model with /model.')}` : message,
       })
     }
   }
@@ -249,16 +250,16 @@ export class Agent {
       return output
     }
     const tool = this.turnTools.find((t) => t.name === call.name)
-    if (!tool) return fail(`Alat "${call.name}" tidak ada. Alat yang tersedia: ${this.turnTools.map((t) => t.name).join(', ')}`)
+    if (!tool) return fail(`Tool "${call.name}" does not exist. Available tools: ${this.turnTools.map((t) => t.name).join(', ')}`)
     let args: unknown
     try {
       args = JSON.parse(call.arguments || '{}')
     } catch {
-      return fail(`Argumen bukan JSON valid: ${call.arguments.slice(0, 200)}`)
+      return fail(`Arguments are not valid JSON: ${call.arguments.slice(0, 200)}`)
     }
     const parsed = tool.schema.safeParse(args)
     if (!parsed.success) {
-      return fail(`Argumen tidak valid: ${parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')}`)
+      return fail(`Invalid arguments: ${parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')}`)
     }
     const input = parsed.data
     const target = tool.target(input)
@@ -303,8 +304,8 @@ export class Agent {
     if (decision === 'deny') {
       const output =
         this.permissions.mode === 'plan'
-          ? 'Ditolak: mode plan hanya boleh membaca dan mencari. Susun rencana untuk user tanpa mengubah apa pun.'
-          : 'User menolak menjalankan alat ini. Tanyakan ke user apa yang diinginkan, atau coba cara lain.'
+          ? 'Denied: plan mode only allows reading and searching. Write the plan for the user without changing anything.'
+          : 'The user declined to run this tool. Ask the user what they want, or try another approach.'
       this.onEvent({ type: 'toolEnd', id: call.id, tool: tool.name, output, isError: true })
       return output
     }

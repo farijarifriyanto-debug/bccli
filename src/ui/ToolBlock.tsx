@@ -3,6 +3,7 @@ import { toolLabel } from '../print'
 import { DiffView } from './DiffView'
 import type { SubLine } from './transcript'
 import { color } from './theme'
+import { t } from '../i18n'
 
 const PREVIEW_LINES = 5
 
@@ -35,12 +36,12 @@ export function ToolBlock({ tool, target, output, display, isError, done, expand
           {sub.slice(-6).map((s) => (
             <Text key={s.id} dimColor={s.done && !s.isError} color={s.isError ? color('red') : undefined}>{`⎿ ${toolLabel(s.tool)}  ${s.target}`}</Text>
           ))}
-          {sub.length > 6 ? <Text dimColor>{`… ${sub.length - 6} langkah sebelumnya`}</Text> : null}
+          {sub.length > 6 ? <Text dimColor>{t('… {n} earlier steps', { n: sub.length - 6 })}</Text> : null}
         </Box>
       ) : null}
       {isTask && done ? (
         <Box marginLeft={3}>
-          <Text color={isError ? color('red') : color('green')}>{`${isError ? '✗ gagal' : '✓ selesai'}${display ? ` · ${display}` : ''}`}</Text>
+          <Text color={isError ? color('red') : color('green')}>{`${isError ? t('✗ failed') : t('✓ done')}${display ? ` · ${display}` : ''}`}</Text>
         </Box>
       ) : null}
       {isDiff ? (
@@ -54,7 +55,7 @@ export function ToolBlock({ tool, target, output, display, isError, done, expand
               {line}
             </Text>
           ))}
-          {lines.length > shown.length ? <Text dimColor>{`… ${lines.length - shown.length} baris lagi (ctrl+o)`}</Text> : null}
+          {lines.length > shown.length ? <Text dimColor>{t('… {n} more lines (ctrl+o)', { n: lines.length - shown.length })}</Text> : null}
         </Box>
       ) : null}
     </Box>

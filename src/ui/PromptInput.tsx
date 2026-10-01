@@ -4,6 +4,7 @@ import { SLASH_COMMANDS } from '../commands'
 import { completeFile } from './complete'
 import { isFocusReport } from './focusReport'
 import { color } from './theme'
+import { t } from '../i18n'
 
 export interface PromptInputProps {
   disabled?: boolean
@@ -100,7 +101,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }:
       </Box>
       {suggestions.map((s, i) => (
         <Text key={s.name} color={i === highlighted ? color('green') : undefined} dimColor={i !== highlighted}>
-          {`${i === highlighted ? '›' : ' '} /${s.name}  ${s.description}`}
+          {`${i === highlighted ? '›' : ' '} /${s.name}  ${t(s.description)}`}
         </Text>
       ))}
     </Box>

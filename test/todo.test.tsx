@@ -14,7 +14,7 @@ test('todo_write replaces the list and notifies subscribers', async () => {
     { todos: [{ content: 'a', status: 'completed' }, { content: 'b', status: 'in_progress' }, { content: 'c', status: 'pending' }] },
     ctx,
   )
-  expect(r.output).toBe('Todo diperbarui: 1/3 selesai.')
+  expect(r.output).toBe('Todo updated: 1/3 completed.')
   expect(store.items.map((t) => t.content)).toEqual(['a', 'b', 'c'])
   expect(seen).toEqual([3])
 })

@@ -5,6 +5,7 @@ import type { Permissions } from '../permissions'
 import type { Provider } from '../provider'
 import type { ReasoningLevel } from '../reasoning'
 import { defineTool, type Tool } from './types'
+import { t } from '../i18n'
 
 export interface TaskToolOptions {
   agents: AgentDef[]
@@ -39,11 +40,11 @@ export function createTaskTool(opts: TaskToolOptions): Tool {
     },
     async run(input, ctx) {
       const def = byName.get(input.agent)
-      if (!def) return { output: `Agent "${input.agent}" tidak ada. Tersedia: ${[...byName.keys()].join(', ')}`, isError: true }
+      if (!def) return { output: `Agent "${input.agent}" does not exist. Available: ${[...byName.keys()].join(', ')}`, isError: true }
       // No nesting, and plan approval stays with the main agent.
       const base = opts.baseTools().filter((t) => t.name !== 'task' && t.name !== 'exit_plan')
       const unknown = (def.tools ?? []).filter((n) => !base.some((t) => t.name === n))
-      if (unknown.length) return { output: `Agent "${def.name}": alat tidak dikenal: ${unknown.join(', ')}`, isError: true }
+      if (unknown.length) return { output: `Agent "${def.name}": unknown tools: ${unknown.join(', ')}`, isError: true }
       const allowed = def.tools
       const tools = allowed ? base.filter((t) => allowed.includes(t.name)) : base
       let provider: Provider
@@ -75,12 +76,12 @@ export function createTaskTool(opts: TaskToolOptions): Tool {
       await child.run(input.prompt, ctx.signal)
       ctx.addUsage?.(child.totalUsage)
       const tokens = child.totalUsage.inputTokens + child.totalUsage.outputTokens
-      const display = `${steps} langkah · ${tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : tokens} token`
-      if (outcome?.type === 'error') return { output: `Subagent ${def.name} gagal: ${outcome.message}`, isError: true, display }
-      if (outcome?.type === 'aborted') return { output: `Subagent ${def.name} dibatalkan.`, isError: true, display }
+      const display = t('{steps} steps · {tokens} tokens', { steps, tokens: tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : tokens })
+      if (outcome?.type === 'error') return { output: `Subagent ${def.name} failed: ${outcome.message}`, isError: true, display }
+      if (outcome?.type === 'aborted') return { output: `Subagent ${def.name} was cancelled.`, isError: true, display }
       const last = [...child.messages].reverse().find((m) => m.role === 'assistant' && m.content)
-      const report = last && typeof last.content === 'string' ? last.content : '(tidak ada laporan)'
-      const suffix = outcome?.type === 'stepLimit' ? `\n\n(Subagent berhenti di batas ${def.maxSteps ?? 50} langkah.)` : ''
+      const report = last && typeof last.content === 'string' ? last.content : '(no report)'
+      const suffix = outcome?.type === 'stepLimit' ? `\n\n(The subagent stopped at its ${def.maxSteps ?? 50}-step limit.)` : ''
       return { output: report + suffix, display }
     },
   }) as Tool

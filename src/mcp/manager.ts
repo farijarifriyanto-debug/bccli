@@ -4,6 +4,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { z } from 'zod'
 import type { Tool } from '../tools/types'
 import type { McpServerSpec } from './config'
+import { t } from '../i18n'
 
 export interface McpServerState {
   name: string
@@ -33,7 +34,7 @@ interface Connected {
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`timeout ${Math.round(ms / 1000)} detik`)), ms)
+    timer = setTimeout(() => reject(new Error(t('timeout after {n} seconds', { n: Math.round(ms / 1000) }))), ms)
   })
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
@@ -100,8 +101,8 @@ export class McpManager {
             content?: { type: string; text?: string }[]
             isError?: boolean
           }
-          const output = (result.content ?? []).map((c) => (c.type === 'text' ? (c.text ?? '') : `[${c.type}]`)).join('\n') || '(kosong)'
-          return { output: output.length > 50_000 ? `${output.slice(0, 50_000)}\n… [dipotong]` : output, isError: !!result.isError }
+          const output = (result.content ?? []).map((c) => (c.type === 'text' ? (c.text ?? '') : `[${c.type}]`)).join('\n') || '(empty)'
+          return { output: output.length > 50_000 ? `${output.slice(0, 50_000)}\n… [truncated]` : output, isError: !!result.isError }
         } catch (error) {
           return { output: `Server MCP ${server} error: ${(error as Error).message}`, isError: true }
         }

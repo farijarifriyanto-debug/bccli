@@ -2,6 +2,7 @@ import { Box, Text, useInput } from 'ink'
 import type { PlanDecision } from '../tools/plan'
 import { Markdown } from './Markdown'
 import { color } from './theme'
+import { t } from '../i18n'
 
 export function PlanApproval({ plan, onAnswer }: { plan: string; onAnswer(d: PlanDecision): void }) {
   useInput((input, key) => {
@@ -12,14 +13,14 @@ export function PlanApproval({ plan, onAnswer }: { plan: string; onAnswer(d: Pla
   })
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={color('cyan')} paddingX={1}>
-      <Text bold>Rencana dari agent</Text>
+      <Text bold>{t('Plan from the agent')}</Text>
       <Markdown text={plan} />
       <Text>
-        <Text color={color('green')}>[a] ya, edit otomatis</Text>
+        <Text color={color('green')}>{t('[a] yes, auto-edit')}</Text>
         {'   '}
-        <Text color={color('cyan')}>[y] ya, tanya tiap langkah</Text>
+        <Text color={color('cyan')}>{t('[y] yes, ask at each step')}</Text>
         {'   '}
-        <Text color={color('red')}>[n] belum, perbaiki dulu</Text>
+        <Text color={color('red')}>{t('[n] not yet, revise first')}</Text>
       </Text>
     </Box>
   )

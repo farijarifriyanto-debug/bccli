@@ -2,6 +2,7 @@ import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import { isFocusReport } from './focusReport'
 import { color } from './theme'
+import { t } from '../i18n'
 
 export function LinePrompt({ label, mask, onSubmit, onCancel }: { label: string; mask?: boolean; onSubmit(value: string): void; onCancel(): void }) {
   const [value, setValue] = useState('')
@@ -18,7 +19,7 @@ export function LinePrompt({ label, mask, onSubmit, onCancel }: { label: string;
         {`${label}: `}
         {shown}
         <Text inverse> </Text>
-        <Text dimColor>{'   enter simpan · esc batal'}</Text>
+        <Text dimColor>{t('   enter save · esc cancel')}</Text>
       </Text>
     </Box>
   )

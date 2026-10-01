@@ -1,19 +1,20 @@
 import { render } from 'ink'
 import type { Runtime } from '../setup'
 import { App } from './App'
+import { locale, t } from '../i18n'
 
 export async function startInteractive(rt: Runtime, opts: { initialPrompt?: string; resume: boolean; version: string }): Promise<number> {
   if (opts.resume) {
     const { Session } = await import('../session')
     const list = Session.list(rt.home, rt.cwd).slice(0, 20)
-    if (!list.length) console.log('Belum ada sesi di folder ini; memulai sesi baru.')
+    if (!list.length) console.log(t('No sessions in this folder yet; starting a new one.'))
     else {
       list.forEach((s, i) => {
-        console.log(`${String(i + 1).padStart(2)}. ${s.mtime.toLocaleString('id-ID')}  ${s.preview}`)
+        console.log(`${String(i + 1).padStart(2)}. ${s.mtime.toLocaleString(locale())}  ${s.preview}`)
       })
       const { createInterface } = await import('node:readline/promises')
       const rl = createInterface({ input: process.stdin, output: process.stdout })
-      const answer = Number(await rl.question('Nomor sesi (enter = baru): '))
+      const answer = Number(await rl.question(t('Session number (enter = new): ')))
       rl.close()
       const chosen = list[answer - 1]
       if (chosen) rt.resume(chosen.session)
@@ -26,7 +27,7 @@ export async function startInteractive(rt: Runtime, opts: { initialPrompt?: stri
     const rl = createInterface({ input: process.stdin, output: process.stdout })
     for (const s of plan.needTrust) {
       const what = s.config.type === 'http' ? s.config.url : [s.config.command, ...(s.config.args ?? [])].join(' ')
-      const answer = (await rl.question(`Repo ini ingin menjalankan server MCP "${s.name}" (${what}). Izinkan? [y/N] `)).trim().toLowerCase()
+      const answer = (await rl.question(t('This repo wants to run the MCP server "{name}" ({what}). Allow? [y/N] ', { name: s.name, what }))).trim().toLowerCase()
       setProjectTrust(rt.home, rt.cwd, s.name, answer === 'y', s.config)
       if (answer === 'y') plan.start.push(s)
     }

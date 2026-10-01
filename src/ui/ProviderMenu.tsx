@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import { color } from './theme'
+import { t } from '../i18n'
 
 export interface ProviderEntry {
   id: string
@@ -20,7 +21,7 @@ export function ProviderMenu({ entries, onPick }: { entries: ProviderEntry[]; on
   })
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={color('cyan')} paddingX={1}>
-      <Text bold>Provider (↑↓ enter, esc batal) · ✓ siap · ○ butuh API key</Text>
+      <Text bold>{t('Provider (↑↓ enter, esc cancel) · ✓ ready · ○ needs API key')}</Text>
       {entries.map((e, i) => (
         <Text key={e.id} color={i === index ? color('green') : undefined}>
           {`${i === index ? '›' : ' '} ${e.ready ? '✓' : '○'} ${e.name}`}
