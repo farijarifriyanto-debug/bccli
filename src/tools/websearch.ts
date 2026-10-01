@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { defineTool, type Tool } from './types'
+import { t } from '../i18n'
 
 interface SearchResult {
   title: string
@@ -73,10 +74,10 @@ export function createWebSearchTool(opts: {
         }
       }
       if (!results.length) {
-        return { output: errors.length ? `Web search gagal (${errors.join('; ')}).` : 'Tidak ada hasil.', isError: errors.length > 0 }
+        return { output: errors.length ? `Web search failed (${errors.join('; ')}).` : 'No results.', isError: errors.length > 0 }
       }
       const output = results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ''}`).join('\n')
-      return { output, display: `${results.length} hasil` }
+      return { output, display: t('{n} results', { n: results.length }) }
     },
   })
 }

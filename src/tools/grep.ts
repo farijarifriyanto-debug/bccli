@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { ignorePatterns } from './ignore'
 import { resolvePath } from './paths'
 import { defineTool } from './types'
+import { t } from '../i18n'
 
 const MAX_MATCHES = 200
 
@@ -61,10 +62,10 @@ export const grepTool = defineTool({
     try {
       new RegExp(input.pattern)
     } catch (error) {
-      return { output: `Regex tidak valid: ${(error as Error).message}`, isError: true }
+      return { output: `Invalid regex: ${(error as Error).message}`, isError: true }
     }
     const matches = (await grepRg(input.pattern, opts)) ?? (await grepJs(input.pattern, opts))
-    if (!matches.length) return { output: 'Tidak ada yang cocok.' }
-    return { output: matches.join('\n'), display: `${matches.length} hasil` }
+    if (!matches.length) return { output: 'No matches.' }
+    return { output: matches.join('\n'), display: t('{n} results', { n: matches.length }) }
   },
 })

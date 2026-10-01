@@ -1,5 +1,6 @@
 import { ConfigError } from '../config'
 import type { McpServerConfig } from './config'
+import { t } from '../i18n'
 
 export interface CatalogInput {
   key: string
@@ -15,19 +16,19 @@ export interface CatalogEntry {
 
 // Verified 2026-09-27 against npm/PyPI and the live endpoints. Postgres dropped: its npm package is deprecated.
 export const CATALOG: CatalogEntry[] = [
-  { name: 'playwright', description: 'kontrol browser (buka halaman, klik, isi form, screenshot)', config: { command: 'npx', args: ['-y', '@playwright/mcp@latest'] } },
-  { name: 'context7', description: 'dokumentasi library terbaru', config: { type: 'http', url: 'https://mcp.context7.com/mcp' } },
-  { name: 'fetch', description: 'ambil halaman web jadi markdown (butuh uv)', config: { command: 'uvx', args: ['mcp-server-fetch'] } },
+  { name: 'playwright', description: 'control a browser (open pages, click, fill forms, screenshot)', config: { command: 'npx', args: ['-y', '@playwright/mcp@latest'] } },
+  { name: 'context7', description: 'up-to-date library documentation', config: { type: 'http', url: 'https://mcp.context7.com/mcp' } },
+  { name: 'fetch', description: 'fetch web pages as markdown (needs uv)', config: { command: 'uvx', args: ['mcp-server-fetch'] } },
   {
     name: 'filesystem',
-    description: 'akses folder di luar project',
+    description: 'access folders outside the project',
     config: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '${dir}'] },
-    inputs: [{ key: 'dir', label: 'Folder yang boleh diakses' }],
+    inputs: [{ key: 'dir', label: 'Folder the server may access' }],
   },
-  { name: 'git', description: 'operasi git terstruktur (butuh uv)', config: { command: 'uvx', args: ['mcp-server-git'] } },
+  { name: 'git', description: 'structured git operations (needs uv)', config: { command: 'uvx', args: ['mcp-server-git'] } },
   {
     name: 'github',
-    description: 'issue, PR, dan repo GitHub',
+    description: 'GitHub issues, PRs, and repos',
     config: { type: 'http', url: 'https://api.githubcopilot.com/mcp/', headers: { Authorization: 'Bearer ${token}' } },
     inputs: [{ key: 'token', label: 'GitHub Personal Access Token', secret: true }],
   },
@@ -50,6 +51,6 @@ export function fillTemplate(config: McpServerConfig, values: Record<string, str
           ...(config.args ? { args: config.args.map(fill) } : {}),
           ...(config.env ? { env: mapValues(config.env) } : {}),
         }
-  if (missing.size) throw new ConfigError(`Isian MCP belum lengkap: ${[...missing].join(', ')}`)
+  if (missing.size) throw new ConfigError(t('Missing MCP fields: {fields}', { fields: [...missing].join(', ') }))
   return out
 }

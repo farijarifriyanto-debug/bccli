@@ -5,6 +5,7 @@ import { render } from 'ink-testing-library'
 import { expect, test } from 'vitest'
 import { parseCliArgs } from '../../src/args'
 import type { Completion, Provider } from '../../src/provider'
+import { setLanguage } from '../../src/i18n'
 import { createRuntime } from '../../src/setup'
 import { readMcpFile } from '../../src/mcp/config'
 import { App } from '../../src/ui/App'
@@ -524,4 +525,70 @@ test('new/resume keep model and reasoning preference unchanged', () => {
   expect(rt.agent.reasoning).toBe('high')
   expect(rt.modelRef).toBe(model)
   expect(rt.agent.messages).toContainEqual({ role: 'user', content: 'saved' })
+})
+
+test('in English the help, permission prompt and notices are English', async () => {
+  setLanguage('en')
+  try {
+    const rt = makeRuntime([
+      { text: '', toolCalls: [{ id: '1', name: 'read', arguments: '{"path":"a.txt"}' }] },
+      { text: '', toolCalls: [{ id: '2', name: 'edit', arguments: '{"path":"a.txt","old_string":"old","new_string":"new"}' }] },
+      { text: 'Done.', toolCalls: [] },
+    ])
+    const { stdin, lastFrame, frames } = render(<App runtime={rt} version="test" />)
+    await wait()
+    expect(lastFrame()).toContain('shift+tab switch mode')
+    stdin.write('/help')
+    await wait()
+    stdin.write('\r')
+    await waitFor(() => frames.some((f) => f.includes('list of commands and shortcuts')))
+    const help = frames.join('\n')
+    expect(help).toContain('undo the file edits of the last turn')
+    expect(help).toContain('ctrl+t     show/hide the model’s thinking')
+    expect(help).not.toContain('batalkan edit file')
+    stdin.write('/nope')
+    await wait()
+    stdin.write('\r')
+    await waitFor(() => frames.some((f) => f.includes('Unknown command: /nope. Type /help.')))
+    stdin.write('change old to new')
+    await wait()
+    stdin.write('\r')
+    await waitFor(() => frames.some((f) => f.includes('Allow edit a.txt?')))
+    expect(frames.join('\n')).toContain('[y] yes')
+    expect(frames.join('\n')).toContain('[n] no')
+    await wait()
+    stdin.write('y')
+    await waitFor(() => frames.some((f) => f.includes('Done.')))
+    expect(frames.join('\n')).not.toContain('Izinkan')
+  } finally {
+    setLanguage('id')
+  }
+})
+
+test('/language shows, switches and saves the interface language', async () => {
+  try {
+    const rt = makeRuntime([])
+    const { stdin, lastFrame, frames } = render(<App runtime={rt} version="test" />)
+    await wait()
+    const run = async (command: string) => {
+      stdin.write(command)
+      await wait()
+      stdin.write('\r')
+      await wait(150)
+    }
+    await run('/language')
+    expect(lastFrame()).toContain('Bahasa: id.')
+    await run('/language xx')
+    expect(frames.join('\n')).toContain('Bahasa "xx" tidak dikenal. Pakai en atau id.')
+    await run('/language en')
+    await waitFor(() => frames.some((f) => f.includes('Language set to en (saved as default).')))
+    expect(JSON.parse(readFileSync(join(rt.env.BCCLI_HOME as string, 'config.json'), 'utf8')).language).toBe('en')
+    await run('/cost')
+    expect(lastFrame()).toMatch(/tokens in · .* tokens out/)
+    await run('/language id')
+    await waitFor(() => frames.some((f) => f.includes('Bahasa diatur ke id (tersimpan sebagai default).')))
+    expect(JSON.parse(readFileSync(join(rt.env.BCCLI_HOME as string, 'config.json'), 'utf8')).language).toBe('id')
+  } finally {
+    setLanguage('id')
+  }
 })

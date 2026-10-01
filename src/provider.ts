@@ -1,6 +1,7 @@
 import { splitThinking, ThinkSplitter } from './thinking'
 import { reasoningPayload, type ReasoningLevel } from './reasoning'
 import type { ToolDefinition } from './tools/index'
+import { t } from './i18n'
 
 export interface ToolCall {
   id: string
@@ -164,7 +165,7 @@ async function readStream(res: Response, onText?: (delta: string) => void, onThi
     } catch {
       return
     }
-    if (event.error) throw new ProviderError(`Error dari provider: ${event.error.message ?? JSON.stringify(event.error)}`)
+    if (event.error) throw new ProviderError(t('Error from the provider: {message}', { message: event.error.message ?? JSON.stringify(event.error) }))
     if (event.usage) usage = toUsage(event.usage)
     const choice = event.choices?.[0]
     if (!choice) return
@@ -244,15 +245,15 @@ export function createProvider({ baseURL, apiKey, model, providerId, fetch: doFe
         res = await doFetch(`${baseURL}${path}`, { method: 'POST', headers, body: JSON.stringify(body), signal })
       } catch (error) {
         if (signal?.aborted) throw error
-        lastError = new ProviderError(`Tidak bisa terhubung ke ${baseURL}: ${(error as Error).message}`)
+        lastError = new ProviderError(t('Cannot connect to {url}: {error}', { url: baseURL, error: (error as Error).message }))
         continue
       }
       if (res.ok) return res
       const text = await res.text().catch(() => '')
-      lastError = new ProviderError(`${res.status} dari ${baseURL}: ${errorMessage(text)}`, res.status)
+      lastError = new ProviderError(t('{status} from {url}: {message}', { status: res.status, url: baseURL, message: errorMessage(text) }), res.status)
       if (!retryable(res.status)) throw lastError
     }
-    throw lastError ?? new ProviderError('Permintaan gagal')
+    throw lastError ?? new ProviderError(t('Request failed'))
   }
 
   return {
@@ -269,12 +270,12 @@ export function createProvider({ baseURL, apiKey, model, providerId, fetch: doFe
         signal,
       )
       if ((res.headers.get('content-type') ?? '').includes('application/json')) return readJson(res)
-      if (!res.body) throw new ProviderError('Respons provider kosong')
+      if (!res.body) throw new ProviderError(t('Empty response from the provider'))
       return readStream(res, onText, onThinking)
     },
     async listModels() {
       const res = await doFetch(`${baseURL}/models`, { headers })
-      if (!res.ok) throw new ProviderError(`${res.status} saat mengambil daftar model`, res.status)
+      if (!res.ok) throw new ProviderError(t('{status} while fetching the model list', { status: res.status }), res.status)
       const body = (await res.json()) as { data?: { id: string }[] }
       return (body.data ?? []).map((m) => m.id).sort()
     },

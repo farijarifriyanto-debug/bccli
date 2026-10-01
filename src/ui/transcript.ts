@@ -1,4 +1,5 @@
 import type { AgentEvent } from '../agent'
+import { t as translate } from '../i18n'
 
 export interface SubLine {
   id: string
@@ -30,9 +31,9 @@ type EntryInput = Entry extends infer E ? (E extends { id: number } ? Omit<E, 'i
 export const entry = (e: EntryInput): Entry => ({ ...e, id: nextId++ }) as Entry
 
 const NOTICES: Partial<Record<AgentEvent['type'], [string, 'info' | 'warn' | 'error']>> = {
-  compacted: ['Percakapan diringkas agar muat di konteks model.', 'info'],
-  stepLimit: ['Batas 50 langkah tercapai. Ketik "lanjut" untuk meneruskan.', 'warn'],
-  aborted: ['Dibatalkan.', 'warn'],
+  compacted: ['Conversation summarized to fit the model context.', 'info'],
+  stepLimit: ['Step limit of 50 reached. Type "continue" to keep going.', 'warn'],
+  aborted: ['Cancelled.', 'warn'],
 }
 
 const isEmptyCont = (e: Entry) => e.kind === 'assistant' && e.cont && !e.text
@@ -124,7 +125,7 @@ export function applyEvent(t: Transcript, event: AgentEvent): Transcript {
       return { ...t, live: [...t.live, entry({ kind: 'notice', text: `Error: ${event.message}`, tone: 'error' })] }
     default: {
       const notice = NOTICES[event.type]
-      return notice ? { ...t, live: [...t.live, entry({ kind: 'notice', text: notice[0], tone: notice[1] })] } : t
+      return notice ? { ...t, live: [...t.live, entry({ kind: 'notice', text: translate(notice[0]), tone: notice[1] })] } : t
     }
   }
 }

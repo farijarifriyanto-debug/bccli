@@ -106,7 +106,7 @@ export function runCommand(
       active.delete(killAsAborted)
       clearTimeout(timer)
       opts.signal.removeEventListener('abort', onAbort)
-      const output = dropped ? `${head}\n… [${dropped} karakter dipotong] …\n${tail}` : head + tail
+      const output = dropped ? `${head}\n… [${dropped} characters truncated] …\n${tail}` : head + tail
       resolve({ output: output + extra, exitCode, timedOut, aborted })
     }
     child.on('error', (error) => finish(null, error.message))
@@ -127,9 +127,9 @@ export const bashTool = defineTool({
   async run(input, ctx) {
     const r = await runCommand(input.command, { cwd: ctx.cwd, timeoutMs: input.timeout_ms ?? 120_000, signal: ctx.signal })
     const status = r.timedOut
-      ? `[dihentikan: timeout ${Math.round((input.timeout_ms ?? 120_000) / 1000)} detik]`
+      ? `[stopped: timeout after ${Math.round((input.timeout_ms ?? 120_000) / 1000)} seconds]`
       : r.aborted
-        ? '[dibatalkan user]'
+        ? '[cancelled by the user]'
         : `[exit code ${r.exitCode}]`
     return { output: `${r.output.trimEnd()}\n${status}`.trimStart(), isError: r.exitCode !== 0 }
   },

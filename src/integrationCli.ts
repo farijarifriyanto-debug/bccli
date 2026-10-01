@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import { parseDocument } from 'yaml'
 import type { CliArgs } from './args'
 import { bccliHome, ConfigError, loadConfig, readCredentials, resolveModel } from './config'
+import { t } from './i18n'
 
 type IntegrationTarget = 'opencode' | 'aider' | 'cline' | 'deepseek-harness' | 'cursor' | 'openai-cli' | 'openai-sdk' | 'openai-compatible' | 'codex' | 'claude-code'
 
@@ -43,19 +44,19 @@ function parseTarget(raw: string | undefined): IntegrationTarget {
   ) return raw
   if (raw === 'dsh') return 'deepseek-harness'
   throw new ConfigError(
-    'Agent harus salah satu dari: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code',
+    t('Agent must be one of: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code'),
   )
 }
 
 function homeDir(env: NodeJS.ProcessEnv): string {
   const value = env.HOME || env.USERPROFILE
-  if (!value) throw new ConfigError('Home directory tidak dapat ditentukan.')
+  if (!value) throw new ConfigError(t('Cannot determine the home directory.'))
   return value
 }
 
 function ensureSecret(env: NodeJS.ProcessEnv): string {
   const key = readCredentials(env)['bc-cloud'] || env.BOTCONNECTOR_API_KEY
-  if (!key) throw new ConfigError('API key BotConnector belum tersedia. Jalankan bccli login bc-cloud terlebih dahulu.')
+  if (!key) throw new ConfigError(t('No BotConnector API key yet. Run bccli login bc-cloud first.'))
   const dir = integrationHome(env)
   mkdirSync(dir, { recursive: true })
   const path = keyPath(env)
@@ -90,13 +91,13 @@ async function botConnectorModels(deps: IntegrationDeps): Promise<string[]> {
   const config = loadConfig(deps.cwd)
   const resolved = resolveModel(config, config.model, deps.env)
   const key = readCredentials(deps.env)['bc-cloud'] || resolved.apiKey
-  if (!key) throw new ConfigError('API key BotConnector belum tersedia. Jalankan bccli login bc-cloud terlebih dahulu.')
+  if (!key) throw new ConfigError(t('No BotConnector API key yet. Run bccli login bc-cloud first.'))
   // External agents call BotConnector directly, so model discovery must not
   // inherit BCCLI-only access (for example Luna launch access).
   const response = await deps.fetch(`${BASE_URL}/models`, {
     headers: { authorization: `Bearer ${key}` },
   })
-  if (!response.ok) throw new ConfigError(`Katalog model BotConnector gagal dimuat (HTTP ${response.status}).`)
+  if (!response.ok) throw new ConfigError(t('Could not load the BotConnector model catalog (HTTP {status}).', { status: response.status }))
   const payload = await response.json() as { data?: Array<{ id?: string }> }
   return (payload.data ?? []).map((item) => item.id).filter((id): id is string => typeof id === 'string' && !!id)
 }
@@ -111,7 +112,7 @@ async function connectOpenCode(deps: IntegrationDeps): Promise<void> {
   let doc: Record<string, unknown> = {}
   if (existsSync(path)) {
     try { doc = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown> }
-    catch { throw new ConfigError(`Config OpenCode tidak valid JSON: ${path}`) }
+    catch { throw new ConfigError(t('The OpenCode config is not valid JSON: {path}', { path })) }
   }
   const providers = (doc.provider && typeof doc.provider === 'object' && !Array.isArray(doc.provider))
     ? { ...(doc.provider as Record<string, unknown>) }
@@ -136,7 +137,7 @@ async function connectOpenCode(deps: IntegrationDeps): Promise<void> {
     files: [{ path, ...backup }],
     createdAt: new Date().toISOString(),
   }, deps.env)
-  deps.out(`OpenCode terhubung ke BotConnector (${models.length} model).`)
+  deps.out(t('OpenCode is connected to BotConnector ({n} models).', { n: models.length }))
   deps.out(`Config: ${path}`)
 }
 
@@ -172,7 +173,7 @@ async function connectAider(deps: IntegrationDeps): Promise<void> {
   let existing = existsSync(configPath) ? readFileSync(configPath, 'utf8') : ''
   existing = stripManagedBlock(existing)
   if (/^\s*(env-file|openai-api-base|openai-api-key)\s*:/m.test(existing)) {
-    throw new ConfigError(`Config Aider sudah memiliki env-file/openai-api setting sendiri: ${configPath}. BCCLI tidak akan menimpanya.`)
+    throw new ConfigError(t('The Aider config already has its own env-file/openai-api settings: {path}. BCCLI will not overwrite them.', { path: configPath }))
   }
 
   mkdirSync(dirname(envPath), { recursive: true })
@@ -196,7 +197,7 @@ async function connectAider(deps: IntegrationDeps): Promise<void> {
     files: [{ path: configPath, ...configBackup }, { path: envPath, ...envBackup }],
     createdAt: new Date().toISOString(),
   }, deps.env)
-  deps.out('Aider terhubung ke BotConnector.')
+  deps.out(t('Aider is connected to BotConnector.'))
   deps.out(`Config: ${configPath}`)
 }
 
@@ -206,7 +207,7 @@ function externalDefaultModel(models: string[], deps: IntegrationDeps): string {
   const preferred = config.model.startsWith('bc-cloud/') ? config.model.slice('bc-cloud/'.length) : ''
   if (preferred && models.includes(preferred)) return preferred
   const first = models[0]
-  if (!first) throw new ConfigError('Katalog BotConnector tidak memiliki model yang dapat dipakai agent eksternal.')
+  if (!first) throw new ConfigError(t('The BotConnector catalog has no model that external agents can use.'))
   return first
 }
 
@@ -223,7 +224,7 @@ async function connectCline(deps: IntegrationDeps): Promise<void> {
   let doc: Record<string, unknown> = { version: 1, modes: {}, providers: {} }
   if (existsSync(path)) {
     try { doc = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown> }
-    catch { throw new ConfigError(`Config Cline tidak valid JSON: ${path}`) }
+    catch { throw new ConfigError(t('The Cline config is not valid JSON: {path}', { path })) }
   }
   const providers = (doc.providers && typeof doc.providers === 'object' && !Array.isArray(doc.providers))
     ? { ...(doc.providers as Record<string, unknown>) }
@@ -232,8 +233,7 @@ async function connectCline(deps: IntegrationDeps): Promise<void> {
   const currentBase = current?.settings?.baseUrl
   if (currentBase && currentBase.replace(/\/+$/, '') !== BASE_URL) {
     throw new ConfigError(
-      'Cline sudah memakai provider openai-compatible lain (' + currentBase + '). ' +
-      'BCCLI tidak akan menimpanya; disconnect/ubah provider tersebut lebih dulu.',
+      t('Cline already uses another openai-compatible provider ({base}). BCCLI will not overwrite it; disconnect or change that provider first.', { base: currentBase }),
     )
   }
 
@@ -255,7 +255,7 @@ async function connectCline(deps: IntegrationDeps): Promise<void> {
     files: [{ path, ...backup }],
     createdAt: new Date().toISOString(),
   }, deps.env)
-  deps.out(`Cline terhubung ke BotConnector (${models.length} model tersedia; default ${model}).`)
+  deps.out(t('Cline is connected to BotConnector ({n} models available; default {model}).', { n: models.length, model }))
   deps.out(`Config: ${path}`)
   deps.out('Catatan: Cline menyimpan API key provider di providers.json miliknya.')
 }
@@ -287,11 +287,11 @@ async function connectDeepSeekHarness(deps: IntegrationDeps): Promise<void> {
 
   const source = existsSync(settingsPath) ? readFileSync(settingsPath, 'utf8') : '{}\n'
   const doc = parseDocument(source)
-  if (doc.errors.length) throw new ConfigError(`Config DeepSeek Harness tidak valid YAML: ${settingsPath}`)
+  if (doc.errors.length) throw new ConfigError(t('The DeepSeek Harness config is not valid YAML: {path}', { path: settingsPath }))
 
   const existingProvider = doc.getIn(['llm-pi-ai', 'providers', PROVIDER_ID]) as { baseURL?: string } | undefined
   if (existingProvider?.baseURL && existingProvider.baseURL.replace(/\/+$/, '') !== BASE_URL) {
-    throw new ConfigError(`DeepSeek Harness sudah memiliki provider "${PROVIDER_ID}" dengan endpoint lain.`)
+    throw new ConfigError(t('DeepSeek Harness already has a provider "{id}" with a different endpoint.', { id: PROVIDER_ID }))
   }
 
   doc.setIn(['llm-pi-ai', 'providers', PROVIDER_ID], {
@@ -307,7 +307,7 @@ async function connectDeepSeekHarness(deps: IntegrationDeps): Promise<void> {
   let envText = existsSync(envPath) ? readFileSync(envPath, 'utf8') : ''
   envText = stripDshEnvBlock(envText)
   if (/^\s*BOTCONNECTOR_API_KEY\s*=/m.test(envText)) {
-    throw new ConfigError(`$DSH_HOME/.env sudah memiliki BOTCONNECTOR_API_KEY di luar blok BCCLI: ${envPath}`)
+    throw new ConfigError(t('$DSH_HOME/.env already has BOTCONNECTOR_API_KEY outside the BCCLI block: {path}', { path: envPath }))
   }
   const managed = [DSH_ENV_BEGIN, `BOTCONNECTOR_API_KEY=${key}`, DSH_ENV_END].join('\n')
   const mergedEnv = envText.trim() ? `${envText.trimEnd()}\n\n${managed}\n` : `${managed}\n`
@@ -321,11 +321,11 @@ async function connectDeepSeekHarness(deps: IntegrationDeps): Promise<void> {
     files: [{ path: settingsPath, ...settingsBackup }, { path: envPath, ...envBackup }],
     createdAt: new Date().toISOString(),
   }, deps.env)
-  deps.out(`DeepSeek Harness terhubung ke BotConnector (${models.length} model).`)
+  deps.out(t('DeepSeek Harness is connected to BotConnector ({n} models).', { n: models.length }))
   deps.out(`Config: ${settingsPath}`)
   deps.out('Provider: botconnector (OpenAI Chat Completions)')
-  deps.out('Jalankan: dsh web')
-  deps.out('Bentuk panjang yang setara: dsh --profile web')
+  deps.out(t('Run: dsh web'))
+  deps.out(t('Equivalent long form: dsh --profile web'))
 }
 
 
@@ -388,14 +388,14 @@ async function connectOpenAiCli(deps: IntegrationDeps): Promise<void> {
   }, deps.env)
   deps.out('OpenAI CLI profile BotConnector siap.')
   deps.out(`Launcher: ${launcher}`)
-  deps.out('Launcher tidak menyimpan API key di dalam script; key dibaca dari storage BCCLI saat dijalankan.')
+  deps.out(t('The launcher does not store the API key in the script; the key is read from BCCLI storage when it runs.'))
 }
 
 async function connectOpenAiSdk(deps: IntegrationDeps): Promise<void> {
   const path = writeOpenAiEnvProfile('openai-sdk', deps)
   deps.out('OpenAI SDK profile BotConnector siap.')
   deps.out(`Env profile: ${path}`)
-  deps.out('Python dan Node OpenAI SDK dapat membaca OPENAI_BASE_URL dan OPENAI_API_KEY dari profile ini.')
+  deps.out(t('The Python and Node OpenAI SDKs can read OPENAI_BASE_URL and OPENAI_API_KEY from this profile.'))
 }
 
 async function connectOpenAiCompatible(deps: IntegrationDeps): Promise<void> {
@@ -434,7 +434,7 @@ async function connectCursor(deps: IntegrationDeps): Promise<void> {
   }, deps.env)
   deps.out('Cursor guided setup profile dibuat.')
   deps.out(`Panduan: ${path}`)
-  deps.out('BCCLI tidak mengedit storage internal Cursor karena format override tersebut bukan konfigurasi eksternal yang stabil.')
+  deps.out(t('BCCLI does not edit Cursor’s internal storage because that override format is not a stable external configuration.'))
 }
 
 
@@ -443,7 +443,7 @@ function agentToolDefaultModel(models: string[]): string {
     if (models.includes(id)) return id
   }
   const first = models[0]
-  if (!first) throw new ConfigError('Katalog BotConnector tidak memiliki model untuk coding agent eksternal.')
+  if (!first) throw new ConfigError(t('The BotConnector catalog has no model for external coding agents.'))
   return first
 }
 
@@ -455,7 +455,7 @@ async function connectCodex(deps: IntegrationDeps): Promise<void> {
   const profilePath = join(codexHome, 'botconnector.config.toml')
   const launcher = join(integrationHome(deps.env), process.platform === 'win32' ? 'codex-botconnector.cmd' : 'codex-botconnector')
   if (existsSync(profilePath)) {
-    throw new ConfigError('Codex sudah memiliki botconnector.config.toml. BCCLI tidak akan menimpanya.')
+    throw new ConfigError(t('Codex already has botconnector.config.toml. BCCLI will not overwrite it.'))
   }
   const profileBackup = safeBackup(profilePath, deps.env)
   const launcherBackup = safeBackup(launcher, deps.env)
@@ -506,7 +506,7 @@ async function connectCodex(deps: IntegrationDeps): Promise<void> {
     files:[{ path:profilePath, ...profileBackup }, { path:launcher, ...launcherBackup }],
     createdAt:new Date().toISOString(),
   }, deps.env)
-  deps.out('Codex CLI terhubung ke BotConnector Responses API.')
+  deps.out(t('Codex CLI is connected to the BotConnector Responses API.'))
   deps.out(`Profile: ${profilePath}`)
   deps.out(`Launcher: ${launcher}`)
   deps.out(`Default coding model: ${model}`)
@@ -558,7 +558,7 @@ async function connectClaudeCode(deps: IntegrationDeps): Promise<void> {
     files:[{ path:launcher, ...backup }],
     createdAt:new Date().toISOString(),
   }, deps.env)
-  deps.out('Claude Code terhubung ke BotConnector Anthropic Messages compatibility API.')
+  deps.out(t('Claude Code is connected to the BotConnector Anthropic Messages compatibility API.'))
   deps.out(`Launcher: ${launcher}`)
   deps.out(`Default coding model: ${model}`)
 }
@@ -566,7 +566,7 @@ async function connectClaudeCode(deps: IntegrationDeps): Promise<void> {
 function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {
   const state = readState(target, deps.env)
   if (!state) {
-    deps.out(`${target}: belum dikelola oleh BCCLI.`)
+    deps.out(t('{target}: not managed by BCCLI yet.', { target }))
     return
   }
   for (const file of [...state.files].reverse()) {
@@ -578,7 +578,7 @@ function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {
     }
   }
   rmSync(statePath(target, deps.env), { force: true })
-  deps.out(`${target}: integrasi BotConnector dilepas dan config dipulihkan.`)
+  deps.out(t('{target}: the BotConnector integration was removed and the config restored.', { target }))
 }
 
 function listIntegrations(deps: IntegrationDeps): void {

@@ -16,7 +16,7 @@ const file = (name: string) => join(ctx.cwd, name)
 test('read numbers lines, honours offset/limit and reports the remainder', async () => {
   writeFileSync(file('a.txt'), 'one\ntwo\nthree\nfour')
   const r = await readTool.run({ path: 'a.txt', offset: 2, limit: 2 }, ctx)
-  expect(r.output).toBe('     2\ttwo\n     3\tthree\n… 1 baris lagi (pakai offset)')
+  expect(r.output).toBe('     2\ttwo\n     3\tthree\n… 1 more lines (use offset)')
   expect(ctx.readFiles.has(file('a.txt'))).toBe(true)
 })
 
@@ -24,7 +24,7 @@ test('read truncates a huge single line', async () => {
   writeFileSync(file('min.js'), 'x'.repeat(1_000_000))
   const r = await readTool.run({ path: 'min.js' }, ctx)
   expect(r.output.length).toBeLessThan(2100)
-  expect(r.output).toContain('[baris dipotong]')
+  expect(r.output).toContain('[line truncated]')
 })
 
 test('read refuses binary files and reports missing files as errors', async () => {
@@ -51,8 +51,8 @@ test('edit requires read, unique match, and supports replace_all', async () => {
   await readTool.run({ path: 'e.ts' }, ctx)
   const ambiguous = await editTool.run({ path: 'e.ts', old_string: '= 1', new_string: '= 3' }, ctx)
   expect(ambiguous.isError).toBe(true)
-  expect(ambiguous.output).toMatch(/2 kali/)
-  expect((await editTool.run({ path: 'e.ts', old_string: 'zzz', new_string: 'q' }, ctx)).output).toMatch(/tidak ditemukan/)
+  expect(ambiguous.output).toMatch(/2 times/)
+  expect((await editTool.run({ path: 'e.ts', old_string: 'zzz', new_string: 'q' }, ctx)).output).toMatch(/not found/)
   const ok = await editTool.run({ path: 'e.ts', old_string: 'a = 1', new_string: 'a = 2' }, ctx)
   expect(ok.isError).toBeFalsy()
   expect(ok.display).toContain('+ a = 2')

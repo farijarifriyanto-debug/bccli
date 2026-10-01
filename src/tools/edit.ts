@@ -21,7 +21,7 @@ function countOccurrences(haystack: string, needle: string): number {
 /** Returns the new content, or an error result. Tries old_string as sent, then with the file's line ending. */
 function applyEdit(content: string, input: EditInput): string | ToolResult {
   if (input.old_string === input.new_string) {
-    return { output: 'old_string dan new_string sama; tidak ada perubahan.', isError: true }
+    return { output: 'old_string and new_string are identical; nothing to change.', isError: true }
   }
   const eol = content.includes('\r\n') ? '\r\n' : '\n'
   const toEol = (s: string) => s.replace(/\r?\n/g, eol)
@@ -32,13 +32,13 @@ function applyEdit(content: string, input: EditInput): string | ToolResult {
     if (count === 0) continue
     if (count > 1 && !input.replace_all) {
       return {
-        output: `old_string muncul ${count} kali di ${input.path}. Tambah konteks agar unik, atau pakai replace_all.`,
+        output: `old_string appears ${count} times in ${input.path}. Add more context to make it unique, or use replace_all.`,
         isError: true,
       }
     }
     return input.replace_all ? content.split(oldText).join(newText) : content.replace(oldText, () => newText)
   }
-  return { output: `old_string tidak ditemukan di ${input.path}. Baca ulang file-nya.`, isError: true }
+  return { output: `old_string not found in ${input.path}. Re-read the file.`, isError: true }
 }
 
 export const editTool = defineTool({
@@ -50,12 +50,12 @@ export const editTool = defineTool({
   target: (input) => input.path,
   async validate(input, ctx) {
     const abs = resolvePath(ctx.cwd, input.path)
-    if (!ctx.readFiles.has(abs)) return `Baca ${input.path} dulu dengan read sebelum mengedit.`
+    if (!ctx.readFiles.has(abs)) return `Read ${input.path} with read before editing it.`
     let content: string
     try {
       content = await readFile(abs, 'utf8')
     } catch (error) {
-      return `Tidak bisa membaca ${input.path}: ${errorCode(error)}`
+      return `Cannot read ${input.path}: ${errorCode(error)}`
     }
     const next = applyEdit(content, input)
     return typeof next === 'string' ? undefined : next.output
@@ -69,18 +69,18 @@ export const editTool = defineTool({
   async run(input, ctx) {
     const abs = resolvePath(ctx.cwd, input.path)
     if (!ctx.readFiles.has(abs)) {
-      return { output: `Baca ${input.path} dulu dengan read sebelum mengedit.`, isError: true }
+      return { output: `Read ${input.path} with read before editing it.`, isError: true }
     }
     let content: string
     try {
       content = await readFile(abs, 'utf8')
     } catch (error) {
-      return { output: `Tidak bisa membaca ${input.path}: ${errorCode(error)}`, isError: true }
+      return { output: `Cannot read ${input.path}: ${errorCode(error)}`, isError: true }
     }
     const next = applyEdit(content, input)
     if (typeof next !== 'string') return next
     await ctx.checkpoint?.(abs)
     await writeFile(abs, next)
-    return { output: `Mengedit ${input.path}.`, display: formatDiff(diffLines(content, next)) }
+    return { output: `Edited ${input.path}.`, display: formatDiff(diffLines(content, next)) }
   },
 })

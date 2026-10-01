@@ -1,20 +1,33 @@
-import { HELP_TEXT, parseCliArgs } from './args'
+import { helpText, parseCliArgs } from './args'
 import { ConfigError, loadConfig, resolveModel } from './config'
 import { runLogin } from './login'
 import { runPrint } from './print'
 import { createProvider } from './provider'
+import { readGlobalConfigFile } from './providers'
 import { pruneSessions } from './session'
 import { createRuntime } from './setup'
 import { VERSION } from './version'
+import { resolveLanguage, setLanguage, t } from './i18n'
+
+function chooseLanguage(argv: string[]): void {
+  let fromConfig: string | undefined
+  try {
+    fromConfig = readGlobalConfigFile(process.env).language
+  } catch {
+    // a broken config is reported later, in the right language
+  }
+  setLanguage(resolveLanguage(argv, process.env, fromConfig))
+}
 
 async function main(): Promise<number> {
+  chooseLanguage(process.argv.slice(2))
   const args = parseCliArgs(process.argv.slice(2))
   if (args.version) {
     console.log(VERSION)
     return 0
   }
   if (args.help) {
-    console.log(HELP_TEXT)
+    console.log(helpText())
     return 0
   }
   const cwd = process.cwd()
@@ -53,11 +66,11 @@ async function main(): Promise<number> {
     // pruning is best effort
   }
   if (args.print) {
-    if (!args.prompt) throw new ConfigError('Mode -p butuh tugas, contoh: bccli -p "jelaskan repo ini"')
+    if (!args.prompt) throw new ConfigError(t('-p mode needs a task, e.g. bccli -p "explain this repo"'))
     const { serversToStart } = await import('./mcp/config')
     const plan = serversToStart(rt.home, cwd)
     for (const s of plan.needTrust) {
-      console.error(`Server MCP project "${s.name}" dilewati (belum diizinkan; jalankan bccli interaktif sekali untuk menyetujuinya).`)
+      console.error(t('Project MCP server "{name}" skipped (not approved yet; run interactive bccli once to approve it).', { name: s.name }))
     }
     await rt.startMcp(plan.start)
     try {
@@ -66,7 +79,7 @@ async function main(): Promise<number> {
       await rt.mcp.stop()
     }
   }
-  if (!process.stdin.isTTY) throw new ConfigError('Mode interaktif butuh terminal. Untuk skrip/CI pakai: bccli -p "tugas"')
+  if (!process.stdin.isTTY) throw new ConfigError(t('Interactive mode needs a terminal. For scripts/CI use: bccli -p "task"'))
   const { startInteractive } = await import('./ui/index')
   return startInteractive(rt, { initialPrompt: args.prompt, resume: args.resume, version: VERSION })
 }

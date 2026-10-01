@@ -1,3 +1,5 @@
+import { t } from './i18n'
+
 export const REASONING_LEVELS = ['auto', 'off', 'low', 'medium', 'high', 'max'] as const
 
 export type ReasoningLevel = (typeof REASONING_LEVELS)[number]
@@ -16,7 +18,7 @@ export function isReasoningLevel(value: string): value is ReasoningLevel {
 
 export function parseReasoningLevel(value: string, label = 'reasoning'): ReasoningLevel {
   if (!isReasoningLevel(value)) {
-    throw new Error(`${label} harus salah satu dari: ${REASONING_LEVELS.join(', ')}`)
+    throw new Error(t('{label} must be one of: {levels}', { label, levels: REASONING_LEVELS.join(', ') }))
   }
   return value
 }
@@ -42,11 +44,11 @@ export function assertReasoningSupported(providerId: string | undefined, level: 
   if (level === 'auto') return
   const capability = reasoningCapability(providerId)
   if (!capability) {
-    throw new Error('Provider ini belum memiliki kontrak reasoning manual. Gunakan Auto.')
+    throw new Error(t('This provider has no manual reasoning setting yet. Use Auto.'))
   }
   if (!capability.levels.includes(level)) {
     const supported = capability.levels.filter((x) => x !== 'auto').map(capitalize).join('/')
-    throw new Error(`Model/provider ini tidak mendukung reasoning level '${level}'. Gunakan Auto${supported ? `/${supported}` : ''}.`)
+    throw new Error(t('This model/provider does not support reasoning level \'{level}\'. Use Auto{supported}.', { level, supported: supported ? `/${supported}` : '' }))
   }
 }
 

@@ -37,7 +37,7 @@ test('huge output keeps head and tail', async () => {
     signal: new AbortController().signal,
   })
   expect(r.output.length).toBeLessThan(31000)
-  expect(r.output).toContain('karakter dipotong')
+  expect(r.output).toContain('characters truncated')
   expect(r.output.endsWith('END')).toBe(true)
 })
 
