@@ -54,6 +54,11 @@ const QUOTE = /^\s{0,3}((?:>\s?)+)(.*)$/
 const BULLET = /^(\s*)[-*+]\s+(.*)$/
 const NUMBERED = /^(\s*)(\d{1,9})[.)]\s+(.*)$/
 const BULLETS = ['•', '◦', '▪']
+/**
+ * The glyph depends on the item's own indentation only. A finished answer is printed line by line while it streams,
+ * so each line is drawn on its own and cannot know which items came before it.
+ */
+const bulletFor = (spaces: number): string => BULLETS[spaces === 0 ? 0 : spaces <= 4 ? 1 : 2]
 
 /**
  * A marker in its own column and the text beside it, so long items wrap under the text, not under the marker.
@@ -83,12 +88,6 @@ export function Markdown({ text, indent = 2 }: { text: string; indent?: number }
   const lines = text.split('\n')
   const rows: ReactNode[] = []
   let inCode = false
-  let indents: number[] = [] // indentation of the list items seen so far in the current list
-  const depth = (spaces: number): number => {
-    while (indents.length && spaces < (indents.at(-1) as number)) indents.pop()
-    if (!indents.length || spaces > (indents.at(-1) as number)) indents.push(spaces)
-    return indents.length - 1
-  }
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     if (line.trimStart().startsWith('```')) {
@@ -138,23 +137,20 @@ export function Markdown({ text, indent = 2 }: { text: string; indent?: number }
     const bullet = BULLET.exec(line)
     if (bullet) {
       const padding = Math.min(bullet[1].replace(/\t/g, '    ').length, 16)
-      const level = depth(padding)
       const task = /^\[([ xX])\]\s+(.*)$/.exec(bullet[2])
       rows.push(
         task
           ? hanging(i, task[1] === ' ' ? '☐' : '☑', inline(task[2]), width, padding)
-          : hanging(i, BULLETS[Math.min(level, BULLETS.length - 1)], inline(bullet[2]), width, padding),
+          : hanging(i, bulletFor(padding), inline(bullet[2]), width, padding),
       )
       continue
     }
     const numbered = NUMBERED.exec(line)
     if (numbered) {
       const padding = Math.min(numbered[1].replace(/\t/g, '    ').length, 16)
-      depth(padding)
       rows.push(hanging(i, `${numbered[2]}.`, inline(numbered[3]), width, padding))
       continue
     }
-    if (line.trim()) indents = [] // any other text ends the list
     rows.push(<Text key={i}>{line ? inline(line) : ' '}</Text>)
   }
   return <Box flexDirection="column">{rows}</Box>

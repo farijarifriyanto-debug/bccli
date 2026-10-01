@@ -52,7 +52,7 @@ test('headings lose their # and keep their text', () => {
 
 test('lists: bullets, nesting, numbers and tasks', () => {
   expect(frame('- one\n* two\n+ three')).toEqual(['• one', '• two', '• three'])
-  expect(frame('- top\n  - nested\n    - deeper')).toEqual(['• top', '  ◦ nested', '    ▪ deeper'])
+  expect(frame('- top\n  - nested\n      - deeper')).toEqual(['• top', '  ◦ nested', '      ▪ deeper'])
   // nesting follows however the author indented: 3 spaces under "1. ", 4-space steps, a new list starting fresh
   expect(frame('1. a\n   - b\n   - c\n2. d')).toEqual(['1. a', '   ◦ b', '   ◦ c', '2. d'])
   expect(frame('- a\n    - b\n        - c\n- d')).toEqual(['• a', '    ◦ b', '        ▪ c', '• d'])
@@ -107,4 +107,11 @@ test('inside <Static> (where finished answers are printed) a long list item stil
   const lines = (lastFrame() ?? '').split('\n')
   expect(lines.length).toBeGreaterThan(6)
   expect(Math.max(...lines.map(displayWidth))).toBeLessThanOrEqual(100) // ink-testing-library terminals are 100 columns wide
+})
+
+test('drawing a list one line at a time (as it streams) gives the same result as drawing it whole', () => {
+  const text = '1. a\n   - b\n   - c\n2. d\n\n- x\n  - y\n      - z\n> q\n## h\nplain *it*'
+  const whole = frame(text)
+  const perLine = text.split('\n').flatMap((line) => frame(line))
+  expect(perLine).toEqual(whole)
 })
