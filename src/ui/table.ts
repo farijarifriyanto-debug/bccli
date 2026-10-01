@@ -1,7 +1,7 @@
 // Markdown tables for the terminal: parse them, size the columns to the available width, wrap long cells
 // inside their column, and keep every row aligned. Pure functions; Markdown.tsx only draws the result.
 
-export type Style = 'plain' | 'bold' | 'code' | 'dim'
+export type Style = 'plain' | 'bold' | 'italic' | 'strike' | 'link' | 'code' | 'dim'
 export interface Seg {
   text: string
   style: Style
@@ -46,15 +46,29 @@ const segsWidth = (segs: Seg[]) => segs.reduce((sum, s) => sum + displayWidth(s.
 
 // ---- inline formatting ----
 
+// Leftmost match wins, so `code` shields what is inside it. Emphasis only counts when it hugs the text and is not glued to
+// a word, so snake_case_names and 2*3*4 are left alone.
+const INLINE =
+  /(`[^`]+`|\*\*[^*]+\*\*|~~[^~]+~~|!?\[[^\]\n]+\]\([^)\s]+\)|(?<![\w*])\*(?![\s*])[^*\n]+?(?<![\s*])\*(?![\w*])|(?<!\w)_(?![\s_])[^_\n]+?(?<![\s_])_(?!\w))/g
+
 export function parseInline(text: string): Seg[] {
-  return text
-    .split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
-    .filter((part) => part !== '')
-    .map((part): Seg => {
-      if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) return { text: part.slice(2, -2), style: 'bold' }
-      if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) return { text: part.slice(1, -1), style: 'code' }
-      return { text: part, style: 'plain' }
-    })
+  const segs: Seg[] = []
+  for (const part of text.split(INLINE)) {
+    if (part === '') continue
+    if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) segs.push({ text: part.slice(1, -1), style: 'code' })
+    else if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) segs.push({ text: part.slice(2, -2), style: 'bold' })
+    else if (part.length > 4 && part.startsWith('~~') && part.endsWith('~~')) segs.push({ text: part.slice(2, -2), style: 'strike' })
+    else if (/^!?\[[^\]\n]+\]\([^)\s]+\)$/.test(part)) {
+      const m = /^(!?)\[([^\]]+)\]\(([^)\s]+)\)$/.exec(part) as RegExpExecArray
+      const [, image, label, url] = m
+      // A terminal cannot follow a link, so the address stays visible after the text.
+      segs.push({ text: label, style: image ? 'plain' : 'link' })
+      if (label !== url && !url.startsWith('#')) segs.push({ text: ` (${url})`, style: 'dim' })
+    } else if (part.length > 2 && ((part.startsWith('*') && part.endsWith('*')) || (part.startsWith('_') && part.endsWith('_')))) {
+      segs.push({ text: part.slice(1, -1), style: 'italic' })
+    } else segs.push({ text: part, style: 'plain' })
+  }
+  return segs
 }
 
 // ---- parsing ----

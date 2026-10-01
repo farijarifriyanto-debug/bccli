@@ -120,3 +120,25 @@ test('rows with a different number of cells are padded; extra cells are kept', (
 test('a header-only table (still streaming) draws just the header and rule', () => {
   expect(table('| A | B |\n|---|---|', 80)).toEqual(['A │ B', '──┼──'])
 })
+
+import { parseInline } from '../../src/ui/table'
+
+const styled = (text: string) => parseInline(text).map((s) => `${s.style}:${s.text}`)
+
+test('inline: bold, italic, strike, code, links and images', () => {
+  expect(styled('a **b** c')).toEqual(['plain:a ', 'bold:b', 'plain: c'])
+  expect(styled('an *italic* word and _this one_ too')).toEqual(['plain:an ', 'italic:italic', 'plain: word and ', 'italic:this one', 'plain: too'])
+  expect(styled('~~old~~ new')).toEqual(['strike:old', 'plain: new'])
+  expect(styled('run `a *b* c` now')).toEqual(['plain:run ', 'code:a *b* c', 'plain: now']) // code shields its content
+  expect(styled('see [the docs](https://x.dev/a) now')).toEqual(['plain:see ', 'link:the docs', 'dim: (https://x.dev/a)', 'plain: now'])
+  expect(styled('[https://x.dev](https://x.dev)')).toEqual(['link:https://x.dev']) // no repeated address
+  expect(styled('![logo](https://x.dev/l.png)')).toEqual(['plain:logo', 'dim: (https://x.dev/l.png)'])
+})
+
+test('inline: things that only look like emphasis are left alone', () => {
+  expect(styled('snake_case_name and my_var_2')).toEqual(['plain:snake_case_name and my_var_2'])
+  expect(styled('2*3*4 and 5 * 6 * 7')).toEqual(['plain:2*3*4 and 5 * 6 * 7'])
+  expect(styled('a * b')).toEqual(['plain:a * b'])
+  expect(styled('**unclosed and *also')).toEqual(['plain:**unclosed and *also'])
+  expect(styled('glob **/*.ts here')).toEqual(['plain:glob **/*.ts here'])
+})
