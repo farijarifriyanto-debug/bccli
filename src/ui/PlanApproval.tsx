@@ -14,7 +14,7 @@ export function PlanApproval({ plan, onAnswer }: { plan: string; onAnswer(d: Pla
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={color('cyan')} paddingX={1}>
       <Text bold>{t('Plan from the agent')}</Text>
-      <Markdown text={plan} />
+      <Markdown text={plan} indent={5} />
       <Text>
         <Text color={color('green')}>{t('[a] yes, auto-edit')}</Text>
         {'   '}

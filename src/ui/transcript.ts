@@ -45,7 +45,11 @@ export function endTurn(t: Transcript): Transcript {
 // Lines that may belong to a tool call written as text: keep them live so textReplace can remove them.
 const TOOL_MARKUP = /<\/?tool_call>|<\/?arg_(?:key|value)>|Tool call list|^\s*\d+\.\s*Tool:|`\s*=\s*`/
 
-/** Index of the newline ending the last complete line that is safe to print for good, or -1. */
+/**
+ * Index of the newline ending the last complete line that is safe to print for good, or -1.
+ * A code block and a run of lines with `|` (a table in the making) stay live until they end, so the whole
+ * block is drawn at once: a table printed line by line can never be aligned.
+ */
 function finishedCut(text: string): number {
   let inFence = false
   let pos = 0
@@ -54,8 +58,9 @@ function finishedCut(text: string): number {
   for (const line of lines.slice(0, -1)) {
     if (TOOL_MARKUP.test(line)) break
     if (line.trimStart().startsWith('```')) inFence = !inFence
+    const tableRow = !inFence && !line.trimStart().startsWith('```') && line.includes('|') && line.trim() !== ''
     pos += line.length + 1
-    if (!inFence) cut = pos - 1
+    if (!inFence && !tableRow) cut = pos - 1
   }
   return cut
 }
