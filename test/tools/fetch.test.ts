@@ -84,7 +84,7 @@ test('fetch reports HTTP errors', async () => {
 test('fetch stops reading huge responses', async () => {
   const r = await fetchTool.run({ url: `${base}/big` }, ctx)
   expect(r.output.length).toBeLessThan(13_000)
-  expect(r.output).toContain('dipotong')
+  expect(r.output).toContain('truncated')
   expect(r.display).toMatch(/lebih dari 5 MB/)
 })
 
@@ -97,7 +97,7 @@ test('fetch follows same-host redirects but not redirects to another host', asyn
 
 test('an HTML error page is reported as text, not markup', async () => {
   const r = await fetchTool.run({ url: `${base}/gone` }, ctx)
-  expect(r.output).toBe(`HTTP 404 dari ${base}/gone: Page not found`)
+  expect(r.output).toBe(`HTTP 404 from ${base}/gone: Page not found`)
 })
 
 test('a network failure names its cause instead of just "fetch failed"', async () => {

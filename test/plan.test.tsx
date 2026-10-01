@@ -17,7 +17,7 @@ test('approval switches the mode and tells the agent to start', async () => {
   const tool = createExitPlanTool({ permissions, interaction: { approvePlan: async () => 'acceptEdits' } })
   const r = await tool.run({ plan: '1. edit' }, ctx)
   expect(permissions.mode).toBe('acceptEdits')
-  expect(r.output).toMatch(/disetujui/)
+  expect(r.output).toMatch(/Plan approved/)
 })
 
 test('rejection keeps plan mode and asks for a revision', async () => {
@@ -25,7 +25,7 @@ test('rejection keeps plan mode and asks for a revision', async () => {
   const tool = createExitPlanTool({ permissions, interaction: { approvePlan: async () => 'no' } })
   const r = await tool.run({ plan: '1. edit' }, ctx)
   expect(permissions.mode).toBe('plan')
-  expect(r.output).toMatch(/perbaiki/i)
+  expect(r.output).toMatch(/revise/i)
 })
 
 test('PlanApproval keys map to decisions', async () => {

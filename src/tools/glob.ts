@@ -16,9 +16,9 @@ export const globTool = defineTool({
   async run(input, ctx) {
     const root = resolvePath(ctx.cwd, input.path ?? '.')
     const files = (await fg(input.pattern, { cwd: root, ignore: ignorePatterns(root), onlyFiles: true, dot: true })).sort()
-    if (!files.length) return { output: 'Tidak ada file yang cocok.' }
+    if (!files.length) return { output: 'No matching files.' }
     const shown = files.slice(0, 500)
-    const more = files.length > shown.length ? `\n… ${files.length - shown.length} file lagi` : ''
+    const more = files.length > shown.length ? `\n… ${files.length - shown.length} more files` : ''
     return { output: shown.join('\n') + more, display: `${files.length} file` }
   },
 })

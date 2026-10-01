@@ -25,7 +25,7 @@ test('grepJs finds matches and respects .gitignore and node_modules', async () =
 
 test('grep tool reports no matches clearly', async () => {
   const r = await grepTool.run({ pattern: 'definitely-not-here' }, ctx)
-  expect(r.output).toBe('Tidak ada yang cocok.')
+  expect(r.output).toBe('No matches.')
 })
 
 test('glob lists files, ignoring gitignored and node_modules', async () => {

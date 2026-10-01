@@ -32,11 +32,11 @@ export function createTodoTool(store: TodoStore): Tool {
     target: (input) => `${input.todos.length} item`,
     async run(input) {
       if (input.todos.filter((t) => t.status === 'in_progress').length > 1) {
-        return { output: 'Hanya boleh satu item in_progress.', isError: true }
+        return { output: 'Only one item may be in_progress.', isError: true }
       }
       store.set(input.todos)
       const done = input.todos.filter((t) => t.status === 'completed').length
-      return { output: `Todo diperbarui: ${done}/${input.todos.length} selesai.` }
+      return { output: `Todo updated: ${done}/${input.todos.length} completed.` }
     },
   }) as Tool
 }

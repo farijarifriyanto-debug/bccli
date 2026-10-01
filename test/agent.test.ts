@@ -61,7 +61,7 @@ test('asks permission for edits; "no" is reported to the model', async () => {
   expect(asked).toEqual(['write:n.txt:edit(project)'])
   expect(() => readFileSync(join(cwd, 'n.txt'))).toThrow()
   const toolMsg = provider.requests[1].messages.find((m) => m.role === 'tool') as { content: string }
-  expect(toolMsg.content).toMatch(/menolak/)
+  expect(toolMsg.content).toMatch(/declined/)
 })
 
 test('"session" answer allows later calls of the same kind without asking', async () => {
@@ -85,7 +85,7 @@ test('plan mode denies edits without asking', async () => {
     throw new Error('must not ask')
   }
   await agent.run('x', new AbortController().signal)
-  expect((provider.requests[1].messages.find((m) => m.role === 'tool') as { content: string }).content).toMatch(/mode plan/)
+  expect((provider.requests[1].messages.find((m) => m.role === 'tool') as { content: string }).content).toMatch(/plan mode/)
 })
 
 test('unknown tools and malformed arguments become error results, not crashes', async () => {
@@ -95,9 +95,9 @@ test('unknown tools and malformed arguments become error results, not crashes', 
   ])
   await agent.run('x', new AbortController().signal)
   const results = provider.requests[1].messages.filter((m) => m.role === 'tool') as { content: string }[]
-  expect(results[0].content).toMatch(/tidak ada/)
+  expect(results[0].content).toMatch(/does not exist/)
   expect(results[1].content).toMatch(/JSON/)
-  expect(results[2].content).toMatch(/Argumen tidak valid/)
+  expect(results[2].content).toMatch(/Invalid arguments/)
   expect(events.at(-1)?.type).toBe('done')
 })
 
@@ -190,7 +190,7 @@ test('an edit that cannot succeed is rejected before asking for permission', asy
   }
   await agent.run('x', new AbortController().signal)
   expect(asked).toBe(false)
-  expect((provider.requests[1].messages.find((m) => m.role === 'tool') as { content: string }).content).toMatch(/Baca u\.txt dulu/)
+  expect((provider.requests[1].messages.find((m) => m.role === 'tool') as { content: string }).content).toMatch(/Read u\.txt with read/)
 })
 
 test('the compaction request still declares the tools', async () => {

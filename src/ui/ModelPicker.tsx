@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { ModelGroup } from '../models'
 import { isFocusReport } from './focusReport'
 import { color } from './theme'
+import { t } from '../i18n'
 
 type Row = { kind: 'header'; text: string } | { kind: 'model'; ref: string; label: string }
 
@@ -42,7 +43,7 @@ export function ModelPicker({ groups, current, onPick }: { groups: ModelGroup[];
   const start = Math.max(0, Math.min(cursor - 5, rows.length - VISIBLE))
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={color('cyan')} paddingX={1}>
-      <Text bold>{`Pilih model (ketik untuk menyaring${filter ? `: ${filter}` : ''} · ↑↓ enter · esc batal)`}</Text>
+      <Text bold>{t('Choose a model (type to filter{filter} · ↑↓ enter · esc cancel)', { filter: filter ? `: ${filter}` : '' })}</Text>
       {rows.slice(start, start + VISIBLE).map((row, i) =>
         row.kind === 'header' ? (
           <Text key={`h${start + i}`} dimColor>{`── ${row.text} `}</Text>
@@ -52,7 +53,7 @@ export function ModelPicker({ groups, current, onPick }: { groups: ModelGroup[];
           </Text>
         ),
       )}
-      {!selectable.length ? <Text dimColor>Tidak ada model yang cocok.</Text> : null}
+      {!selectable.length ? <Text dimColor>{t('No matching models.')}</Text> : null}
       {/* Unreachable providers stay visible below the scrolled list. */}
       {groups
         .filter((g) => g.error)
