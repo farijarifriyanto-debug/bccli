@@ -89,3 +89,23 @@ test('text-form tool call markup is held live so textReplace can still remove it
   expect(t.live.at(-1)).toMatchObject({ kind: 'assistant', text: '' })
   expect(endTurn(t).done.filter((e) => e.kind === 'assistant')).toHaveLength(1)
 })
+
+test('a table streamed line by line stays live until it ends, then is printed in one piece', () => {
+  let t = applyEvent(empty, { type: 'text', delta: 'Compare:\n' })
+  t = applyEvent(t, { type: 'text', delta: 'x\n' }) // an ordinary line flushes the line before it
+  for (const line of ['| Plan | Price |\n', '|---|---|\n', '| Pro | 99 |\n', '| Max | 199 |\n']) t = applyEvent(t, { type: 'text', delta: line })
+  const printed = t.done.map((e) => (e.kind === 'assistant' ? e.text : '')).join('\n')
+  expect(printed).toContain('Compare:')
+  expect(printed).not.toContain('|') // nothing of the table reached scrollback yet
+  expect(t.live).toMatchObject([{ kind: 'assistant', text: expect.stringContaining('| Plan | Price |') }])
+  t = applyEvent(t, { type: 'text', delta: '\nThat is all.\n' }) // a line without | ends the table
+  const tableChunk = t.done.find((e) => e.kind === 'assistant' && e.text.includes('| Max | 199 |'))
+  expect(tableChunk).toMatchObject({ kind: 'assistant', text: expect.stringContaining('| Plan | Price |\n|---|---|\n| Pro | 99 |\n| Max | 199 |') })
+})
+
+test('a pipe inside a code block does not hold anything back', () => {
+  let t = applyEvent(empty, { type: 'text', delta: '```\ncat a | grep b\n```\nafter\nmore' })
+  expect(t.done.map((e) => (e.kind === 'assistant' ? e.text : '')).join('\n')).toContain('cat a | grep b')
+  t = endTurn(t)
+  expect(t.live).toEqual([])
+})
