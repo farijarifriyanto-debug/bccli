@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest'
-import { createProvider, lunaToolPlan, ProviderError, responseContinuationInput, type ChatMessage, type Completion } from '../src/provider'
+import type { ResponseOutputItem } from 'openai/resources/responses/responses'
+import { completionAssistantMessage, createProvider, lunaToolPlan, ProviderError, responseContinuationInput, responseInputFromMessages, type ChatMessage, type Completion } from '../src/provider'
 import type { ToolDefinition } from '../src/tools/index'
 
 function sse(events: unknown[]): Response {
@@ -15,6 +16,75 @@ const toolDef = (name: string, description = 'tool'): ToolDefinition => ({
     description,
     parameters: { type: 'object', properties: { value: { type: 'string' } }, additionalProperties: false },
   },
+})
+
+test('Luna stateless replay preserves PTC program fingerprint and caller linkage', () => {
+  const caller = { type: 'program' as const, caller_id: 'call_prog_1' }
+  const messages: ChatMessage[] = [
+    { role: 'user', content: 'compare records' },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [
+        {
+          id: 'call_child_1',
+          type: 'function',
+          function: { name: 'mcp__crm__lookup', arguments: '{"id":"42"}' },
+          caller,
+        },
+      ],
+      responses_output_items: [
+        {
+          type: 'program',
+          id: 'prog_1',
+          call_id: 'call_prog_1',
+          code: 'const x = await tools.mcp__crm__lookup({id:"42"}); text(JSON.stringify(x));',
+          fingerprint: 'opaque_fp_1',
+        },
+        {
+          type: 'function_call',
+          id: 'fc_1',
+          call_id: 'call_child_1',
+          name: 'mcp__crm__lookup',
+          arguments: '{"id":"42"}',
+          caller,
+          status: 'completed',
+        },
+      ] as unknown as ResponseOutputItem[],
+    },
+    {
+      role: 'tool',
+      tool_call_id: 'call_child_1',
+      content: '{"status":"active"}',
+      responses_caller: caller,
+    },
+  ]
+
+  expect(responseInputFromMessages(messages)).toEqual([
+    { role: 'user', content: 'compare records' },
+    {
+      type: 'program',
+      id: 'prog_1',
+      call_id: 'call_prog_1',
+      code: 'const x = await tools.mcp__crm__lookup({id:"42"}); text(JSON.stringify(x));',
+      fingerprint: 'opaque_fp_1',
+    },
+    {
+      type: 'function_call',
+      id: 'fc_1',
+      call_id: 'call_child_1',
+      name: 'mcp__crm__lookup',
+      arguments: '{"id":"42"}',
+      caller,
+      status: 'completed',
+    },
+    {
+      type: 'function_call_output',
+      call_id: 'call_child_1',
+      output: '{"status":"active"}',
+      caller,
+    },
+  ])
 })
 
 test('Luna tool search stays off for small MCP catalogs', () => {
@@ -42,6 +112,28 @@ test('Luna tool search also activates for one unusually large MCP schema', () =>
   expect(plan.useToolSearch).toBe(true)
   expect(plan.deferredToolCount).toBe(1)
   expect(plan.deferredSchemaChars).toBeGreaterThanOrEqual(32_000)
+})
+
+test('Luna PTC canary exposes only read/grep/glob to programs', () => {
+  const plan = lunaToolPlan(
+    [toolDef('read'), toolDef('grep'), toolDef('glob'), toolDef('bash'), toolDef('write'), toolDef('mcp__crm__lookup')],
+    true,
+  )
+  expect(plan.useProgrammaticToolCalling).toBe(true)
+  expect(plan.tools.at(-1)).toEqual({ type: 'programmatic_tool_calling' })
+  for (const name of ['read', 'grep', 'glob']) {
+    expect(plan.tools.find((tool) => tool.name === name)?.allowed_callers).toEqual(['direct', 'programmatic'])
+  }
+  for (const name of ['bash', 'write', 'mcp__crm__lookup']) {
+    expect(plan.tools.find((tool) => tool.name === name)?.allowed_callers).toBeUndefined()
+  }
+})
+
+test('Luna PTC stays absent unless explicitly enabled', () => {
+  const plan = lunaToolPlan([toolDef('read'), toolDef('grep')])
+  expect(plan.useProgrammaticToolCalling).toBe(false)
+  expect(plan.tools.some((tool) => tool.type === 'programmatic_tool_calling')).toBe(false)
+  expect(plan.tools.some((tool) => tool.allowed_callers)).toBe(false)
 })
 
 test('streams text, merges tool call fragments and reads usage', async () => {
@@ -240,9 +332,18 @@ test('BotConnector GPT-6 Luna uses native Responses with typed tool items', asyn
 
   expect(completion).toEqual({
     text: '',
-    toolCalls: [{ id: 'call_1', name: 'read', arguments: '{"path":"a.txt"}' }],
+    toolCalls: [{ id: 'call_1', name: 'read', arguments: '{"path":"a.txt"}', caller: undefined }],
     usage: { inputTokens: 120, outputTokens: 9 },
     finishReason: 'tool_calls',
+    responsesOutputItems: [
+      {
+        type: 'function_call',
+        id: 'fc_1',
+        call_id: 'call_1',
+        name: 'read',
+        arguments: '{"path":"a.txt"}',
+      },
+    ],
   })
   const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit]
   expect(url).toBe('https://api.botconnector.id/v1/responses')
@@ -461,6 +562,210 @@ test('Luna Responses WebSocket does not replay through HTTP after partial text w
   expect(f).not.toHaveBeenCalled()
 })
 
+test('Luna PTC WebSocket reconnect full-replays program fingerprint and caller after previous_response_not_found', async () => {
+  type WsFactory = NonNullable<Parameters<typeof createProvider>[0]['responsesWebSocketFactory']>
+  const caller = { type: 'program' as const, caller_id: 'call_prog_1' }
+  const sent: Record<string, unknown>[] = []
+  let factoryIndex = 0
+
+  const firstEvents = [
+    {
+      done: false,
+      value: { type: 'message', message: { type: 'response.created', response: { id: 'resp_ptc_1' } } },
+    },
+    {
+      done: false,
+      value: {
+        type: 'message',
+        message: {
+          type: 'response.output_item.done',
+          output_index: 0,
+          item: {
+            type: 'program',
+            id: 'prog_1',
+            call_id: 'call_prog_1',
+            code: 'const x = await tools.read({path:"a.txt"}); text(x);',
+            fingerprint: 'opaque_fp_1',
+          },
+        },
+      },
+    },
+    {
+      done: false,
+      value: {
+        type: 'message',
+        message: {
+          type: 'response.output_item.done',
+          output_index: 1,
+          item: {
+            type: 'function_call',
+            id: 'fc_1',
+            call_id: 'call_child_1',
+            name: 'read',
+            arguments: '{"path":"a.txt"}',
+            caller,
+            status: 'completed',
+          },
+        },
+      },
+    },
+    {
+      done: false,
+      value: {
+        type: 'message',
+        message: {
+          type: 'response.completed',
+          response: { id: 'resp_ptc_1', usage: { input_tokens: 50, output_tokens: 10 } },
+        },
+      },
+    },
+    {
+      done: false,
+      value: {
+        type: 'message',
+        message: {
+          type: 'error',
+          status: 404,
+          error: { code: 'previous_response_not_found', message: 'previous response lost' },
+        },
+      },
+    },
+  ]
+
+  const retryEvents = [
+    {
+      done: false,
+      value: { type: 'message', message: { type: 'response.created', response: { id: 'resp_ptc_2' } } },
+    },
+    {
+      done: false,
+      value: { type: 'message', message: { type: 'response.output_text.delta', delta: 'DONE' } },
+    },
+    {
+      done: false,
+      value: {
+        type: 'message',
+        message: {
+          type: 'response.output_item.done',
+          output_index: 0,
+          item: {
+            type: 'message',
+            id: 'msg_1',
+            role: 'assistant',
+            status: 'completed',
+            content: [{ type: 'output_text', text: 'DONE', annotations: [], logprobs: [] }],
+          },
+        },
+      },
+    },
+    {
+      done: false,
+      value: {
+        type: 'message',
+        message: {
+          type: 'response.completed',
+          response: { id: 'resp_ptc_2', usage: { input_tokens: 80, output_tokens: 4 } },
+        },
+      },
+    },
+  ]
+
+  const wsFactory = vi.fn(
+    () => {
+      const events = factoryIndex++ === 0 ? firstEvents : retryEvents
+      let index = 0
+      return {
+        send(event: unknown) {
+          sent.push(structuredClone(event) as Record<string, unknown>)
+        },
+        stream() {
+          return {
+            async next() {
+              return events[index++] ?? { done: true, value: undefined }
+            },
+            [Symbol.asyncIterator]() {
+              return this
+            },
+          }
+        },
+        close() {},
+      } as unknown as ReturnType<WsFactory>
+    },
+  )
+
+  const p = createProvider({
+    baseURL: 'https://api.botconnector.id/v1',
+    apiKey: 'bc_live_test_key',
+    model: 'gpt-6-luna',
+    providerId: 'bc-cloud',
+    responsesWebSocketFactory: wsFactory,
+    enableProgrammaticToolCalling: true,
+  })
+
+  const user: ChatMessage = { role: 'user', content: 'inspect a.txt' }
+  const first = await p.chat({ messages: [user], tools: [toolDef('read')] })
+  expect(first.toolCalls).toEqual([
+    { id: 'call_child_1', name: 'read', arguments: '{"path":"a.txt"}', caller },
+  ])
+  expect(first.responsesOutputItems?.find((item) => item.type === 'program')).toMatchObject({
+    call_id: 'call_prog_1',
+    fingerprint: 'opaque_fp_1',
+  })
+
+  const history: ChatMessage[] = [
+    user,
+    completionAssistantMessage(first),
+    {
+      role: 'tool',
+      tool_call_id: 'call_child_1',
+      content: 'hello',
+      responses_caller: caller,
+    },
+  ]
+  const second = await p.chat({ messages: history, tools: [toolDef('read')] })
+  expect(second.text).toBe('DONE')
+  expect(sent).toHaveLength(3)
+
+  expect(sent[1]).toMatchObject({
+    previous_response_id: 'resp_ptc_1',
+    input: [
+      {
+        type: 'function_call_output',
+        call_id: 'call_child_1',
+        output: 'hello',
+        caller,
+      },
+    ],
+  })
+
+  expect(sent[2].previous_response_id).toBeUndefined()
+  expect(sent[2].input).toEqual([
+    { role: 'user', content: 'inspect a.txt' },
+    {
+      type: 'program',
+      id: 'prog_1',
+      call_id: 'call_prog_1',
+      code: 'const x = await tools.read({path:"a.txt"}); text(x);',
+      fingerprint: 'opaque_fp_1',
+    },
+    {
+      type: 'function_call',
+      id: 'fc_1',
+      call_id: 'call_child_1',
+      name: 'read',
+      arguments: '{"path":"a.txt"}',
+      caller,
+      status: 'completed',
+    },
+    {
+      type: 'function_call_output',
+      call_id: 'call_child_1',
+      output: 'hello',
+      caller,
+    },
+  ])
+})
+
 test('Responses WebSocket continuation sends only new tool output after the previous assistant response', () => {
   const requestMessages: ChatMessage[] = [
     { role: 'system', content: 'SYS' },
@@ -491,6 +796,44 @@ test('Responses WebSocket continuation sends only new tool output after the prev
     previousResponseId: 'resp_1',
     incremental: true,
     input: [{ type: 'function_call_output', call_id: 'call_1', output: 'hello' }],
+  })
+})
+
+test('Responses WebSocket continues a PTC program_output-only response with empty incremental input', () => {
+  const requestMessages: ChatMessage[] = [{ role: 'user', content: 'aggregate' }]
+  const completion: Completion = {
+    text: '',
+    toolCalls: [],
+    finishReason: 'continue',
+    responsesOutputItems: [
+      {
+        type: 'program_output',
+        id: 'prog_out_1',
+        call_id: 'call_prog_1',
+        result: '{"ok":true}',
+        status: 'completed',
+      },
+    ] as unknown as ResponseOutputItem[],
+  }
+  const current: ChatMessage[] = [
+    ...requestMessages,
+    {
+      role: 'assistant',
+      content: null,
+      responses_output_items: completion.responsesOutputItems,
+    },
+  ]
+
+  expect(
+    responseContinuationInput(current, {
+      responseId: 'resp_program_output',
+      requestMessages,
+      completion,
+    }),
+  ).toEqual({
+    previousResponseId: 'resp_program_output',
+    incremental: true,
+    input: [],
   })
 })
 

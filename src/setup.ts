@@ -73,7 +73,13 @@ export function createRuntime(opts: {
   let reasoning: ReasoningLevel = opts.args.reasoning ?? config.reasoning
   const makeProvider = (ref: string) => {
     const resolved = resolveModel(config, ref, env)
-    return opts.provider ?? createProvider({ baseURL: resolved.baseURL, apiKey: resolved.apiKey, model: resolved.model, providerId: resolved.providerId })
+    return opts.provider ?? createProvider({
+      baseURL: resolved.baseURL,
+      apiKey: resolved.apiKey,
+      model: resolved.model,
+      providerId: resolved.providerId,
+      enableProgrammaticToolCalling: env.BCCLI_LUNA_PTC === '1',
+    })
   }
   const provider = makeProvider(modelRef)
   const mode = opts.args.allowAll ? 'allowAll' : (opts.args.permissionMode ?? config.permissionMode)

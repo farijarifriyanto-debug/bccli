@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import { ResponsesWS } from 'openai/resources/responses/ws'
-import type { ResponsesClientEvent, ResponsesServerEvent } from 'openai/resources/responses/responses'
+import { toResponseInputItems } from 'openai/lib/responses/ResponseInputItems'
+import type { ResponseOutputItem, ResponsesClientEvent, ResponsesServerEvent } from 'openai/resources/responses/responses'
 import { splitThinking, ThinkSplitter } from './thinking'
 import { reasoningPayload, type ReasoningLevel } from './reasoning'
 import type { ToolDefinition } from './tools/index'
@@ -9,10 +10,16 @@ import { t } from './i18n'
 // BotConnector policy (not an OpenAI-mandated value): compact before the 272k Luna request cap.
 const LUNA_AUTO_COMPACT_THRESHOLD = 240_000
 
+export interface ResponsesProgramCaller {
+  type: 'program'
+  caller_id: string
+}
+
 export interface ToolCall {
   id: string
   name: string
   arguments: string
+  caller?: ResponsesProgramCaller
 }
 
 export type ChatMessage =
@@ -21,9 +28,17 @@ export type ChatMessage =
   | {
       role: 'assistant'
       content: string | null
-      tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[]
+      tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string }; caller?: ResponsesProgramCaller }[]
+      /** Exact OpenAI Responses output items for stateless Luna replay/reconnect. Hidden from normal UI/export. */
+      responses_output_items?: ResponseOutputItem[]
     }
-  | { role: 'tool'; tool_call_id: string; content: string }
+  | {
+      role: 'tool'
+      tool_call_id: string
+      content: string
+      /** Program caller linkage must be round-tripped for PTC continuation. */
+      responses_caller?: ResponsesProgramCaller
+    }
 
 export interface Usage {
   inputTokens: number
@@ -33,6 +48,8 @@ export interface Usage {
 export interface Completion {
   text: string
   toolCalls: ToolCall[]
+  /** Exact OpenAI Responses output items, preserved for store:false replay. */
+  responsesOutputItems?: ResponseOutputItem[]
   /** The model's reasoning, when it sends any (reasoning_content or <think> blocks); not part of the history. */
   thinking?: string
   usage?: Usage
@@ -71,6 +88,8 @@ interface ProviderOptions {
   fetch?: typeof fetch
   retryDelayMs?: number
   responsesWebSocketFactory?: (client: OpenAI) => ResponsesWS
+  /** Experimental Luna-only PTC canary. Kept opt-in until replay/cost canaries pass. */
+  enableProgrammaticToolCalling?: boolean
 }
 
 interface RawUsage {
@@ -94,7 +113,9 @@ interface ResponsesOutputItem {
   call_id?: string
   name?: string
   arguments?: string
+  caller?: { type?: string; caller_id?: string }
   content?: { type?: string; text?: string; refusal?: string }[]
+  [key: string]: unknown
 }
 
 interface ResponsesPayload {
@@ -265,7 +286,7 @@ async function readJson(res: Response): Promise<Completion> {
   return { text: split.text, toolCalls, thinking: thinking || undefined, usage: toUsage(body.usage), finishReason: choice?.finish_reason }
 }
 
-function responseInputFromMessages(messages: ChatMessage[]): Record<string, unknown>[] {
+export function responseInputFromMessages(messages: ChatMessage[]): Record<string, unknown>[] {
   const input: Record<string, unknown>[] = []
   for (const message of messages) {
     if (message.role === 'system' || message.role === 'user') {
@@ -273,6 +294,10 @@ function responseInputFromMessages(messages: ChatMessage[]): Record<string, unkn
       continue
     }
     if (message.role === 'assistant') {
+      if (message.responses_output_items?.length) {
+        input.push(...(toResponseInputItems(message.responses_output_items) as unknown as Record<string, unknown>[]))
+        continue
+      }
       if (message.content) input.push({ role: 'assistant', content: message.content })
       for (const call of message.tool_calls ?? []) {
         input.push({
@@ -280,11 +305,17 @@ function responseInputFromMessages(messages: ChatMessage[]): Record<string, unkn
           call_id: call.id,
           name: call.function.name,
           arguments: call.function.arguments || '{}',
+          ...(call.caller ? { caller: call.caller } : {}),
         })
       }
       continue
     }
-    input.push({ type: 'function_call_output', call_id: message.tool_call_id, output: message.content })
+    input.push({
+      type: 'function_call_output',
+      call_id: message.tool_call_id,
+      output: message.content,
+      ...(message.responses_caller ? { caller: message.responses_caller } : {}),
+    })
   }
   return input
 }
@@ -292,14 +323,17 @@ function responseInputFromMessages(messages: ChatMessage[]): Record<string, unkn
 const LUNA_TOOL_SEARCH_MIN_MCP_TOOLS = 20
 const LUNA_TOOL_SEARCH_MIN_MCP_SCHEMA_CHARS = 32_000
 
+const LUNA_PTC_SAFE_FUNCTIONS = new Set(['read', 'grep', 'glob'])
+
 export interface LunaToolPlan {
   tools: Record<string, unknown>[]
   useToolSearch: boolean
+  useProgrammaticToolCalling: boolean
   deferredToolCount: number
   deferredSchemaChars: number
 }
 
-export function lunaToolPlan(tools?: ToolDefinition[]): LunaToolPlan {
+export function lunaToolPlan(tools?: ToolDefinition[], enableProgrammaticToolCalling = false): LunaToolPlan {
   const native: Record<string, unknown>[] = (tools ?? []).map((tool) => ({
     type: 'function',
     name: tool.function.name,
@@ -314,8 +348,23 @@ export function lunaToolPlan(tools?: ToolDefinition[]): LunaToolPlan {
   const useToolSearch =
     mcpIndexes.length >= LUNA_TOOL_SEARCH_MIN_MCP_TOOLS || deferredSchemaChars >= LUNA_TOOL_SEARCH_MIN_MCP_SCHEMA_CHARS
 
+  if (enableProgrammaticToolCalling) {
+    for (let index = 0; index < native.length; index++) {
+      if (LUNA_PTC_SAFE_FUNCTIONS.has(String(native[index].name))) {
+        native[index] = { ...native[index], allowed_callers: ['direct', 'programmatic'] }
+      }
+    }
+    native.push({ type: 'programmatic_tool_calling' })
+  }
+
   if (!useToolSearch) {
-    return { tools: native, useToolSearch: false, deferredToolCount: 0, deferredSchemaChars }
+    return {
+      tools: native,
+      useToolSearch: false,
+      useProgrammaticToolCalling: enableProgrammaticToolCalling,
+      deferredToolCount: 0,
+      deferredSchemaChars,
+    }
   }
 
   for (const index of mcpIndexes) native[index] = { ...native[index], defer_loading: true }
@@ -326,13 +375,14 @@ export function lunaToolPlan(tools?: ToolDefinition[]): LunaToolPlan {
   return {
     tools: native,
     useToolSearch: true,
+    useProgrammaticToolCalling: enableProgrammaticToolCalling,
     deferredToolCount: mcpIndexes.length,
     deferredSchemaChars,
   }
 }
 
-function responseTools(tools?: ToolDefinition[]): Record<string, unknown>[] {
-  return lunaToolPlan(tools).tools
+function responseTools(tools: ToolDefinition[] | undefined, enableProgrammaticToolCalling = false): Record<string, unknown>[] {
+  return lunaToolPlan(tools, enableProgrammaticToolCalling).tools
 }
 
 function responseReasoning(level: ReasoningLevel): Record<string, unknown> {
@@ -344,6 +394,37 @@ function toResponsesUsage(usage?: { input_tokens?: number; output_tokens?: numbe
   return usage ? { inputTokens: usage.input_tokens ?? 0, outputTokens: usage.output_tokens ?? 0 } : undefined
 }
 
+function programCaller(item?: ResponsesOutputItem): ResponsesProgramCaller | undefined {
+  const caller = item?.caller
+  return caller?.type === 'program' && typeof caller.caller_id === 'string'
+    ? { type: 'program', caller_id: caller.caller_id }
+    : undefined
+}
+
+function responsesFinishReason(
+  items: ResponseOutputItem[] | undefined,
+  toolCallCount: number,
+  incompleteReason?: string,
+): string {
+  if (incompleteReason) return incompleteReason
+  if (toolCallCount) return 'tool_calls'
+  const hasMessage = items?.some((item) => item.type === 'message') ?? false
+  const hasProgramState = items?.some((item) => item.type === 'program' || item.type === 'program_output') ?? false
+  return !hasMessage && hasProgramState ? 'continue' : 'stop'
+}
+
+export function hasPendingProgrammaticReplay(messages: ChatMessage[]): boolean {
+  let pending = false
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    for (const item of message.responses_output_items ?? []) {
+      if (item.type === 'program') pending = true
+      else if (item.type === 'message' && pending) pending = false
+    }
+  }
+  return pending
+}
+
 async function readResponsesStream(
   res: Response,
   onText?: (delta: string) => void,
@@ -353,6 +434,8 @@ async function readResponsesStream(
   let finishReason: string | undefined
   let loopAt = -1
   const calls = new Map<number, ToolCall>()
+  const outputItems = new Map<number, ResponsesOutputItem>()
+  let responsesOutputItems: ResponseOutputItem[] | undefined
   const decoder = new TextDecoder()
   let buffer = ''
 
@@ -388,6 +471,7 @@ async function readResponsesStream(
         id: String(event.item.call_id || event.item.id || `call_${calls.size}`),
         name: String(event.item.name || ''),
         arguments: String(event.item.arguments || ''),
+        ...(programCaller(event.item) ? { caller: programCaller(event.item) } : {}),
       })
       return
     }
@@ -397,24 +481,36 @@ async function readResponsesStream(
       if (call) call.arguments += String(event.delta || '')
       return
     }
-    if (event.type === 'response.output_item.done' && event.item?.type === 'function_call') {
-      const index = Number(event.output_index ?? 0)
-      const current = calls.get(index)
-      calls.set(index, {
-        id: String(event.item.call_id || current?.id || event.item.id || `call_${index}`),
-        name: String(event.item.name || current?.name || ''),
-        arguments: String(event.item.arguments ?? current?.arguments ?? ''),
-      })
+    if (event.type === 'response.output_item.done' && event.item) {
+      const index = Number(event.output_index ?? outputItems.size)
+      outputItems.set(index, event.item)
+      if (event.item.type === 'function_call') {
+        const current = calls.get(index)
+        calls.set(index, {
+          id: String(event.item.call_id || current?.id || event.item.id || `call_${index}`),
+          name: String(event.item.name || current?.name || ''),
+          arguments: String(event.item.arguments ?? current?.arguments ?? ''),
+          ...((programCaller(event.item) ?? current?.caller) ? { caller: programCaller(event.item) ?? current?.caller } : {}),
+        })
+      }
       return
     }
     if (event.type === 'response.completed') {
       usage = toResponsesUsage(event.response?.usage)
-      finishReason = calls.size ? 'tool_calls' : 'stop'
+      responsesOutputItems = (event.response?.output as ResponseOutputItem[] | undefined) ??
+        [...outputItems.entries()].sort(([a], [b]) => a - b).map(([, item]) => item as ResponseOutputItem)
+      finishReason = responsesFinishReason(responsesOutputItems, calls.size)
       return
     }
     if (event.type === 'response.incomplete') {
       usage = toResponsesUsage(event.response?.usage)
-      finishReason = String(event.response?.incomplete_details?.reason || 'incomplete')
+      responsesOutputItems = (event.response?.output as ResponseOutputItem[] | undefined) ??
+        [...outputItems.entries()].sort(([a], [b]) => a - b).map(([, item]) => item as ResponseOutputItem)
+      finishReason = responsesFinishReason(
+        responsesOutputItems,
+        calls.size,
+        String(event.response?.incomplete_details?.reason || 'incomplete'),
+      )
     }
   }
 
@@ -436,6 +532,7 @@ async function readResponsesStream(
     toolCalls: [...calls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call),
     usage,
     finishReason,
+    responsesOutputItems,
   }
 }
 
@@ -454,6 +551,7 @@ async function readResponsesJson(res: Response): Promise<Completion> {
         id: String(item.call_id || item.id || `call_${toolCalls.length}`),
         name: String(item.name || ''),
         arguments: String(item.arguments || '{}'),
+        ...(programCaller(item) ? { caller: programCaller(item) } : {}),
       })
     }
   }
@@ -461,7 +559,12 @@ async function readResponsesJson(res: Response): Promise<Completion> {
     text,
     toolCalls,
     usage: toResponsesUsage(body.usage),
-    finishReason: toolCalls.length ? 'tool_calls' : body.status === 'incomplete' ? String(body.incomplete_details?.reason || 'incomplete') : 'stop',
+    responsesOutputItems: body.output as ResponseOutputItem[] | undefined,
+    finishReason: responsesFinishReason(
+      body.output as ResponseOutputItem[] | undefined,
+      toolCalls.length,
+      body.status === 'incomplete' ? String(body.incomplete_details?.reason || 'incomplete') : undefined,
+    ),
   }
 }
 
@@ -481,7 +584,7 @@ function sameMessage(a: ChatMessage, b: ChatMessage): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
-function completionAssistantMessage(completion: Completion): ChatMessage {
+export function completionAssistantMessage(completion: Completion): ChatMessage {
   return {
     role: 'assistant',
     content: completion.text || null,
@@ -491,9 +594,11 @@ function completionAssistantMessage(completion: Completion): ChatMessage {
             id: call.id,
             type: 'function' as const,
             function: { name: call.name, arguments: call.arguments },
+            ...(call.caller ? { caller: call.caller } : {}),
           })),
         }
       : {}),
+    ...(completion.responsesOutputItems?.length ? { responses_output_items: completion.responsesOutputItems } : {}),
   }
 }
 
@@ -515,7 +620,12 @@ export function responseContinuationInput(
     return { input: responseInputFromMessages(messages), incremental: false }
   }
   const delta = messages.slice(continuation.requestMessages.length + 1)
-  if (!delta.length) return { input: responseInputFromMessages(messages), incremental: false }
+  if (!delta.length) {
+    if (continuation.completion.finishReason === 'continue') {
+      return { input: [], previousResponseId: continuation.responseId, incremental: true }
+    }
+    return { input: responseInputFromMessages(messages), incremental: false }
+  }
   return {
     input: responseInputFromMessages(delta),
     previousResponseId: continuation.responseId,
@@ -540,6 +650,7 @@ async function readResponsesWebSocketTurn(
   let finishReason: string | undefined
   let loopAt = -1
   const calls = new Map<number, ToolCall>()
+  const outputItems = new Map<number, ResponsesOutputItem>()
 
   const emitText = (delta: string) => {
     if (!delta) return
@@ -602,6 +713,7 @@ async function readResponsesWebSocketTurn(
           id: String(event.item.call_id || event.item.id || `call_${index}`),
           name: String(event.item.name || ''),
           arguments: String(event.item.arguments || ''),
+          ...(programCaller(event.item) ? { caller: programCaller(event.item) } : {}),
         })
         continue
       }
@@ -611,14 +723,18 @@ async function readResponsesWebSocketTurn(
         if (call) call.arguments += String(event.delta || '')
         continue
       }
-      if (event.type === 'response.output_item.done' && event.item?.type === 'function_call') {
-        const index = Number(event.output_index ?? 0)
-        const current = calls.get(index)
-        calls.set(index, {
-          id: String(event.item.call_id || current?.id || event.item.id || `call_${index}`),
-          name: String(event.item.name || current?.name || ''),
-          arguments: String(event.item.arguments ?? current?.arguments ?? ''),
-        })
+      if (event.type === 'response.output_item.done' && event.item) {
+        const index = Number(event.output_index ?? outputItems.size)
+        outputItems.set(index, event.item)
+        if (event.item.type === 'function_call') {
+          const current = calls.get(index)
+          calls.set(index, {
+            id: String(event.item.call_id || current?.id || event.item.id || `call_${index}`),
+            name: String(event.item.name || current?.name || ''),
+            arguments: String(event.item.arguments ?? current?.arguments ?? ''),
+            ...((programCaller(event.item) ?? current?.caller) ? { caller: programCaller(event.item) ?? current?.caller } : {}),
+          })
+        }
         continue
       }
       if (event.type === 'response.failed') {
@@ -629,12 +745,16 @@ async function readResponsesWebSocketTurn(
       if (event.type === 'response.completed' || event.type === 'response.incomplete') {
         responseId = String(event.response?.id || responseId)
         usage = toResponsesUsage(event.response?.usage)
-        finishReason =
+        const responsesOutputItems =
+          (event.response?.output as ResponseOutputItem[] | undefined) ??
+          [...outputItems.entries()].sort(([a], [b]) => a - b).map(([, item]) => item as ResponseOutputItem)
+        finishReason = responsesFinishReason(
+          responsesOutputItems,
+          calls.size,
           event.type === 'response.incomplete'
             ? String(event.response?.incomplete_details?.reason || 'incomplete')
-            : calls.size
-              ? 'tool_calls'
-              : 'stop'
+            : undefined,
+        )
         return {
           responseId,
           completion: {
@@ -642,6 +762,7 @@ async function readResponsesWebSocketTurn(
             toolCalls: [...calls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call),
             usage,
             finishReason,
+            responsesOutputItems,
           },
         }
       }
@@ -660,6 +781,7 @@ export function createProvider(options: ProviderOptions): Provider {
     fetch: fetchOverride,
     retryDelayMs = 1000,
     responsesWebSocketFactory,
+    enableProgrammaticToolCalling = false,
   } = options
   const doFetch = fetchOverride ?? fetch
   const headers: Record<string, string> = { 'content-type': 'application/json' }
@@ -727,7 +849,7 @@ export function createProvider(options: ProviderOptions): Provider {
     signal: AbortSignal | undefined,
     onText: ((delta: string) => void) | undefined,
   ): Promise<Completion> {
-    const nativeTools = responseTools(tools)
+    const nativeTools = responseTools(tools, enableProgrammaticToolCalling)
     const initialPlan = responseContinuationInput(messages, lunaContinuation)
 
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -837,7 +959,7 @@ export function createProvider(options: ProviderOptions): Provider {
       }
 
       if (useNativeResponses) {
-        const nativeTools = responseTools(tools)
+        const nativeTools = responseTools(tools, enableProgrammaticToolCalling)
         const res = await post(
           '/responses',
           {

@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
+import type { ResponseOutputItem } from 'openai/resources/responses/responses'
 import { Agent, type AgentEvent } from '../src/agent'
 import { Permissions } from '../src/permissions'
 import { type ChatRequest, type Completion, type Provider, ProviderError } from '../src/provider'
@@ -140,6 +141,82 @@ test('abort before tools answers every pending call and emits aborted', async ()
   const tools = agent.messages.filter((m) => m.role === 'tool')
   expect(tools.map((m) => (m as { tool_call_id: string }).tool_call_id)).toEqual(['a', 'b'])
   expect(events.at(-1)?.type).toBe('aborted')
+})
+
+test('PTC chain continues through program_output without client compaction and preserves caller', async () => {
+  const caller = { type: 'program' as const, caller_id: 'call_prog_1' }
+  const { cwd, provider, events, agent } = setup([
+    {
+      text: '',
+      toolCalls: [{ id: 'call_child_1', name: 'read', arguments: '{"path":"a.txt"}', caller }],
+      responsesOutputItems: [
+        {
+          type: 'program',
+          id: 'prog_1',
+          call_id: 'call_prog_1',
+          code: 'const x = await tools.read({path:"a.txt"}); text(x);',
+          fingerprint: 'fp_1',
+        },
+        {
+          type: 'function_call',
+          id: 'fc_1',
+          call_id: 'call_child_1',
+          name: 'read',
+          arguments: '{"path":"a.txt"}',
+          caller,
+          status: 'completed',
+        },
+      ] as unknown as ResponseOutputItem[],
+      usage: { inputTokens: 900, outputTokens: 20 },
+      finishReason: 'tool_calls',
+    },
+    {
+      text: '',
+      toolCalls: [],
+      responsesOutputItems: [
+        {
+          type: 'program_output',
+          id: 'prog_out_1',
+          call_id: 'call_prog_1',
+          result: '{"excerpt":"hello"}',
+          status: 'completed',
+        },
+      ] as unknown as ResponseOutputItem[],
+      usage: { inputTokens: 900, outputTokens: 10 },
+      finishReason: 'continue',
+    },
+    {
+      text: 'done',
+      toolCalls: [],
+      responsesOutputItems: [
+        {
+          type: 'message',
+          id: 'msg_1',
+          role: 'assistant',
+          status: 'completed',
+          content: [{ type: 'output_text', text: 'done', annotations: [], logprobs: [] }],
+        },
+      ] as unknown as ResponseOutputItem[],
+      usage: { inputTokens: 900, outputTokens: 5 },
+      finishReason: 'stop',
+    },
+  ])
+  writeFileSync(join(cwd, 'a.txt'), 'hello')
+  ;(agent as unknown as { contextWindow: number }).contextWindow = 1000
+
+  await agent.run('inspect a.txt', new AbortController().signal)
+
+  expect(provider.requests).toHaveLength(3)
+  expect(events.some((e) => e.type === 'compacted')).toBe(false)
+  const childOutput = provider.requests[1].messages.find((m) => m.role === 'tool')
+  expect(childOutput).toMatchObject({
+    role: 'tool',
+    tool_call_id: 'call_child_1',
+    responses_caller: caller,
+  })
+  const third = provider.requests[2].messages
+  expect(third.some((m) => m.role === 'assistant' && m.responses_output_items?.some((item) => item.type === 'program_output'))).toBe(true)
+  expect(events.at(-1)?.type).toBe('done')
 })
 
 test('compacts when the last prompt used most of the context window', async () => {
