@@ -59,6 +59,8 @@ export interface Completion {
 export interface ChatRequest {
   messages: ChatMessage[]
   tools?: ToolDefinition[]
+  /** Local-only allowlist for read-only PTC-safe tools; never serialized to Chat Completions. */
+  programmaticToolNames?: string[]
   signal?: AbortSignal
   onText?: (delta: string) => void
   onThinking?: (delta: string) => void
@@ -335,7 +337,7 @@ const LUNA_PTC_MULTI_WORK_CUE =
  * Keep PTC available only when the current turn has multi-source/data-reduction intent, a large
  * read-only intermediate result, or an already-started program that must be continued safely.
  */
-export function shouldEnableLunaPtc(messages: ChatMessage[], enabled: boolean): boolean {
+export function shouldEnableLunaPtc(messages: ChatMessage[], enabled: boolean, programmaticToolNames: string[] = []): boolean {
   if (!enabled) return false
 
   let lastUser = -1
@@ -351,13 +353,14 @@ export function shouldEnableLunaPtc(messages: ChatMessage[], enabled: boolean): 
   const prompt = latestUser?.role === 'user' ? latestUser.content : ''
   if (LUNA_PTC_MULTI_WORK_CUE.test(prompt)) return true
 
+  const safeToolNames = new Set([...LUNA_PTC_SAFE_FUNCTIONS, ...programmaticToolNames])
   const safeCalls = new Set<string>()
   let safeOutputChars = 0
   for (const message of turn) {
     if (message.role === 'assistant') {
       if (message.responses_output_items?.some((item) => item.type === 'program')) return true
       for (const call of message.tool_calls ?? []) {
-        if (LUNA_PTC_SAFE_FUNCTIONS.has(call.function.name)) safeCalls.add(call.id)
+        if (safeToolNames.has(call.function.name)) safeCalls.add(call.id)
       }
       continue
     }
@@ -377,7 +380,7 @@ export interface LunaToolPlan {
   deferredSchemaChars: number
 }
 
-export function lunaToolPlan(tools?: ToolDefinition[], enableProgrammaticToolCalling = false): LunaToolPlan {
+export function lunaToolPlan(tools?: ToolDefinition[], enableProgrammaticToolCalling = false, programmaticToolNames: string[] = []): LunaToolPlan {
   const native: Record<string, unknown>[] = (tools ?? []).map((tool) => ({
     type: 'function',
     name: tool.function.name,
@@ -393,9 +396,10 @@ export function lunaToolPlan(tools?: ToolDefinition[], enableProgrammaticToolCal
     mcpIndexes.length >= LUNA_TOOL_SEARCH_MIN_MCP_TOOLS || deferredSchemaChars >= LUNA_TOOL_SEARCH_MIN_MCP_SCHEMA_CHARS
 
   let programmaticToolCount = 0
+  const safeToolNames = new Set([...LUNA_PTC_SAFE_FUNCTIONS, ...programmaticToolNames])
   if (enableProgrammaticToolCalling) {
     for (let index = 0; index < native.length; index++) {
-      if (LUNA_PTC_SAFE_FUNCTIONS.has(String(native[index].name))) {
+      if (safeToolNames.has(String(native[index].name))) {
         native[index] = { ...native[index], allowed_callers: ['direct', 'programmatic'] }
         programmaticToolCount++
       }
@@ -428,8 +432,12 @@ export function lunaToolPlan(tools?: ToolDefinition[], enableProgrammaticToolCal
   }
 }
 
-function responseTools(tools: ToolDefinition[] | undefined, enableProgrammaticToolCalling = false): Record<string, unknown>[] {
-  return lunaToolPlan(tools, enableProgrammaticToolCalling).tools
+function responseTools(
+  tools: ToolDefinition[] | undefined,
+  enableProgrammaticToolCalling = false,
+  programmaticToolNames: string[] = [],
+): Record<string, unknown>[] {
+  return lunaToolPlan(tools, enableProgrammaticToolCalling, programmaticToolNames).tools
 }
 
 function responseReasoning(level: ReasoningLevel): Record<string, unknown> {
@@ -892,11 +900,13 @@ export function createProvider(options: ProviderOptions): Provider {
   async function chatLunaWebSocket(
     messages: ChatMessage[],
     tools: ToolDefinition[] | undefined,
+    programmaticToolNames: string[],
     reasoning: ReasoningLevel,
     signal: AbortSignal | undefined,
     onText: ((delta: string) => void) | undefined,
   ): Promise<Completion> {
-    const nativeTools = responseTools(tools, shouldEnableLunaPtc(messages, enableProgrammaticToolCalling))
+    const ptcEnabled = shouldEnableLunaPtc(messages, enableProgrammaticToolCalling, programmaticToolNames)
+    const nativeTools = responseTools(tools, ptcEnabled, programmaticToolNames)
     const initialPlan = responseContinuationInput(messages, lunaContinuation)
 
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -988,7 +998,7 @@ export function createProvider(options: ProviderOptions): Provider {
   }
 
   return {
-    async chat({ messages, tools, signal, onText, onThinking, reasoning = 'auto' }) {
+    async chat({ messages, tools, programmaticToolNames = [], signal, onText, onThinking, reasoning = 'auto' }) {
       let reasoningOverride: Record<string, unknown>
       try {
         reasoningOverride = reasoningPayload(providerId, reasoning)
@@ -998,7 +1008,7 @@ export function createProvider(options: ProviderOptions): Provider {
 
       if (useResponsesWebSocket) {
         try {
-          return await chatLunaWebSocket(messages, tools, reasoning, signal, onText)
+          return await chatLunaWebSocket(messages, tools, programmaticToolNames, reasoning, signal, onText)
         } catch (error) {
           const err = error instanceof ProviderError ? error : new ProviderError((error as Error).message)
           if (err.code !== 'bc_ws_http_fallback') throw err
@@ -1006,7 +1016,8 @@ export function createProvider(options: ProviderOptions): Provider {
       }
 
       if (useNativeResponses) {
-        const nativeTools = responseTools(tools, shouldEnableLunaPtc(messages, enableProgrammaticToolCalling))
+        const ptcEnabled = shouldEnableLunaPtc(messages, enableProgrammaticToolCalling, programmaticToolNames)
+        const nativeTools = responseTools(tools, ptcEnabled, programmaticToolNames)
         const res = await post(
           '/responses',
           {

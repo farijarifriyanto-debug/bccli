@@ -86,13 +86,14 @@ export class McpManager {
     this.opts.onChange?.()
   }
 
-  private wrap(server: string, client: Client, tool: { name: string; description?: string; inputSchema: Record<string, unknown> }): Tool {
+  private wrap(server: string, client: Client, tool: { name: string; description?: string; inputSchema: Record<string, unknown>; annotations?: { readOnlyHint?: boolean } }): Tool {
     return {
       name: mcpToolName(server, tool.name, this.taken),
       description: `[MCP ${server}] ${tool.description ?? tool.name}`.slice(0, 1024),
       schema: z.record(z.string(), z.unknown()),
       jsonSchema: tool.inputSchema,
       kind: 'mcp',
+      programmaticSafe: tool.annotations?.readOnlyHint === true,
       target: (input) => {
         const text = JSON.stringify(input)
         return text.length > 80 ? `${text.slice(0, 77)}…` : text

@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
+import { z } from 'zod'
 import type { ResponseOutputItem } from 'openai/resources/responses/responses'
 import { Agent, type AgentEvent } from '../src/agent'
 import { Permissions } from '../src/permissions'
@@ -46,6 +47,73 @@ test('runs read then answers; sends system prompt and tools', async () => {
   expect(toolMsg).toMatchObject({ role: 'tool', tool_call_id: 'id_read' })
   expect((toolMsg as { content: string }).content).toContain('hello')
   expect(events.map((e) => e.type).filter((t) => t !== 'usage')).toEqual(['toolStart', 'toolEnd', 'text', 'done'])
+})
+
+test('forwards only local programmatic-safe tool names to the provider', async () => {
+  const { provider, agent } = setup([reply('done')])
+  agent.setTools([
+    ...ALL_TOOLS,
+    {
+      name: 'mcp__demo__lookup',
+      description: 'Read-only lookup',
+      schema: z.object({ id: z.string().optional() }),
+      kind: 'mcp',
+      programmaticSafe: true,
+      target: () => 'lookup',
+      async run() {
+        return { output: 'ok' }
+      },
+    },
+    {
+      name: 'mcp__demo__mutate',
+      description: 'Mutation',
+      schema: z.object({}),
+      kind: 'mcp',
+      programmaticSafe: false,
+      target: () => 'mutate',
+      async run() {
+        return { output: 'ok' }
+      },
+    },
+  ])
+  await agent.run('compare all records', new AbortController().signal)
+  expect(provider.requests[0].programmaticToolNames).toEqual(['mcp__demo__lookup'])
+})
+
+test('programmatic-safe MCP still goes through the normal MCP permission gate', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-mcp-'))
+  const provider = scripted([
+    { text: '', toolCalls: [call('mcp__demo__lookup', { id: '42' }, 'mcp_call_1')] },
+    reply('done'),
+  ])
+  const mcpTool = {
+    name: 'mcp__demo__lookup',
+    description: 'Read-only lookup',
+    schema: z.object({ id: z.string().optional() }),
+    kind: 'mcp' as const,
+    programmaticSafe: true,
+    target: () => 'lookup 42',
+    async run() {
+      return { output: '{"status":"active"}' }
+    },
+  }
+  const agent = new Agent({
+    provider,
+    tools: [mcpTool],
+    permissions: new Permissions('default', [], cwd),
+    systemPrompt: 'SYS',
+    cwd,
+  })
+  const asked: string[] = []
+  agent.askPermission = async (req) => {
+    asked.push(req.tool)
+    return 'no'
+  }
+  await agent.run('compare all records', new AbortController().signal)
+  expect(asked).toEqual(['mcp__demo__lookup'])
+  expect(provider.requests[0].programmaticToolNames).toEqual(['mcp__demo__lookup'])
+  const result = provider.requests[1].messages.find((m) => m.role === 'tool') as { content: string }
+  expect(result.content).toMatch(/declined/)
 })
 
 test('asks permission for edits; "no" is reported to the model', async () => {

@@ -158,6 +158,7 @@ export class Agent {
         let completion = await this.provider.chat({
           messages: [{ role: 'system', content: this.systemPrompt }, ...this.messages],
           tools: this.turnDefinitions,
+          programmaticToolNames: this.turnTools.filter((tool) => tool.programmaticSafe).map((tool) => tool.name),
           signal,
           onText: (delta) => this.onEvent({ type: 'text', delta }),
           onThinking: (delta) => this.onEvent({ type: 'thinking', delta }),
