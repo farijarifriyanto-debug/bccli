@@ -150,3 +150,100 @@ test('BCCLI identity headers are not leaked to custom/non-BotConnector providers
   expect(headers['x-botconnector-client']).toBeUndefined()
   expect(headers['x-botconnector-client-version']).toBeUndefined()
 })
+
+
+test('BotConnector GPT-6 Luna uses native Responses with typed tool items', async () => {
+  const f = vi.fn(async () =>
+    sse([
+      { type: 'response.created', response: { id: 'resp_1' } },
+      {
+        type: 'response.output_item.added',
+        output_index: 0,
+        item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'read', arguments: '' },
+      },
+      { type: 'response.function_call_arguments.delta', output_index: 0, item_id: 'fc_1', delta: '{"path"' },
+      { type: 'response.function_call_arguments.delta', output_index: 0, item_id: 'fc_1', delta: ':"a.txt"}' },
+      {
+        type: 'response.output_item.done',
+        output_index: 0,
+        item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'read', arguments: '{"path":"a.txt"}' },
+      },
+      {
+        type: 'response.completed',
+        response: { usage: { input_tokens: 120, output_tokens: 9 } },
+      },
+    ]),
+  )
+  const p = createProvider({
+    baseURL: 'https://api.botconnector.id/v1',
+    apiKey: 'bc_live_test_key',
+    model: 'gpt-6-luna',
+    providerId: 'bc-cloud',
+    fetch: f,
+  })
+  const completion = await p.chat({
+    messages: [
+      { role: 'system', content: 'SYS' },
+      { role: 'user', content: 'read it' },
+      {
+        role: 'assistant',
+        content: 'Checking.',
+        tool_calls: [{ id: 'old_call', type: 'function', function: { name: 'glob', arguments: '{"pattern":"*"}' } }],
+      },
+      { role: 'tool', tool_call_id: 'old_call', content: 'a.txt' },
+    ],
+    tools: [
+      {
+        type: 'function',
+        function: { name: 'read', description: 'Read file', parameters: { type: 'object', properties: { path: { type: 'string' } } } },
+      },
+    ],
+    reasoning: 'high',
+  })
+
+  expect(completion).toEqual({
+    text: '',
+    toolCalls: [{ id: 'call_1', name: 'read', arguments: '{"path":"a.txt"}' }],
+    usage: { inputTokens: 120, outputTokens: 9 },
+    finishReason: 'tool_calls',
+  })
+  const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit]
+  expect(url).toBe('https://api.botconnector.id/v1/responses')
+  const body = JSON.parse(String(init.body))
+  expect(body).toMatchObject({
+    model: 'gpt-6-luna',
+    stream: true,
+    store: false,
+    reasoning: { effort: 'high' },
+  })
+  expect(body.input).toEqual([
+    { role: 'system', content: 'SYS' },
+    { role: 'user', content: 'read it' },
+    { role: 'assistant', content: 'Checking.' },
+    { type: 'function_call', call_id: 'old_call', name: 'glob', arguments: '{"pattern":"*"}' },
+    { type: 'function_call_output', call_id: 'old_call', output: 'a.txt' },
+  ])
+  expect(body.tools).toEqual([
+    {
+      type: 'function',
+      name: 'read',
+      description: 'Read file',
+      parameters: { type: 'object', properties: { path: { type: 'string' } } },
+      strict: false,
+    },
+  ])
+})
+
+test('BotConnector non-Luna models remain on Chat Completions', async () => {
+  const f = vi.fn(async () => sse([chunk({ content: 'ok' })]))
+  const p = createProvider({
+    baseURL: 'https://api.botconnector.id/v1',
+    apiKey: 'bc_live_test_key',
+    model: 'glm-5.3-flash',
+    providerId: 'bc-cloud',
+    fetch: f,
+  })
+  expect((await p.chat({ messages: [{ role: 'user', content: 'hi' }] })).text).toBe('ok')
+  const [url] = f.mock.calls[0] as unknown as [string, RequestInit]
+  expect(url).toBe('https://api.botconnector.id/v1/chat/completions')
+})
