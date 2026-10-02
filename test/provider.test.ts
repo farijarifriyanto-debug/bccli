@@ -1,11 +1,48 @@
 import { expect, test, vi } from 'vitest'
-import { createProvider, ProviderError, responseContinuationInput, type ChatMessage, type Completion } from '../src/provider'
+import { createProvider, lunaToolPlan, ProviderError, responseContinuationInput, type ChatMessage, type Completion } from '../src/provider'
+import type { ToolDefinition } from '../src/tools/index'
 
 function sse(events: unknown[]): Response {
   const body = events.map((e) => `data: ${typeof e === 'string' ? e : JSON.stringify(e)}\n\n`).join('')
   return new Response(body, { headers: { 'content-type': 'text/event-stream' } })
 }
 const chunk = (delta: object, extra: object = {}) => ({ choices: [{ delta, ...extra }] })
+
+const toolDef = (name: string, description = 'tool'): ToolDefinition => ({
+  type: 'function',
+  function: {
+    name,
+    description,
+    parameters: { type: 'object', properties: { value: { type: 'string' } }, additionalProperties: false },
+  },
+})
+
+test('Luna tool search stays off for small MCP catalogs', () => {
+  const plan = lunaToolPlan([toolDef('read'), ...Array.from({ length: 19 }, (_, i) => toolDef(`mcp__demo__t${i}`))])
+  expect(plan.useToolSearch).toBe(false)
+  expect(plan.deferredToolCount).toBe(0)
+  expect(plan.tools.some((tool) => tool.type === 'tool_search')).toBe(false)
+  expect(plan.tools.some((tool) => tool.defer_loading === true)).toBe(false)
+})
+
+test('Luna tool search defers MCP tools at the catalog threshold but keeps built-ins eager', () => {
+  const plan = lunaToolPlan([toolDef('read'), ...Array.from({ length: 20 }, (_, i) => toolDef(`mcp__demo__t${i}`))])
+  expect(plan.useToolSearch).toBe(true)
+  expect(plan.deferredToolCount).toBe(20)
+  const read = plan.tools.find((tool) => tool.name === 'read')
+  expect(read?.defer_loading).toBeUndefined()
+  const mcp = plan.tools.filter((tool) => String(tool.name ?? '').startsWith('mcp__'))
+  expect(mcp).toHaveLength(20)
+  expect(mcp.every((tool) => tool.defer_loading === true)).toBe(true)
+  expect(plan.tools.at(-1)).toMatchObject({ type: 'tool_search', execution: 'server' })
+})
+
+test('Luna tool search also activates for one unusually large MCP schema', () => {
+  const plan = lunaToolPlan([toolDef('read'), toolDef('mcp__large__query', 'x'.repeat(33_000))])
+  expect(plan.useToolSearch).toBe(true)
+  expect(plan.deferredToolCount).toBe(1)
+  expect(plan.deferredSchemaChars).toBeGreaterThanOrEqual(32_000)
+})
 
 test('streams text, merges tool call fragments and reads usage', async () => {
   const fetch = vi.fn(async () =>
