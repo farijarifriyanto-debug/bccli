@@ -325,6 +325,50 @@ const LUNA_TOOL_SEARCH_MIN_MCP_SCHEMA_CHARS = 32_000
 
 const LUNA_PTC_SAFE_FUNCTIONS = new Set(['read', 'grep', 'glob'])
 
+const LUNA_PTC_TOOL_OUTPUT_TRIGGER_CHARS = 8_000
+const LUNA_PTC_MULTI_WORK_CUE =
+  /\b(both|all|multiple|several|compare|comparison|aggregate|aggregation|total|count|sum|average|filter|join|merge|dedupe|deduplicate|rank|scan|across|every|semua|keduanya|beberapa|bandingkan|perbandingan|agregasi|hitung|jumlah|rata[- ]?rata|gabung|deduplikasi|urutkan|pindai|seluruh)\b|\b(many|banyak)\s+(files?|file|records?|rows?|items?|dokumen|berkas)\b/i
+
+/**
+ * Cost-aware PTC gate for Luna.
+ * Beta.24 proved PTC is excellent for large read-heavy aggregation but expensive for one tiny read.
+ * Keep PTC available only when the current turn has multi-source/data-reduction intent, a large
+ * read-only intermediate result, or an already-started program that must be continued safely.
+ */
+export function shouldEnableLunaPtc(messages: ChatMessage[], enabled: boolean): boolean {
+  if (!enabled) return false
+
+  let lastUser = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') {
+      lastUser = i
+      break
+    }
+  }
+  const turn = messages.slice(Math.max(0, lastUser))
+
+  const latestUser = lastUser >= 0 ? messages[lastUser] : undefined
+  const prompt = latestUser?.role === 'user' ? latestUser.content : ''
+  if (LUNA_PTC_MULTI_WORK_CUE.test(prompt)) return true
+
+  const safeCalls = new Set<string>()
+  let safeOutputChars = 0
+  for (const message of turn) {
+    if (message.role === 'assistant') {
+      if (message.responses_output_items?.some((item) => item.type === 'program')) return true
+      for (const call of message.tool_calls ?? []) {
+        if (LUNA_PTC_SAFE_FUNCTIONS.has(call.function.name)) safeCalls.add(call.id)
+      }
+      continue
+    }
+    if (message.role === 'tool' && safeCalls.has(message.tool_call_id)) {
+      safeOutputChars += message.content.length
+      if (safeOutputChars >= LUNA_PTC_TOOL_OUTPUT_TRIGGER_CHARS) return true
+    }
+  }
+  return false
+}
+
 export interface LunaToolPlan {
   tools: Record<string, unknown>[]
   useToolSearch: boolean
@@ -852,7 +896,7 @@ export function createProvider(options: ProviderOptions): Provider {
     signal: AbortSignal | undefined,
     onText: ((delta: string) => void) | undefined,
   ): Promise<Completion> {
-    const nativeTools = responseTools(tools, enableProgrammaticToolCalling)
+    const nativeTools = responseTools(tools, shouldEnableLunaPtc(messages, enableProgrammaticToolCalling))
     const initialPlan = responseContinuationInput(messages, lunaContinuation)
 
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -962,7 +1006,7 @@ export function createProvider(options: ProviderOptions): Provider {
       }
 
       if (useNativeResponses) {
-        const nativeTools = responseTools(tools, enableProgrammaticToolCalling)
+        const nativeTools = responseTools(tools, shouldEnableLunaPtc(messages, enableProgrammaticToolCalling))
         const res = await post(
           '/responses',
           {

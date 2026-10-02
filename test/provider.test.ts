@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest'
 import type { ResponseOutputItem } from 'openai/resources/responses/responses'
-import { completionAssistantMessage, createProvider, lunaToolPlan, ProviderError, responseContinuationInput, responseInputFromMessages, type ChatMessage, type Completion } from '../src/provider'
+import { completionAssistantMessage, createProvider, lunaToolPlan, ProviderError, responseContinuationInput, responseInputFromMessages, shouldEnableLunaPtc, type ChatMessage, type Completion } from '../src/provider'
 import type { ToolDefinition } from '../src/tools/index'
 
 function sse(events: unknown[]): Response {
@@ -112,6 +112,53 @@ test('Luna tool search also activates for one unusually large MCP schema', () =>
   expect(plan.useToolSearch).toBe(true)
   expect(plan.deferredToolCount).toBe(1)
   expect(plan.deferredSchemaChars).toBeGreaterThanOrEqual(32_000)
+})
+
+test('Luna cost-aware PTC gate keeps a single small read direct', () => {
+  const messages: ChatMessage[] = [{ role: 'user', content: 'Read package.json and return only the version.' }]
+  expect(shouldEnableLunaPtc(messages, true)).toBe(false)
+})
+
+test('Luna cost-aware PTC gate enables multi-source aggregation intent', () => {
+  expect(
+    shouldEnableLunaPtc(
+      [{ role: 'user', content: 'Compare all matching files, count active records, and return the total.' }],
+      true,
+    ),
+  ).toBe(true)
+  expect(
+    shouldEnableLunaPtc(
+      [{ role: 'user', content: 'Bandingkan semua file lalu hitung jumlah record aktif.' }],
+      true,
+    ),
+  ).toBe(true)
+})
+
+test('Luna cost-aware PTC gate enables after a large safe read-only result', () => {
+  const messages: ChatMessage[] = [
+    { role: 'user', content: 'Inspect package.json.' },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'read_1', type: 'function', function: { name: 'read', arguments: '{"path":"large.txt"}' } }],
+    },
+    { role: 'tool', tool_call_id: 'read_1', content: 'x'.repeat(8_000) },
+  ]
+  expect(shouldEnableLunaPtc(messages, true)).toBe(true)
+})
+
+test('Luna cost-aware PTC gate ignores large unsafe tool output and honors kill switch', () => {
+  const messages: ChatMessage[] = [
+    { role: 'user', content: 'Run one command.' },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'bash_1', type: 'function', function: { name: 'bash', arguments: '{"command":"echo x"}' } }],
+    },
+    { role: 'tool', tool_call_id: 'bash_1', content: 'x'.repeat(20_000) },
+  ]
+  expect(shouldEnableLunaPtc(messages, true)).toBe(false)
+  expect(shouldEnableLunaPtc([{ role: 'user', content: 'Compare all files.' }], false)).toBe(false)
 })
 
 test('Luna PTC canary exposes only read/grep/glob to programs', () => {
@@ -378,6 +425,70 @@ test('BotConnector GPT-6 Luna uses native Responses with typed tool items', asyn
       strict: false,
     },
   ])
+})
+
+test('Luna Auto PTC omits programmatic marker for a single small read', async () => {
+  const f = vi.fn(async () =>
+    sse([
+      {
+        type: 'response.completed',
+        response: { id: 'resp_small_direct', usage: { input_tokens: 10, output_tokens: 1 } },
+      },
+    ]),
+  )
+  const p = createProvider({
+    baseURL: 'https://api.botconnector.id/v1',
+    apiKey: 'bc_live_test_key',
+    model: 'gpt-6-luna',
+    providerId: 'bc-cloud',
+    fetch: f,
+    enableProgrammaticToolCalling: true,
+  })
+  await p.chat({
+    messages: [{ role: 'user', content: 'Read package.json and return only the version.' }],
+    tools: [toolDef('read')],
+  })
+  const [, init] = f.mock.calls[0] as unknown as [string, RequestInit]
+  const body = JSON.parse(String(init.body))
+  expect(body.tools).toHaveLength(1)
+  expect(body.tools[0].name).toBe('read')
+  expect(body.tools[0].allowed_callers).toBeUndefined()
+  expect(body.tools.some((tool: Record<string, unknown>) => tool.type === 'programmatic_tool_calling')).toBe(false)
+})
+
+test('Luna Auto PTC emits programmatic marker for multi-source aggregation', async () => {
+  const f = vi.fn(async () =>
+    sse([
+      {
+        type: 'response.completed',
+        response: { id: 'resp_big_ptc', usage: { input_tokens: 10, output_tokens: 1 } },
+      },
+    ]),
+  )
+  const p = createProvider({
+    baseURL: 'https://api.botconnector.id/v1',
+    apiKey: 'bc_live_test_key',
+    model: 'gpt-6-luna',
+    providerId: 'bc-cloud',
+    fetch: f,
+    enableProgrammaticToolCalling: true,
+  })
+  await p.chat({
+    messages: [{ role: 'user', content: 'Compare all files, count matching records, and return the total.' }],
+    tools: [toolDef('read'), toolDef('grep'), toolDef('bash')],
+  })
+  const [, init] = f.mock.calls[0] as unknown as [string, RequestInit]
+  const body = JSON.parse(String(init.body))
+  expect(body.tools.find((tool: Record<string, unknown>) => tool.name === 'read')?.allowed_callers).toEqual([
+    'direct',
+    'programmatic',
+  ])
+  expect(body.tools.find((tool: Record<string, unknown>) => tool.name === 'grep')?.allowed_callers).toEqual([
+    'direct',
+    'programmatic',
+  ])
+  expect(body.tools.find((tool: Record<string, unknown>) => tool.name === 'bash')?.allowed_callers).toBeUndefined()
+  expect(body.tools.some((tool: Record<string, unknown>) => tool.type === 'programmatic_tool_calling')).toBe(true)
 })
 
 test('BotConnector non-Luna models remain on Chat Completions', async () => {
