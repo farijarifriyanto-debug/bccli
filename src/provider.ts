@@ -322,7 +322,6 @@ export function lunaToolPlan(tools?: ToolDefinition[]): LunaToolPlan {
   native.push({
     type: 'tool_search',
     execution: 'server',
-    description: 'Load deferred MCP tools only when they are relevant to the current task.',
   })
   return {
     tools: native,
