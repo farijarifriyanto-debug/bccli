@@ -75,6 +75,38 @@ interface RawToolCall {
   function?: { name?: string; arguments?: string }
 }
 
+interface ResponsesUsage {
+  input_tokens?: number
+  output_tokens?: number
+}
+
+interface ResponsesOutputItem {
+  type?: string
+  id?: string
+  call_id?: string
+  name?: string
+  arguments?: string
+  content?: { type?: string; text?: string; refusal?: string }[]
+}
+
+interface ResponsesPayload {
+  output?: ResponsesOutputItem[]
+  usage?: ResponsesUsage
+  status?: string
+  error?: { message?: string }
+  incomplete_details?: { reason?: string }
+}
+
+interface ResponsesStreamEvent {
+  type?: string
+  delta?: string
+  output_index?: number
+  message?: string
+  error?: { message?: string }
+  item?: ResponsesOutputItem
+  response?: ResponsesPayload
+}
+
 const retryable = (status: number) => status === 429 || status >= 500
 
 /**
@@ -290,9 +322,9 @@ async function readResponsesStream(
     if (!line.startsWith('data:')) return
     const data = line.slice(5).trim()
     if (!data || data === '[DONE]') return
-    let event: any
+    let event: ResponsesStreamEvent
     try {
-      event = JSON.parse(data)
+      event = JSON.parse(data) as ResponsesStreamEvent
     } catch {
       return
     }
@@ -363,7 +395,7 @@ async function readResponsesStream(
 }
 
 async function readResponsesJson(res: Response): Promise<Completion> {
-  const body = (await res.json()) as any
+  const body = (await res.json()) as ResponsesPayload
   let text = ''
   const toolCalls: ToolCall[] = []
   for (const item of body.output ?? []) {
