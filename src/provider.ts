@@ -6,6 +6,9 @@ import { reasoningPayload, type ReasoningLevel } from './reasoning'
 import type { ToolDefinition } from './tools/index'
 import { t } from './i18n'
 
+// BotConnector policy (not an OpenAI-mandated value): compact before the 272k Luna request cap.
+const LUNA_AUTO_COMPACT_THRESHOLD = 240_000
+
 export interface ToolCall {
   id: string
   name: string
@@ -706,6 +709,7 @@ export function createProvider(options: ProviderOptions): Provider {
         input: plan.input,
         ...(plan.previousResponseId ? { previous_response_id: plan.previousResponseId } : {}),
         ...(nativeTools.length ? { tools: nativeTools } : {}),
+        context_management: [{ type: 'compaction', compact_threshold: LUNA_AUTO_COMPACT_THRESHOLD }],
         ...responseReasoning(reasoning),
       } as unknown as ResponsesClientEvent
 
@@ -806,6 +810,7 @@ export function createProvider(options: ProviderOptions): Provider {
             stream: true,
             store: false,
             ...(nativeTools.length ? { tools: nativeTools } : {}),
+            context_management: [{ type: 'compaction', compact_threshold: LUNA_AUTO_COMPACT_THRESHOLD }],
             ...responseReasoning(reasoning),
           },
           signal,
