@@ -289,14 +289,51 @@ function responseInputFromMessages(messages: ChatMessage[]): Record<string, unkn
   return input
 }
 
-function responseTools(tools?: ToolDefinition[]): Record<string, unknown>[] {
-  return (tools ?? []).map((tool) => ({
+const LUNA_TOOL_SEARCH_MIN_MCP_TOOLS = 20
+const LUNA_TOOL_SEARCH_MIN_MCP_SCHEMA_CHARS = 32_000
+
+export interface LunaToolPlan {
+  tools: Record<string, unknown>[]
+  useToolSearch: boolean
+  deferredToolCount: number
+  deferredSchemaChars: number
+}
+
+export function lunaToolPlan(tools?: ToolDefinition[]): LunaToolPlan {
+  const native: Record<string, unknown>[] = (tools ?? []).map((tool) => ({
     type: 'function',
     name: tool.function.name,
     description: tool.function.description,
     parameters: tool.function.parameters,
     strict: false,
   }))
+  const mcpIndexes = native
+    .map((tool, index) => (String(tool.name).startsWith('mcp__') ? index : -1))
+    .filter((index) => index >= 0)
+  const deferredSchemaChars = mcpIndexes.reduce((sum, index) => sum + JSON.stringify(native[index]).length, 0)
+  const useToolSearch =
+    mcpIndexes.length >= LUNA_TOOL_SEARCH_MIN_MCP_TOOLS || deferredSchemaChars >= LUNA_TOOL_SEARCH_MIN_MCP_SCHEMA_CHARS
+
+  if (!useToolSearch) {
+    return { tools: native, useToolSearch: false, deferredToolCount: 0, deferredSchemaChars }
+  }
+
+  for (const index of mcpIndexes) native[index] = { ...native[index], defer_loading: true }
+  native.push({
+    type: 'tool_search',
+    execution: 'server',
+    description: 'Load deferred MCP tools only when they are relevant to the current task.',
+  })
+  return {
+    tools: native,
+    useToolSearch: true,
+    deferredToolCount: mcpIndexes.length,
+    deferredSchemaChars,
+  }
+}
+
+function responseTools(tools?: ToolDefinition[]): Record<string, unknown>[] {
+  return lunaToolPlan(tools).tools
 }
 
 function responseReasoning(level: ReasoningLevel): Record<string, unknown> {
