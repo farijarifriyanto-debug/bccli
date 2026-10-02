@@ -67,6 +67,7 @@ interface ProviderOptions {
   providerId?: string
   fetch?: typeof fetch
   retryDelayMs?: number
+  responsesWebSocketFactory?: (client: OpenAI) => ResponsesWS
 }
 
 interface RawUsage {
@@ -612,7 +613,15 @@ async function readResponsesWebSocketTurn(
 }
 
 export function createProvider(options: ProviderOptions): Provider {
-  const { baseURL, apiKey, model, providerId, fetch: fetchOverride, retryDelayMs = 1000 } = options
+  const {
+    baseURL,
+    apiKey,
+    model,
+    providerId,
+    fetch: fetchOverride,
+    retryDelayMs = 1000,
+    responsesWebSocketFactory,
+  } = options
   const doFetch = fetchOverride ?? fetch
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (apiKey) headers.authorization = `Bearer ${apiKey}`
@@ -626,7 +635,8 @@ export function createProvider(options: ProviderOptions): Provider {
     headers['x-botconnector-client-version'] = '0.4.0'
   }
   const useNativeResponses = isBotConnectorCloud && providerId === 'bc-cloud' && model === 'gpt-6-luna'
-  const useResponsesWebSocket = useNativeResponses && fetchOverride === undefined && Boolean(apiKey)
+  const useResponsesWebSocket =
+    useNativeResponses && Boolean(apiKey) && (fetchOverride === undefined || responsesWebSocketFactory !== undefined)
 
   let lunaWs: ResponsesWS | undefined
   let lunaWsEvents: ResponsesWsIterator | undefined
@@ -659,7 +669,7 @@ export function createProvider(options: ProviderOptions): Provider {
           'x-botconnector-client-version': '0.4.0',
         },
       })
-      lunaWs = new ResponsesWS(client, { reconnect: null })
+      lunaWs = responsesWebSocketFactory ? responsesWebSocketFactory(client) : new ResponsesWS(client, { reconnect: null })
       lunaWsEvents = lunaWs.stream({ maxBufferedEvents: 4096 })
     }
     return { ws: lunaWs, events: lunaWsEvents }
@@ -738,6 +748,9 @@ export function createProvider(options: ProviderOptions): Provider {
         ) {
           continue
         }
+        if (!emittedText && !signal?.aborted && connectionLost) {
+          throw new ProviderError(err.message, err.status, 'bc_ws_http_fallback')
+        }
         throw err
       }
     }
@@ -775,7 +788,12 @@ export function createProvider(options: ProviderOptions): Provider {
       }
 
       if (useResponsesWebSocket) {
-        return chatLunaWebSocket(messages, tools, reasoning, signal, onText)
+        try {
+          return await chatLunaWebSocket(messages, tools, reasoning, signal, onText)
+        } catch (error) {
+          const err = error instanceof ProviderError ? error : new ProviderError((error as Error).message)
+          if (err.code !== 'bc_ws_http_fallback') throw err
+        }
       }
 
       if (useNativeResponses) {

@@ -249,6 +249,114 @@ test('BotConnector non-Luna models remain on Chat Completions', async () => {
 })
 
 
+
+test('Luna Responses WebSocket falls back to HTTP SSE when the socket fails before output', async () => {
+  type WsFactory = NonNullable<Parameters<typeof createProvider>[0]['responsesWebSocketFactory']>
+  const wsFactory = vi.fn(
+    () =>
+      ({
+        send() {
+          throw new Error('WebSocket connection failed')
+        },
+        stream() {
+          return {
+            async next() {
+              return { done: true, value: undefined }
+            },
+            [Symbol.asyncIterator]() {
+              return this
+            },
+          }
+        },
+        close() {},
+      }) as unknown as ReturnType<WsFactory>,
+  )
+  const f = vi.fn(async () =>
+    sse([
+      { type: 'response.output_text.delta', delta: 'FALLBACK_OK' },
+      {
+        type: 'response.completed',
+        response: { id: 'resp_http', usage: { input_tokens: 11, output_tokens: 4 } },
+      },
+    ]),
+  )
+  const p = createProvider({
+    baseURL: 'https://api.botconnector.id/v1',
+    apiKey: 'bc_live_test_key',
+    model: 'gpt-6-luna',
+    providerId: 'bc-cloud',
+    fetch: f,
+    responsesWebSocketFactory: wsFactory,
+  })
+  const deltas: string[] = []
+  const completion = await p.chat({
+    messages: [{ role: 'user', content: 'hi' }],
+    onText: (delta) => deltas.push(delta),
+  })
+
+  expect(completion.text).toBe('FALLBACK_OK')
+  expect(completion.usage).toEqual({ inputTokens: 11, outputTokens: 4 })
+  expect(deltas).toEqual(['FALLBACK_OK'])
+  expect(wsFactory).toHaveBeenCalledTimes(2)
+  expect(f).toHaveBeenCalledTimes(1)
+  expect((f.mock.calls[0] as unknown as [string, RequestInit])[0]).toBe('https://api.botconnector.id/v1/responses')
+})
+
+test('Luna Responses WebSocket does not replay through HTTP after partial text was emitted', async () => {
+  type WsFactory = NonNullable<Parameters<typeof createProvider>[0]['responsesWebSocketFactory']>
+  const envelopes = [
+    {
+      done: false,
+      value: {
+        type: 'message',
+        message: { type: 'response.output_text.delta', delta: 'PARTIAL' },
+      },
+    },
+    {
+      done: false,
+      value: { type: 'close', code: 1006, reason: 'network lost' },
+    },
+  ]
+  const wsFactory = vi.fn(
+    () =>
+      ({
+        send() {},
+        stream() {
+          let index = 0
+          return {
+            async next() {
+              return envelopes[index++] ?? { done: true, value: undefined }
+            },
+            [Symbol.asyncIterator]() {
+              return this
+            },
+          }
+        },
+        close() {},
+      }) as unknown as ReturnType<WsFactory>,
+  )
+  const f = vi.fn(async () => sse([{ type: 'response.output_text.delta', delta: 'SHOULD_NOT_RUN' }]))
+  const p = createProvider({
+    baseURL: 'https://api.botconnector.id/v1',
+    apiKey: 'bc_live_test_key',
+    model: 'gpt-6-luna',
+    providerId: 'bc-cloud',
+    fetch: f,
+    responsesWebSocketFactory: wsFactory,
+  })
+  const deltas: string[] = []
+
+  await expect(
+    p.chat({
+      messages: [{ role: 'user', content: 'hi' }],
+      onText: (delta) => deltas.push(delta),
+    }),
+  ).rejects.toBeInstanceOf(ProviderError)
+
+  expect(deltas).toEqual(['PARTIAL'])
+  expect(f).not.toHaveBeenCalled()
+})
+
 test('Responses WebSocket continuation sends only new tool output after the previous assistant response', () => {
   const requestMessages: ChatMessage[] = [
     { role: 'system', content: 'SYS' },
