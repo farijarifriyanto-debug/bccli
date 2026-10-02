@@ -8,6 +8,7 @@ import { defineTool } from './types'
 import { t } from '../i18n'
 
 const MAX_MATCHES = 200
+const MAX_OUTPUT_CHARS = 24_000
 
 export async function grepJs(pattern: string, opts: { root: string; glob?: string; ignoreCase?: boolean }): Promise<string[]> {
   const regex = new RegExp(pattern, opts.ignoreCase ? 'i' : '')
@@ -66,6 +67,17 @@ export const grepTool = defineTool({
     }
     const matches = (await grepRg(input.pattern, opts)) ?? (await grepJs(input.pattern, opts))
     if (!matches.length) return { output: 'No matches.' }
-    return { output: matches.join('\n'), display: t('{n} results', { n: matches.length }) }
+    const shown: string[] = []
+    let size = 0
+    for (const match of matches) {
+      const extra = match.length + (shown.length ? 1 : 0)
+      if (shown.length && size + extra > MAX_OUTPUT_CHARS) break
+      shown.push(match)
+      size += extra
+      if (size >= MAX_OUTPUT_CHARS) break
+    }
+    const omitted = matches.length - shown.length
+    const suffix = omitted > 0 ? `\n… ${omitted} more matches omitted (narrow pattern/path/glob)` : ''
+    return { output: shown.join('\n') + suffix, display: t('{n} results', { n: matches.length }) }
   },
 })

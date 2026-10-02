@@ -5,6 +5,7 @@ import { defineTool } from './types'
 import { t } from '../i18n'
 
 const MAX_LINE = 2000
+const MAX_OUTPUT_CHARS = 40_000
 
 export const readTool = defineTool({
   name: 'read',
@@ -31,18 +32,32 @@ export const readTool = defineTool({
     const lines = buffer.toString('utf8').split(/\r?\n/)
     const start = (input.offset ?? 1) - 1
     const limit = input.limit ?? 2000
-    const slice = lines.slice(start, start + limit)
-    const body = slice
-      .map((line, i) => {
-        const text = line.length > MAX_LINE ? `${line.slice(0, MAX_LINE)}… [line truncated]` : line
-        return `${String(start + i + 1).padStart(6)}\t${text}`
-      })
-      .join('\n')
-    const remaining = lines.length - start - slice.length
+    const requested = lines.slice(start, start + limit)
+    const shown: string[] = []
+    let size = 0
+    for (let i = 0; i < requested.length; i++) {
+      const line = requested[i]
+      const text = line.length > MAX_LINE ? `${line.slice(0, MAX_LINE)}… [line truncated]` : line
+      const rendered = `${String(start + i + 1).padStart(6)}\t${text}`
+      const extra = rendered.length + (shown.length ? 1 : 0)
+      if (shown.length && size + extra > MAX_OUTPUT_CHARS) break
+      shown.push(rendered)
+      size += extra
+      if (size >= MAX_OUTPUT_CHARS) break
+    }
+    const body = shown.join('\n')
+    const remaining = lines.length - start - shown.length
+    const tokenBudgetHit = shown.length < requested.length
+    const nextOffset = start + shown.length + 1
     ctx.readFiles.add(abs)
     return {
-      output: remaining > 0 ? `${body}\n… ${remaining} more lines (use offset)` : body,
-      display: t('{n} lines', { n: slice.length }),
+      output:
+        remaining > 0
+          ? tokenBudgetHit
+            ? `${body}\n… ${remaining} more lines (token budget reached; continue with offset=${nextOffset})`
+            : `${body}\n… ${remaining} more lines (use offset)`
+          : body,
+      display: t('{n} lines', { n: shown.length }),
     }
   },
 })

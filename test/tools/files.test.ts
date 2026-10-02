@@ -20,6 +20,14 @@ test('read numbers lines, honours offset/limit and reports the remainder', async
   expect(ctx.readFiles.has(file('a.txt'))).toBe(true)
 })
 
+test('read caps large multi-line output and provides the next offset', async () => {
+  const lines = Array.from({ length: 1000 }, (_, i) => `${String(i).padStart(4, '0')} ${'x'.repeat(120)}`)
+  writeFileSync(file('large.txt'), lines.join('\n'))
+  const r = await readTool.run({ path: 'large.txt' }, ctx)
+  expect(r.output.length).toBeLessThan(41_000)
+  expect(r.output).toMatch(/token budget reached; continue with offset=\d+/)
+})
+
 test('read truncates a huge single line', async () => {
   writeFileSync(file('min.js'), 'x'.repeat(1_000_000))
   const r = await readTool.run({ path: 'min.js' }, ctx)
