@@ -6,6 +6,8 @@ import type { Tool } from '../tools/types'
 import type { McpServerSpec } from './config'
 import { t } from '../i18n'
 
+const MCP_OUTPUT_MAX_CHARS = 32_000
+
 export interface McpServerState {
   name: string
   source: 'global' | 'project'
@@ -102,7 +104,13 @@ export class McpManager {
             isError?: boolean
           }
           const output = (result.content ?? []).map((c) => (c.type === 'text' ? (c.text ?? '') : `[${c.type}]`)).join('\n') || '(empty)'
-          return { output: output.length > 50_000 ? `${output.slice(0, 50_000)}\n… [truncated]` : output, isError: !!result.isError }
+          return {
+            output:
+              output.length > MCP_OUTPUT_MAX_CHARS
+                ? `${output.slice(0, MCP_OUTPUT_MAX_CHARS)}\n… [truncated at ${MCP_OUTPUT_MAX_CHARS} characters; narrow the MCP request if possible]`
+                : output,
+            isError: !!result.isError,
+          }
         } catch (error) {
           return { output: `Server MCP ${server} error: ${(error as Error).message}`, isError: true }
         }
