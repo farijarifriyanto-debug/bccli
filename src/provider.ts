@@ -224,6 +224,170 @@ async function readJson(res: Response): Promise<Completion> {
   return { text: split.text, toolCalls, thinking: thinking || undefined, usage: toUsage(body.usage), finishReason: choice?.finish_reason }
 }
 
+function responseInputFromMessages(messages: ChatMessage[]): Record<string, unknown>[] {
+  const input: Record<string, unknown>[] = []
+  for (const message of messages) {
+    if (message.role === 'system' || message.role === 'user') {
+      input.push({ role: message.role, content: message.content })
+      continue
+    }
+    if (message.role === 'assistant') {
+      if (message.content) input.push({ role: 'assistant', content: message.content })
+      for (const call of message.tool_calls ?? []) {
+        input.push({
+          type: 'function_call',
+          call_id: call.id,
+          name: call.function.name,
+          arguments: call.function.arguments || '{}',
+        })
+      }
+      continue
+    }
+    input.push({ type: 'function_call_output', call_id: message.tool_call_id, output: message.content })
+  }
+  return input
+}
+
+function responseTools(tools?: ToolDefinition[]): Record<string, unknown>[] {
+  return (tools ?? []).map((tool) => ({
+    type: 'function',
+    name: tool.function.name,
+    description: tool.function.description,
+    parameters: tool.function.parameters,
+    strict: false,
+  }))
+}
+
+function responseReasoning(level: ReasoningLevel): Record<string, unknown> {
+  if (level === 'auto') return {}
+  return { reasoning: { effort: level === 'off' ? 'none' : level } }
+}
+
+function toResponsesUsage(usage?: { input_tokens?: number; output_tokens?: number }): Usage | undefined {
+  return usage ? { inputTokens: usage.input_tokens ?? 0, outputTokens: usage.output_tokens ?? 0 } : undefined
+}
+
+async function readResponsesStream(
+  res: Response,
+  onText?: (delta: string) => void,
+): Promise<Completion> {
+  let text = ''
+  let usage: Usage | undefined
+  let finishReason: string | undefined
+  let loopAt = -1
+  const calls = new Map<number, ToolCall>()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  const emitText = (delta: string) => {
+    if (!delta) return
+    text += delta
+    onText?.(delta)
+    if (loopAt < 0) loopAt = detectRepetition(text)
+  }
+
+  const handle = (line: string) => {
+    if (!line.startsWith('data:')) return
+    const data = line.slice(5).trim()
+    if (!data || data === '[DONE]') return
+    let event: any
+    try {
+      event = JSON.parse(data)
+    } catch {
+      return
+    }
+    if (event.type === 'error') {
+      throw new ProviderError(t('Error from the provider: {message}', { message: event.message ?? event.error?.message ?? JSON.stringify(event) }))
+    }
+    if (event.type === 'response.failed') {
+      throw new ProviderError(t('Error from the provider: {message}', { message: event.response?.error?.message ?? 'Response failed' }))
+    }
+    if (event.type === 'response.output_text.delta' || event.type === 'response.refusal.delta') {
+      emitText(String(event.delta ?? ''))
+      return
+    }
+    if (event.type === 'response.output_item.added' && event.item?.type === 'function_call') {
+      calls.set(Number(event.output_index ?? calls.size), {
+        id: String(event.item.call_id || event.item.id || `call_${calls.size}`),
+        name: String(event.item.name || ''),
+        arguments: String(event.item.arguments || ''),
+      })
+      return
+    }
+    if (event.type === 'response.function_call_arguments.delta') {
+      const index = Number(event.output_index ?? 0)
+      const call = calls.get(index)
+      if (call) call.arguments += String(event.delta || '')
+      return
+    }
+    if (event.type === 'response.output_item.done' && event.item?.type === 'function_call') {
+      const index = Number(event.output_index ?? 0)
+      const current = calls.get(index)
+      calls.set(index, {
+        id: String(event.item.call_id || current?.id || event.item.id || `call_${index}`),
+        name: String(event.item.name || current?.name || ''),
+        arguments: String(event.item.arguments ?? current?.arguments ?? ''),
+      })
+      return
+    }
+    if (event.type === 'response.completed') {
+      usage = toResponsesUsage(event.response?.usage)
+      finishReason = calls.size ? 'tool_calls' : 'stop'
+      return
+    }
+    if (event.type === 'response.incomplete') {
+      usage = toResponsesUsage(event.response?.usage)
+      finishReason = String(event.response?.incomplete_details?.reason || 'incomplete')
+    }
+  }
+
+  for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+    buffer += decoder.decode(chunk, { stream: true })
+    let newline = buffer.indexOf('\n')
+    while (newline >= 0 && loopAt < 0) {
+      handle(buffer.slice(0, newline).trim())
+      buffer = buffer.slice(newline + 1)
+      newline = buffer.indexOf('\n')
+    }
+    if (loopAt >= 0) {
+      return { text: text.slice(0, loopAt), toolCalls: [], usage, finishReason: 'repetition' }
+    }
+  }
+  handle(buffer.trim())
+  return {
+    text,
+    toolCalls: [...calls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call),
+    usage,
+    finishReason,
+  }
+}
+
+async function readResponsesJson(res: Response): Promise<Completion> {
+  const body = (await res.json()) as any
+  let text = ''
+  const toolCalls: ToolCall[] = []
+  for (const item of body.output ?? []) {
+    if (item?.type === 'message') {
+      for (const part of item.content ?? []) {
+        if (part?.type === 'output_text' && typeof part.text === 'string') text += part.text
+        else if (part?.type === 'refusal' && typeof part.refusal === 'string') text += part.refusal
+      }
+    } else if (item?.type === 'function_call') {
+      toolCalls.push({
+        id: String(item.call_id || item.id || `call_${toolCalls.length}`),
+        name: String(item.name || ''),
+        arguments: String(item.arguments || '{}'),
+      })
+    }
+  }
+  return {
+    text,
+    toolCalls,
+    usage: toResponsesUsage(body.usage),
+    finishReason: toolCalls.length ? 'tool_calls' : body.status === 'incomplete' ? String(body.incomplete_details?.reason || 'incomplete') : 'stop',
+  }
+}
+
 export function createProvider({ baseURL, apiKey, model, providerId, fetch: doFetch = fetch, retryDelayMs = 1000 }: ProviderOptions): Provider {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (apiKey) headers.authorization = `Bearer ${apiKey}`
@@ -231,10 +395,12 @@ export function createProvider({ baseURL, apiKey, model, providerId, fetch: doFe
   // from generic API clients. GPT-6 Luna Launch Access is intentionally limited to the
   // official BotConnector Web App and BCCLI. Do not remove/rename these headers during
   // provider refactors without coordinating the server-side Luna access guard and tests.
-  if (/^https:\/\/api\.botconnector\.id\/v1\/?$/.test(baseURL) && apiKey?.startsWith('bc_live_')) {
+  const isBotConnectorCloud = /^https:\/\/api\.botconnector\.id\/v1\/?$/.test(baseURL) && apiKey?.startsWith('bc_live_')
+  if (isBotConnectorCloud) {
     headers['x-botconnector-client'] = 'bccli'
     headers['x-botconnector-client-version'] = '0.4.0'
   }
+  const useNativeResponses = isBotConnectorCloud && providerId === 'bc-cloud' && model === 'gpt-6-luna'
 
   async function post(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
     let lastError: ProviderError | undefined
@@ -264,6 +430,27 @@ export function createProvider({ baseURL, apiKey, model, providerId, fetch: doFe
       } catch (error) {
         throw new ProviderError((error as Error).message)
       }
+
+      if (useNativeResponses) {
+        const nativeTools = responseTools(tools)
+        const res = await post(
+          '/responses',
+          {
+            model,
+            input: responseInputFromMessages(messages),
+            stream: true,
+            store: false,
+            ...(nativeTools.length ? { tools: nativeTools } : {}),
+            ...responseReasoning(reasoning),
+          },
+          signal,
+        )
+        if ((res.headers.get('content-type') ?? '').includes('application/json')) return readResponsesJson(res)
+        if (!res.body) throw new ProviderError(t('Empty response from the provider'))
+        // OpenAI raw reasoning events are intentionally not surfaced. BCCLI only streams final text and tool calls.
+        return readResponsesStream(res, onText)
+      }
+
       const res = await post(
         '/chat/completions',
         { model, messages, stream: true, stream_options: { include_usage: true }, ...(tools?.length ? { tools } : {}), ...reasoningOverride },
