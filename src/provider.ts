@@ -348,20 +348,23 @@ export function lunaToolPlan(tools?: ToolDefinition[], enableProgrammaticToolCal
   const useToolSearch =
     mcpIndexes.length >= LUNA_TOOL_SEARCH_MIN_MCP_TOOLS || deferredSchemaChars >= LUNA_TOOL_SEARCH_MIN_MCP_SCHEMA_CHARS
 
+  let programmaticToolCount = 0
   if (enableProgrammaticToolCalling) {
     for (let index = 0; index < native.length; index++) {
       if (LUNA_PTC_SAFE_FUNCTIONS.has(String(native[index].name))) {
         native[index] = { ...native[index], allowed_callers: ['direct', 'programmatic'] }
+        programmaticToolCount++
       }
     }
-    native.push({ type: 'programmatic_tool_calling' })
+    if (programmaticToolCount > 0) native.push({ type: 'programmatic_tool_calling' })
   }
+  const useProgrammaticToolCalling = programmaticToolCount > 0
 
   if (!useToolSearch) {
     return {
       tools: native,
       useToolSearch: false,
-      useProgrammaticToolCalling: enableProgrammaticToolCalling,
+      useProgrammaticToolCalling,
       deferredToolCount: 0,
       deferredSchemaChars,
     }
@@ -375,7 +378,7 @@ export function lunaToolPlan(tools?: ToolDefinition[], enableProgrammaticToolCal
   return {
     tools: native,
     useToolSearch: true,
-    useProgrammaticToolCalling: enableProgrammaticToolCalling,
+    useProgrammaticToolCalling,
     deferredToolCount: mcpIndexes.length,
     deferredSchemaChars,
   }
