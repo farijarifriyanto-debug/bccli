@@ -1,7 +1,6 @@
 import OpenAI from 'openai'
 import { ResponsesWS } from 'openai/resources/responses/ws'
 import type { ResponsesClientEvent, ResponsesServerEvent } from 'openai/resources/responses/responses'
-import type { ResponsesStreamMessage } from 'openai/resources/responses/internal-base'
 import { splitThinking, ThinkSplitter } from './thinking'
 import { reasoningPayload, type ReasoningLevel } from './reasoning'
 import type { ToolDefinition } from './tools/index'
@@ -426,6 +425,8 @@ async function readResponsesJson(res: Response): Promise<Completion> {
   }
 }
 
+type ResponsesWsIterator = ReturnType<ResponsesWS['stream']>
+
 interface LunaWsContinuation {
   responseId: string
   requestMessages: ChatMessage[]
@@ -488,7 +489,7 @@ interface LunaWsTurnResult {
 }
 
 async function readResponsesWebSocketTurn(
-  events: AsyncIterableIterator<ResponsesStreamMessage>,
+  events: ResponsesWsIterator,
   ws: ResponsesWS,
   onText?: (delta: string) => void,
   signal?: AbortSignal,
@@ -628,10 +629,13 @@ export function createProvider(options: ProviderOptions): Provider {
   const useResponsesWebSocket = useNativeResponses && fetchOverride === undefined && Boolean(apiKey)
 
   let lunaWs: ResponsesWS | undefined
-  let lunaWsEvents: AsyncIterableIterator<ResponsesStreamMessage> | undefined
+  let lunaWsEvents: ResponsesWsIterator | undefined
   let lunaContinuation: LunaWsContinuation | undefined
+  let lunaWsIdleTimer: NodeJS.Timeout | undefined
 
   const resetLunaWebSocket = () => {
+    if (lunaWsIdleTimer) clearTimeout(lunaWsIdleTimer)
+    lunaWsIdleTimer = undefined
     const current = lunaWs
     lunaWs = undefined
     lunaWsEvents = undefined
@@ -643,7 +647,9 @@ export function createProvider(options: ProviderOptions): Provider {
     }
   }
 
-  const ensureLunaWebSocket = (): { ws: ResponsesWS; events: AsyncIterableIterator<ResponsesStreamMessage> } => {
+  const ensureLunaWebSocket = (): { ws: ResponsesWS; events: ResponsesWsIterator } => {
+    if (lunaWsIdleTimer) clearTimeout(lunaWsIdleTimer)
+    lunaWsIdleTimer = undefined
     if (!lunaWs || !lunaWsEvents) {
       const client = new OpenAI({
         apiKey: apiKey!,
@@ -657,6 +663,12 @@ export function createProvider(options: ProviderOptions): Provider {
       lunaWsEvents = lunaWs.stream({ maxBufferedEvents: 4096 })
     }
     return { ws: lunaWs, events: lunaWsEvents }
+  }
+
+  const scheduleLunaWebSocketIdleReset = () => {
+    if (lunaWsIdleTimer) clearTimeout(lunaWsIdleTimer)
+    lunaWsIdleTimer = setTimeout(() => resetLunaWebSocket(), 10 * 60_000)
+    lunaWsIdleTimer.unref?.()
   }
 
   async function chatLunaWebSocket(
@@ -687,9 +699,15 @@ export function createProvider(options: ProviderOptions): Provider {
         ...responseReasoning(reasoning),
       } as unknown as ResponsesClientEvent
 
+      let emittedText = false
+      const trackText = (delta: string) => {
+        if (delta) emittedText = true
+        onText?.(delta)
+      }
+
       try {
         ws.send(createEvent)
-        const result = await readResponsesWebSocketTurn(events, ws, onText, signal)
+        const result = await readResponsesWebSocketTurn(events, ws, trackText, signal)
         if (result.completion.finishReason === 'repetition') {
           resetLunaWebSocket()
           return result.completion
@@ -703,6 +721,7 @@ export function createProvider(options: ProviderOptions): Provider {
           requestMessages: cloneMessages(messages),
           completion: structuredClone(result.completion),
         }
+        scheduleLunaWebSocketIdleReset()
         return result.completion
       } catch (error) {
         const err = error instanceof ProviderError ? error : new ProviderError((error as Error).message)
@@ -711,7 +730,14 @@ export function createProvider(options: ProviderOptions): Provider {
           /websocket|connection closed|socket|network/i.test(err.message) ||
           err.code === 'websocket_connection_limit_reached'
         resetLunaWebSocket()
-        if (attempt === 0 && !signal?.aborted && (plan.incremental || lostPrevious || connectionLost)) continue
+        if (
+          attempt === 0 &&
+          !emittedText &&
+          !signal?.aborted &&
+          (plan.incremental || lostPrevious || connectionLost)
+        ) {
+          continue
+        }
         throw err
       }
     }
