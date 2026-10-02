@@ -4,6 +4,8 @@ import { ignorePatterns } from './ignore'
 import { resolvePath } from './paths'
 import { defineTool } from './types'
 
+const MAX_OUTPUT_CHARS = 24_000
+
 export const globTool = defineTool({
   name: 'glob',
   description: 'Find files by glob pattern, e.g. "src/**/*.ts". Respects .gitignore. Max 500 results.',
@@ -17,8 +19,18 @@ export const globTool = defineTool({
     const root = resolvePath(ctx.cwd, input.path ?? '.')
     const files = (await fg(input.pattern, { cwd: root, ignore: ignorePatterns(root), onlyFiles: true, dot: true })).sort()
     if (!files.length) return { output: 'No matching files.' }
-    const shown = files.slice(0, 500)
-    const more = files.length > shown.length ? `\n… ${files.length - shown.length} more files` : ''
+    const first = files.slice(0, 500)
+    const shown: string[] = []
+    let size = 0
+    for (const file of first) {
+      const extra = file.length + (shown.length ? 1 : 0)
+      if (shown.length && size + extra > MAX_OUTPUT_CHARS) break
+      shown.push(file)
+      size += extra
+      if (size >= MAX_OUTPUT_CHARS) break
+    }
+    const omitted = files.length - shown.length
+    const more = omitted > 0 ? `\n… ${omitted} more files omitted (narrow pattern/path)` : ''
     return { output: shown.join('\n') + more, display: `${files.length} file` }
   },
 })
