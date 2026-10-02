@@ -129,6 +129,13 @@ test('Luna PTC canary exposes only read/grep/glob to programs', () => {
   }
 })
 
+test('Luna PTC auto plan adds no marker when there are no programmatic-safe tools', () => {
+  const plan = lunaToolPlan([toolDef('bash'), toolDef('write'), toolDef('mcp__crm__lookup')], true)
+  expect(plan.useProgrammaticToolCalling).toBe(false)
+  expect(plan.tools.some((tool) => tool.type === 'programmatic_tool_calling')).toBe(false)
+  expect(plan.tools.some((tool) => tool.allowed_callers)).toBe(false)
+})
+
 test('Luna PTC stays absent unless explicitly enabled', () => {
   const plan = lunaToolPlan([toolDef('read'), toolDef('grep')])
   expect(plan.useProgrammaticToolCalling).toBe(false)

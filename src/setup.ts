@@ -57,6 +57,12 @@ export interface Runtime {
 
 const TOOL_RULES: Record<string, string> = { bash: 'bash', edit: 'edit', write: 'edit', fetch: 'fetch' }
 
+/** PTC is automatic for Luna. This env var is only an emergency/internal kill switch. */
+export function lunaPtcAutoEnabled(env: NodeJS.ProcessEnv): boolean {
+  const value = String(env.BCCLI_LUNA_PTC ?? '').trim().toLowerCase()
+  return !['0', 'false', 'off', 'no'].includes(value)
+}
+
 export function createRuntime(opts: {
   cwd: string
   args: CliArgs
@@ -78,7 +84,7 @@ export function createRuntime(opts: {
       apiKey: resolved.apiKey,
       model: resolved.model,
       providerId: resolved.providerId,
-      enableProgrammaticToolCalling: env.BCCLI_LUNA_PTC === '1',
+      enableProgrammaticToolCalling: lunaPtcAutoEnabled(env),
     })
   }
   const provider = makeProvider(modelRef)
