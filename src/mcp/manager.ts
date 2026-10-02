@@ -121,7 +121,9 @@ export class McpManager {
   }
 
   tools(): Tool[] {
-    return [...this.servers.values()].flatMap((s) => s.tools)
+    return [...this.servers.values()]
+      .flatMap((s) => s.tools)
+      .sort((a, b) => a.name.localeCompare(b.name))
   }
 
   states(): McpServerState[] {
