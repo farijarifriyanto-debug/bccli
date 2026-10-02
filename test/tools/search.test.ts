@@ -23,6 +23,16 @@ test('grepJs finds matches and respects .gitignore and node_modules', async () =
   expect(await grepJs('needle', { root, ignoreCase: true })).toEqual(['src/a.ts:1:export const Needle = 1'])
 })
 
+test('grep caps large result sets instead of flooding model context', async () => {
+  writeFileSync(
+    join(root, 'src', 'many.txt'),
+    Array.from({ length: 200 }, (_, i) => `needle-${i} ${'x'.repeat(180)}`).join('\n'),
+  )
+  const r = await grepTool.run({ pattern: 'needle-' }, ctx)
+  expect(r.output.length).toBeLessThan(25_000)
+  expect(r.output).toMatch(/more matches omitted/)
+})
+
 test('grep tool reports no matches clearly', async () => {
   const r = await grepTool.run({ pattern: 'definitely-not-here' }, ctx)
   expect(r.output).toBe('No matches.')
@@ -31,6 +41,17 @@ test('grep tool reports no matches clearly', async () => {
 test('glob lists files, ignoring gitignored and node_modules', async () => {
   const r = await globTool.run({ pattern: '**/*.{ts,js}' }, ctx)
   expect(r.output).toBe('src/a.ts')
+})
+
+test('glob caps very large path listings', async () => {
+  const big = join(root, 'src', 'glob-many')
+  mkdirSync(big, { recursive: true })
+  for (let i = 0; i < 320; i++) {
+    writeFileSync(join(big, `file-${String(i).padStart(3, '0')}-${'x'.repeat(70)}.txt`), 'x')
+  }
+  const r = await globTool.run({ pattern: 'src/glob-many/*.txt' }, ctx)
+  expect(r.output.length).toBeLessThan(25_000)
+  expect(r.output).toMatch(/more files omitted/)
 })
 
 test('tool definitions are JSON schema without $schema', () => {
