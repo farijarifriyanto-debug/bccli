@@ -1,3 +1,7 @@
+import OpenAI from 'openai'
+import { ResponsesWS } from 'openai/resources/responses/ws'
+import type { ResponsesClientEvent, ResponsesServerEvent } from 'openai/resources/responses/responses'
+import type { ResponsesStreamMessage } from 'openai/resources/responses/internal-base'
 import { splitThinking, ThinkSplitter } from './thinking'
 import { reasoningPayload, type ReasoningLevel } from './reasoning'
 import type { ToolDefinition } from './tools/index'
@@ -51,6 +55,7 @@ export class ProviderError extends Error {
   constructor(
     message: string,
     readonly status?: number,
+    readonly code?: string,
   ) {
     super(message)
   }
@@ -90,6 +95,7 @@ interface ResponsesOutputItem {
 }
 
 interface ResponsesPayload {
+  id?: string
   output?: ResponsesOutputItem[]
   usage?: ResponsesUsage
   status?: string
@@ -420,7 +426,193 @@ async function readResponsesJson(res: Response): Promise<Completion> {
   }
 }
 
-export function createProvider({ baseURL, apiKey, model, providerId, fetch: doFetch = fetch, retryDelayMs = 1000 }: ProviderOptions): Provider {
+interface LunaWsContinuation {
+  responseId: string
+  requestMessages: ChatMessage[]
+  completion: Completion
+}
+
+function cloneMessages(messages: ChatMessage[]): ChatMessage[] {
+  return structuredClone(messages)
+}
+
+function sameMessage(a: ChatMessage, b: ChatMessage): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+function completionAssistantMessage(completion: Completion): ChatMessage {
+  return {
+    role: 'assistant',
+    content: completion.text || null,
+    ...(completion.toolCalls.length
+      ? {
+          tool_calls: completion.toolCalls.map((call) => ({
+            id: call.id,
+            type: 'function' as const,
+            function: { name: call.name, arguments: call.arguments },
+          })),
+        }
+      : {}),
+  }
+}
+
+export function responseContinuationInput(
+  messages: ChatMessage[],
+  continuation?: LunaWsContinuation,
+): { input: Record<string, unknown>[]; previousResponseId?: string; incremental: boolean } {
+  if (!continuation || messages.length <= continuation.requestMessages.length) {
+    return { input: responseInputFromMessages(messages), incremental: false }
+  }
+  for (let i = 0; i < continuation.requestMessages.length; i++) {
+    if (!sameMessage(messages[i], continuation.requestMessages[i])) {
+      return { input: responseInputFromMessages(messages), incremental: false }
+    }
+  }
+  const expectedAssistant = completionAssistantMessage(continuation.completion)
+  const assistant = messages[continuation.requestMessages.length]
+  if (!assistant || !sameMessage(assistant, expectedAssistant)) {
+    return { input: responseInputFromMessages(messages), incremental: false }
+  }
+  const delta = messages.slice(continuation.requestMessages.length + 1)
+  if (!delta.length) return { input: responseInputFromMessages(messages), incremental: false }
+  return {
+    input: responseInputFromMessages(delta),
+    previousResponseId: continuation.responseId,
+    incremental: true,
+  }
+}
+
+interface LunaWsTurnResult {
+  completion: Completion
+  responseId: string
+}
+
+async function readResponsesWebSocketTurn(
+  events: AsyncIterableIterator<ResponsesStreamMessage>,
+  ws: ResponsesWS,
+  onText?: (delta: string) => void,
+  signal?: AbortSignal,
+): Promise<LunaWsTurnResult> {
+  let responseId = ''
+  let text = ''
+  let usage: Usage | undefined
+  let finishReason: string | undefined
+  let loopAt = -1
+  const calls = new Map<number, ToolCall>()
+
+  const emitText = (delta: string) => {
+    if (!delta) return
+    text += delta
+    onText?.(delta)
+    if (loopAt < 0) loopAt = detectRepetition(text)
+  }
+
+  const abort = () => {
+    try {
+      ws.close({ code: 1000, reason: 'BCCLI request cancelled' })
+    } catch {}
+  }
+  signal?.addEventListener('abort', abort, { once: true })
+
+  try {
+    while (true) {
+      if (signal?.aborted) throw signal.reason ?? new Error('Request aborted')
+      const next = await events.next()
+      if (next.done) throw new ProviderError(t('Connection closed before the response finished.'))
+
+      const envelope = next.value
+      if (envelope.type === 'error') {
+        throw new ProviderError(envelope.error.message || t('WebSocket connection failed.'))
+      }
+      if (envelope.type === 'close') {
+        throw new ProviderError(
+          t('WebSocket connection closed: {reason}', { reason: envelope.reason || String(envelope.code) }),
+        )
+      }
+      if (envelope.type !== 'message') continue
+
+      const event = envelope.message as ResponsesServerEvent & ResponsesStreamEvent & { stream_id?: string; status?: number }
+      if (event.type === 'error') {
+        const code = 'code' in (event.error ?? {}) ? String((event.error as { code?: string }).code || '') : undefined
+        throw new ProviderError(
+          t('Error from the provider: {message}', { message: event.error?.message ?? event.message ?? JSON.stringify(event) }),
+          event.status,
+          code,
+        )
+      }
+      if (event.type === 'response.created') {
+        responseId = String(event.response?.id || responseId)
+        continue
+      }
+      if (event.type === 'response.output_text.delta' || event.type === 'response.refusal.delta') {
+        emitText(String(event.delta ?? ''))
+        if (loopAt >= 0) {
+          abort()
+          return {
+            responseId,
+            completion: { text: text.slice(0, loopAt), toolCalls: [], usage, finishReason: 'repetition' },
+          }
+        }
+        continue
+      }
+      if (event.type === 'response.output_item.added' && event.item?.type === 'function_call') {
+        const index = Number(event.output_index ?? calls.size)
+        calls.set(index, {
+          id: String(event.item.call_id || event.item.id || `call_${index}`),
+          name: String(event.item.name || ''),
+          arguments: String(event.item.arguments || ''),
+        })
+        continue
+      }
+      if (event.type === 'response.function_call_arguments.delta') {
+        const index = Number(event.output_index ?? 0)
+        const call = calls.get(index)
+        if (call) call.arguments += String(event.delta || '')
+        continue
+      }
+      if (event.type === 'response.output_item.done' && event.item?.type === 'function_call') {
+        const index = Number(event.output_index ?? 0)
+        const current = calls.get(index)
+        calls.set(index, {
+          id: String(event.item.call_id || current?.id || event.item.id || `call_${index}`),
+          name: String(event.item.name || current?.name || ''),
+          arguments: String(event.item.arguments ?? current?.arguments ?? ''),
+        })
+        continue
+      }
+      if (event.type === 'response.failed') {
+        throw new ProviderError(
+          t('Error from the provider: {message}', { message: event.response?.error?.message ?? 'Response failed' }),
+        )
+      }
+      if (event.type === 'response.completed' || event.type === 'response.incomplete') {
+        responseId = String(event.response?.id || responseId)
+        usage = toResponsesUsage(event.response?.usage)
+        finishReason =
+          event.type === 'response.incomplete'
+            ? String(event.response?.incomplete_details?.reason || 'incomplete')
+            : calls.size
+              ? 'tool_calls'
+              : 'stop'
+        return {
+          responseId,
+          completion: {
+            text,
+            toolCalls: [...calls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call),
+            usage,
+            finishReason,
+          },
+        }
+      }
+    }
+  } finally {
+    signal?.removeEventListener('abort', abort)
+  }
+}
+
+export function createProvider(options: ProviderOptions): Provider {
+  const { baseURL, apiKey, model, providerId, fetch: fetchOverride, retryDelayMs = 1000 } = options
+  const doFetch = fetchOverride ?? fetch
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (apiKey) headers.authorization = `Bearer ${apiKey}`
   // ACCESS-CONTROL CONTRACT: BotConnector Cloud uses these headers to distinguish BCCLI
@@ -433,6 +625,99 @@ export function createProvider({ baseURL, apiKey, model, providerId, fetch: doFe
     headers['x-botconnector-client-version'] = '0.4.0'
   }
   const useNativeResponses = isBotConnectorCloud && providerId === 'bc-cloud' && model === 'gpt-6-luna'
+  const useResponsesWebSocket = useNativeResponses && fetchOverride === undefined && Boolean(apiKey)
+
+  let lunaWs: ResponsesWS | undefined
+  let lunaWsEvents: AsyncIterableIterator<ResponsesStreamMessage> | undefined
+  let lunaContinuation: LunaWsContinuation | undefined
+
+  const resetLunaWebSocket = () => {
+    const current = lunaWs
+    lunaWs = undefined
+    lunaWsEvents = undefined
+    lunaContinuation = undefined
+    if (current) {
+      try {
+        current.close({ code: 1000, reason: 'BCCLI reset' })
+      } catch {}
+    }
+  }
+
+  const ensureLunaWebSocket = (): { ws: ResponsesWS; events: AsyncIterableIterator<ResponsesStreamMessage> } => {
+    if (!lunaWs || !lunaWsEvents) {
+      const client = new OpenAI({
+        apiKey: apiKey!,
+        baseURL: baseURL.replace(/\/+$/, ''),
+        defaultHeaders: {
+          'x-botconnector-client': 'bccli',
+          'x-botconnector-client-version': '0.4.0',
+        },
+      })
+      lunaWs = new ResponsesWS(client, { reconnect: null })
+      lunaWsEvents = lunaWs.stream({ maxBufferedEvents: 4096 })
+    }
+    return { ws: lunaWs, events: lunaWsEvents }
+  }
+
+  async function chatLunaWebSocket(
+    messages: ChatMessage[],
+    tools: ToolDefinition[] | undefined,
+    reasoning: ReasoningLevel,
+    signal: AbortSignal | undefined,
+    onText: ((delta: string) => void) | undefined,
+  ): Promise<Completion> {
+    const nativeTools = responseTools(tools)
+    const initialPlan = responseContinuationInput(messages, lunaContinuation)
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (signal?.aborted) throw signal.reason ?? new Error('Request aborted')
+      const plan =
+        attempt === 0
+          ? initialPlan
+          : { input: responseInputFromMessages(messages), incremental: false as const, previousResponseId: undefined }
+      const { ws, events } = ensureLunaWebSocket()
+      const createEvent = {
+        type: 'response.create',
+        stream_id: 'main',
+        model,
+        store: false,
+        input: plan.input,
+        ...(plan.previousResponseId ? { previous_response_id: plan.previousResponseId } : {}),
+        ...(nativeTools.length ? { tools: nativeTools } : {}),
+        ...responseReasoning(reasoning),
+      } as unknown as ResponsesClientEvent
+
+      try {
+        ws.send(createEvent)
+        const result = await readResponsesWebSocketTurn(events, ws, onText, signal)
+        if (result.completion.finishReason === 'repetition') {
+          resetLunaWebSocket()
+          return result.completion
+        }
+        if (!result.responseId) {
+          resetLunaWebSocket()
+          return result.completion
+        }
+        lunaContinuation = {
+          responseId: result.responseId,
+          requestMessages: cloneMessages(messages),
+          completion: structuredClone(result.completion),
+        }
+        return result.completion
+      } catch (error) {
+        const err = error instanceof ProviderError ? error : new ProviderError((error as Error).message)
+        const lostPrevious = err.code === 'previous_response_not_found'
+        const connectionLost =
+          /websocket|connection closed|socket|network/i.test(err.message) ||
+          err.code === 'websocket_connection_limit_reached'
+        resetLunaWebSocket()
+        if (attempt === 0 && !signal?.aborted && (plan.incremental || lostPrevious || connectionLost)) continue
+        throw err
+      }
+    }
+
+    throw new ProviderError(t('Request failed'))
+  }
 
   async function post(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
     let lastError: ProviderError | undefined
@@ -461,6 +746,10 @@ export function createProvider({ baseURL, apiKey, model, providerId, fetch: doFe
         reasoningOverride = reasoningPayload(providerId, reasoning)
       } catch (error) {
         throw new ProviderError((error as Error).message)
+      }
+
+      if (useResponsesWebSocket) {
+        return chatLunaWebSocket(messages, tools, reasoning, signal, onText)
       }
 
       if (useNativeResponses) {

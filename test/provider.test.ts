@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest'
-import { createProvider, ProviderError } from '../src/provider'
+import { createProvider, ProviderError, responseContinuationInput, type ChatMessage, type Completion } from '../src/provider'
 
 function sse(events: unknown[]): Response {
   const body = events.map((e) => `data: ${typeof e === 'string' ? e : JSON.stringify(e)}\n\n`).join('')
@@ -246,4 +246,88 @@ test('BotConnector non-Luna models remain on Chat Completions', async () => {
   expect((await p.chat({ messages: [{ role: 'user', content: 'hi' }] })).text).toBe('ok')
   const [url] = f.mock.calls[0] as unknown as [string, RequestInit]
   expect(url).toBe('https://api.botconnector.id/v1/chat/completions')
+})
+
+
+test('Responses WebSocket continuation sends only new tool output after the previous assistant response', () => {
+  const requestMessages: ChatMessage[] = [
+    { role: 'system', content: 'SYS' },
+    { role: 'user', content: 'read a.txt' },
+  ]
+  const completion: Completion = {
+    text: '',
+    toolCalls: [{ id: 'call_1', name: 'read', arguments: '{"path":"a.txt"}' }],
+    finishReason: 'tool_calls',
+  }
+  const current: ChatMessage[] = [
+    ...requestMessages,
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'read', arguments: '{"path":"a.txt"}' } }],
+    },
+    { role: 'tool', tool_call_id: 'call_1', content: 'hello' },
+  ]
+
+  expect(
+    responseContinuationInput(current, {
+      responseId: 'resp_1',
+      requestMessages,
+      completion,
+    }),
+  ).toEqual({
+    previousResponseId: 'resp_1',
+    incremental: true,
+    input: [{ type: 'function_call_output', call_id: 'call_1', output: 'hello' }],
+  })
+})
+
+test('Responses WebSocket continuation sends only the next user message after a completed answer', () => {
+  const requestMessages: ChatMessage[] = [
+    { role: 'system', content: 'SYS' },
+    { role: 'user', content: 'first' },
+  ]
+  const completion: Completion = { text: 'FIRST_OK', toolCalls: [], finishReason: 'stop' }
+  const current: ChatMessage[] = [
+    ...requestMessages,
+    { role: 'assistant', content: 'FIRST_OK' },
+    { role: 'user', content: 'second' },
+  ]
+
+  const plan = responseContinuationInput(current, {
+    responseId: 'resp_2',
+    requestMessages,
+    completion,
+  })
+  expect(plan.previousResponseId).toBe('resp_2')
+  expect(plan.incremental).toBe(true)
+  expect(plan.input).toEqual([{ role: 'user', content: 'second' }])
+})
+
+test('Responses WebSocket continuation replays full context when local history diverges', () => {
+  const requestMessages: ChatMessage[] = [
+    { role: 'system', content: 'SYS' },
+    { role: 'user', content: 'first' },
+  ]
+  const completion: Completion = { text: 'FIRST_OK', toolCalls: [], finishReason: 'stop' }
+  const current: ChatMessage[] = [
+    { role: 'system', content: 'CHANGED SYS' },
+    { role: 'user', content: 'first' },
+    { role: 'assistant', content: 'FIRST_OK' },
+    { role: 'user', content: 'second' },
+  ]
+
+  const plan = responseContinuationInput(current, {
+    responseId: 'resp_old',
+    requestMessages,
+    completion,
+  })
+  expect(plan.previousResponseId).toBeUndefined()
+  expect(plan.incremental).toBe(false)
+  expect(plan.input).toEqual([
+    { role: 'system', content: 'CHANGED SYS' },
+    { role: 'user', content: 'first' },
+    { role: 'assistant', content: 'FIRST_OK' },
+    { role: 'user', content: 'second' },
+  ])
 })
