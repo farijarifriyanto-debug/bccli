@@ -1,5 +1,5 @@
 import type { PermissionRequest, Permissions } from './permissions'
-import type { ChatMessage, Provider, ToolCall, Usage } from './provider'
+import { completionAssistantMessage, hasPendingProgrammaticReplay, type ChatMessage, type Provider, type ToolCall, type Usage } from './provider'
 import type { ReasoningLevel } from './reasoning'
 import { recoverTextToolCalls } from './textToolCalls'
 import { type ToolDefinition, toolDefinitions } from './tools/index'
@@ -146,10 +146,10 @@ export class Agent {
     this.opts.onTurnStart?.()
     this.webBudget.startTurn()
     try {
-      if (this.lastInputTokens > this.contextWindow * 0.8) await this.compact(signal)
+      if (this.lastInputTokens > this.contextWindow * 0.8 && !hasPendingProgrammaticReplay(this.messages)) await this.compact(signal)
       this.push({ role: 'user', content: text })
       for (let step = 0; step < this.maxSteps; step++) {
-        if (step > 0 && this.lastInputTokens > this.contextWindow * 0.8) {
+        if (step > 0 && this.lastInputTokens > this.contextWindow * 0.8 && !hasPendingProgrammaticReplay(this.messages)) {
           await this.compact(signal)
           // The summary ends with an assistant turn; restate the task so the model has something to answer.
           this.push({ role: 'user', content: `Continue this task using the summary above: ${text}` })
@@ -180,19 +180,7 @@ export class Agent {
         this.totalUsage.outputTokens += usage.outputTokens
         this.lastInputTokens = usage.inputTokens
         this.onEvent({ type: 'usage', ...this.totalUsage })
-        this.push({
-          role: 'assistant',
-          content: completion.text || null,
-          ...(completion.toolCalls.length
-            ? {
-                tool_calls: completion.toolCalls.map((c) => ({
-                  id: c.id,
-                  type: 'function' as const,
-                  function: { name: c.name, arguments: c.arguments },
-                })),
-              }
-            : {}),
-        })
+        this.push(completionAssistantMessage(completion))
         if (completion.finishReason === 'repetition') {
           this.onEvent({ type: 'textReplace', text: completion.text })
           this.onEvent({
@@ -202,6 +190,7 @@ export class Agent {
           return
         }
         if (!completion.toolCalls.length) {
+          if (completion.finishReason === 'continue') continue
           this.onEvent({ type: 'done' })
           return
         }
@@ -209,7 +198,13 @@ export class Agent {
         let i = 0
         while (i < calls.length) {
           if (signal.aborted) {
-            for (const pending of calls.slice(i)) this.push({ role: 'tool', tool_call_id: pending.id, content: 'Cancelled by the user.' })
+            for (const pending of calls.slice(i))
+              this.push({
+                role: 'tool',
+                tool_call_id: pending.id,
+                content: 'Cancelled by the user.',
+                ...(pending.caller ? { responses_caller: pending.caller } : {}),
+              })
             this.onEvent({ type: 'aborted' })
             return
           }
@@ -219,7 +214,12 @@ export class Agent {
           const batch = calls.slice(i, j)
           const results = await Promise.all(batch.map((c) => this.runTool(c, signal)))
           batch.forEach((c, k) => {
-            this.push({ role: 'tool', tool_call_id: c.id, content: results[k] })
+            this.push({
+              role: 'tool',
+              tool_call_id: c.id,
+              content: results[k],
+              ...(c.caller ? { responses_caller: c.caller } : {}),
+            })
           })
           i = j
         }
