@@ -7,7 +7,7 @@ import { writeFileSync } from 'node:fs'
 if (process.env.PIDFILE) writeFileSync(process.env.PIDFILE, String(process.pid))
 
 const server = new McpServer({ name: 'echo', version: '1.0.0' })
-server.registerTool('echo', { description: 'Echo text back', inputSchema: { text: z.string() } }, async ({ text }) => ({
+server.registerTool('echo', { description: 'Echo text back', inputSchema: { text: z.string() }, annotations: { readOnlyHint: true } }, async ({ text }) => ({
   content: [{ type: 'text', text: `echo: ${text}` }],
 }))
 server.registerTool('fail', { description: 'Always fails' }, async () => ({ content: [{ type: 'text', text: 'boom' }], isError: true }))

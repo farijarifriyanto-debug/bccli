@@ -16,6 +16,8 @@ test('connects a stdio server and exposes its tools with sanitized unique names'
   expect(names).toEqual(['mcp__echo__echo', 'mcp__echo__fail', 'mcp__echo__weird_name_with_spaces'])
   const echo = manager.tools()[0]
   expect(echo.kind).toBe('mcp')
+  expect(echo.programmaticSafe).toBe(true)
+  expect(manager.tools()[1].programmaticSafe).toBe(false)
   expect(toolDefinitions([echo])[0].function.parameters).toMatchObject({ type: 'object', properties: { text: { type: 'string' } } })
   expect((await echo.run({ text: 'hi' }, ctx)).output).toBe('echo: hi')
   const huge = await echo.run({ text: 'x'.repeat(40_000) }, ctx)

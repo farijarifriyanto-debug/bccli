@@ -161,6 +161,34 @@ test('Luna cost-aware PTC gate ignores large unsafe tool output and honors kill 
   expect(shouldEnableLunaPtc([{ role: 'user', content: 'Compare all files.' }], false)).toBe(false)
 })
 
+test('Luna PTC allows only explicitly read-only MCP tools', () => {
+  const readOnly = 'mcp__echo__echo'
+  const writeLike = 'mcp__echo__mutate'
+  const plan = lunaToolPlan(
+    [toolDef(readOnly), toolDef(writeLike), toolDef('read')],
+    true,
+    [readOnly],
+  )
+  expect(plan.tools.find((tool) => tool.name === readOnly)?.allowed_callers).toEqual(['direct', 'programmatic'])
+  expect(plan.tools.find((tool) => tool.name === writeLike)?.allowed_callers).toBeUndefined()
+  expect(plan.tools.find((tool) => tool.name === 'read')?.allowed_callers).toEqual(['direct', 'programmatic'])
+})
+
+test('Luna PTC large-output gate accepts explicitly read-only MCP output', () => {
+  const mcp = 'mcp__echo__echo'
+  const messages: ChatMessage[] = [
+    { role: 'user', content: 'Inspect this source.' },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'mcp_1', type: 'function', function: { name: mcp, arguments: '{}' } }],
+    },
+    { role: 'tool', tool_call_id: 'mcp_1', content: 'x'.repeat(8_000) },
+  ]
+  expect(shouldEnableLunaPtc(messages, true, [mcp])).toBe(true)
+  expect(shouldEnableLunaPtc(messages, true, [])).toBe(false)
+})
+
 test('Luna PTC canary exposes only read/grep/glob to programs', () => {
   const plan = lunaToolPlan(
     [toolDef('read'), toolDef('grep'), toolDef('glob'), toolDef('bash'), toolDef('write'), toolDef('mcp__crm__lookup')],

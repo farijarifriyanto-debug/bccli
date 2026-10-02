@@ -40,6 +40,8 @@ export interface Tool<S extends z.ZodType = z.ZodType> {
   validate?(input: z.infer<S>, ctx: ToolContext): Promise<string | undefined>
   /** Consecutive calls whose tool returns true here run concurrently. */
   parallelSafe?(input: z.infer<S>): boolean
+  /** Internal safety metadata: safe to call from a bounded read-only PTC program. */
+  programmaticSafe?: boolean
   run(input: z.infer<S>, ctx: ToolContext): Promise<ToolResult>
 }
 
