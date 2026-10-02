@@ -215,6 +215,7 @@ test('BotConnector GPT-6 Luna uses native Responses with typed tool items', asyn
     stream: true,
     store: false,
     reasoning: { effort: 'high' },
+    context_management: [{ type: 'compaction', compact_threshold: 240_000 }],
   })
   expect(body.input).toEqual([
     { role: 'system', content: 'SYS' },
@@ -249,6 +250,68 @@ test('BotConnector non-Luna models remain on Chat Completions', async () => {
 })
 
 
+
+test('Luna Responses WebSocket sends automatic compaction context management', async () => {
+  type WsFactory = NonNullable<Parameters<typeof createProvider>[0]['responsesWebSocketFactory']>
+  const sent: unknown[] = []
+  const envelopes = [
+    {
+      done: false,
+      value: {
+        type: 'message',
+        message: { type: 'response.created', response: { id: 'resp_ws_compact' } },
+      },
+    },
+    {
+      done: false,
+      value: {
+        type: 'message',
+        message: {
+          type: 'response.completed',
+          response: { id: 'resp_ws_compact', usage: { input_tokens: 10, output_tokens: 2 } },
+        },
+      },
+    },
+  ]
+  const wsFactory = vi.fn(
+    () =>
+      ({
+        send(event: unknown) {
+          sent.push(event)
+        },
+        stream() {
+          let index = 0
+          return {
+            async next() {
+              return envelopes[index++] ?? { done: true, value: undefined }
+            },
+            [Symbol.asyncIterator]() {
+              return this
+            },
+          }
+        },
+        close() {},
+      }) as unknown as ReturnType<WsFactory>,
+  )
+  const p = createProvider({
+    baseURL: 'https://api.botconnector.id/v1',
+    apiKey: 'bc_live_test_key',
+    model: 'gpt-6-luna',
+    providerId: 'bc-cloud',
+    fetch: vi.fn(),
+    responsesWebSocketFactory: wsFactory,
+  })
+
+  await p.chat({ messages: [{ role: 'user', content: 'hi' }] })
+
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toMatchObject({
+    type: 'response.create',
+    model: 'gpt-6-luna',
+    store: false,
+    context_management: [{ type: 'compaction', compact_threshold: 240_000 }],
+  })
+})
 
 test('Luna Responses WebSocket falls back to HTTP SSE when the socket fails before output', async () => {
   type WsFactory = NonNullable<Parameters<typeof createProvider>[0]['responsesWebSocketFactory']>
@@ -299,7 +362,11 @@ test('Luna Responses WebSocket falls back to HTTP SSE when the socket fails befo
   expect(deltas).toEqual(['FALLBACK_OK'])
   expect(wsFactory).toHaveBeenCalledTimes(2)
   expect(f).toHaveBeenCalledTimes(1)
-  expect((f.mock.calls[0] as unknown as [string, RequestInit])[0]).toBe('https://api.botconnector.id/v1/responses')
+  const [fallbackUrl, fallbackInit] = f.mock.calls[0] as unknown as [string, RequestInit]
+  expect(fallbackUrl).toBe('https://api.botconnector.id/v1/responses')
+  expect(JSON.parse(String(fallbackInit.body))).toMatchObject({
+    context_management: [{ type: 'compaction', compact_threshold: 240_000 }],
+  })
 })
 
 test('Luna Responses WebSocket does not replay through HTTP after partial text was emitted', async () => {
