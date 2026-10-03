@@ -62,3 +62,23 @@ test('tool definitions are JSON schema without $schema', () => {
   expect(read.required).toEqual(['path'])
   expect(read.$schema).toBeUndefined()
 })
+
+test('glob rejects pathological brace nesting before fast-glob', async () => {
+  const pattern = `${'{'.repeat(17)}a${'}'.repeat(17)}`
+  const r = await globTool.run({ pattern }, ctx)
+  expect(r.isError).toBe(true)
+  expect(r.output).toMatch(/brace nesting is too deep/)
+})
+
+test('grep rejects pathological glob nesting before fast-glob fallback', async () => {
+  const glob = `${'{'.repeat(17)}*.ts${'}'.repeat(17)}`
+  const r = await grepTool.run({ pattern: 'Needle', glob }, ctx)
+  expect(r.isError).toBe(true)
+  expect(r.output).toMatch(/brace nesting is too deep/)
+})
+
+test('glob rejects oversized patterns before fast-glob', async () => {
+  const r = await globTool.run({ pattern: 'a'.repeat(4097) }, ctx)
+  expect(r.isError).toBe(true)
+  expect(r.output).toMatch(/too long/)
+})

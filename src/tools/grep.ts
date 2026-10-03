@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import fg from 'fast-glob'
 import { z } from 'zod'
 import { ignorePatterns } from './ignore'
+import { validateGlobPattern } from './globSafety'
 import { resolvePath } from './paths'
 import { defineTool } from './types'
 import { t } from '../i18n'
@@ -59,6 +60,10 @@ export const grepTool = defineTool({
   kind: 'read',
   target: (input) => input.pattern,
   async run(input, ctx) {
+    if (input.glob) {
+      const invalid = validateGlobPattern(input.glob)
+      if (invalid) return { output: invalid, isError: true }
+    }
     const opts = { root: resolvePath(ctx.cwd, input.path ?? '.'), glob: input.glob, ignoreCase: input.ignore_case }
     try {
       new RegExp(input.pattern)
