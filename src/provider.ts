@@ -331,6 +331,19 @@ const LUNA_PTC_TOOL_OUTPUT_TRIGGER_CHARS = 8_000
 const LUNA_PTC_MULTI_WORK_CUE =
   /\b(both|all|multiple|several|compare|comparison|aggregate|aggregation|total|count|sum|average|filter|join|merge|dedupe|deduplicate|rank|scan|across|every|semua|keduanya|beberapa|bandingkan|perbandingan|agregasi|hitung|jumlah|rata[- ]?rata|gabung|deduplikasi|urutkan|pindai|seluruh)\b|\b(many|banyak)\s+(files?|file|records?|rows?|items?|dokumen|berkas)\b/i
 
+const LUNA_PTC_FORCE_CUE =
+  /\b(count|sum|total|average|aggregate|aggregation|filter|join|merge|dedupe|deduplicate|hitung|jumlah|rata[- ]?rata|agregasi|gabung|deduplikasi)\b/i
+
+export function shouldForceLunaPtc(messages: ChatMessage[], enabled: boolean): boolean {
+  if (!enabled) return false
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message.role === 'assistant' && message.responses_output_items?.some((item) => item.type === 'program')) return true
+    if (message.role === 'user') return LUNA_PTC_FORCE_CUE.test(message.content)
+  }
+  return false
+}
+
 /**
  * Cost-aware PTC gate for Luna.
  * Beta.24 proved PTC is excellent for large read-heavy aggregation but expensive for one tiny read.
@@ -380,7 +393,7 @@ export interface LunaToolPlan {
   deferredSchemaChars: number
 }
 
-export function lunaToolPlan(tools?: ToolDefinition[], enableProgrammaticToolCalling = false, programmaticToolNames: string[] = []): LunaToolPlan {
+export function lunaToolPlan(tools?: ToolDefinition[], enableProgrammaticToolCalling = false, programmaticToolNames: string[] = [], forceProgrammaticOnly = false): LunaToolPlan {
   const native: Record<string, unknown>[] = (tools ?? []).map((tool) => ({
     type: 'function',
     name: tool.function.name,
@@ -400,7 +413,7 @@ export function lunaToolPlan(tools?: ToolDefinition[], enableProgrammaticToolCal
   if (enableProgrammaticToolCalling) {
     for (let index = 0; index < native.length; index++) {
       if (safeToolNames.has(String(native[index].name))) {
-        native[index] = { ...native[index], allowed_callers: ['direct', 'programmatic'] }
+        native[index] = { ...native[index], allowed_callers: forceProgrammaticOnly ? ['programmatic'] : ['direct', 'programmatic'] }
         programmaticToolCount++
       }
     }
@@ -436,8 +449,9 @@ function responseTools(
   tools: ToolDefinition[] | undefined,
   enableProgrammaticToolCalling = false,
   programmaticToolNames: string[] = [],
+  forceProgrammaticOnly = false,
 ): Record<string, unknown>[] {
-  return lunaToolPlan(tools, enableProgrammaticToolCalling, programmaticToolNames).tools
+  return lunaToolPlan(tools, enableProgrammaticToolCalling, programmaticToolNames, forceProgrammaticOnly).tools
 }
 
 function responseReasoning(level: ReasoningLevel): Record<string, unknown> {
@@ -906,7 +920,8 @@ export function createProvider(options: ProviderOptions): Provider {
     onText: ((delta: string) => void) | undefined,
   ): Promise<Completion> {
     const ptcEnabled = shouldEnableLunaPtc(messages, enableProgrammaticToolCalling, programmaticToolNames)
-    const nativeTools = responseTools(tools, ptcEnabled, programmaticToolNames)
+    const forcePtc = shouldForceLunaPtc(messages, ptcEnabled)
+    const nativeTools = responseTools(tools, ptcEnabled, programmaticToolNames, forcePtc)
     const initialPlan = responseContinuationInput(messages, lunaContinuation)
 
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -1017,7 +1032,8 @@ export function createProvider(options: ProviderOptions): Provider {
 
       if (useNativeResponses) {
         const ptcEnabled = shouldEnableLunaPtc(messages, enableProgrammaticToolCalling, programmaticToolNames)
-        const nativeTools = responseTools(tools, ptcEnabled, programmaticToolNames)
+        const forcePtc = shouldForceLunaPtc(messages, ptcEnabled)
+        const nativeTools = responseTools(tools, ptcEnabled, programmaticToolNames, forcePtc)
         const res = await post(
           '/responses',
           {
