@@ -1,7 +1,7 @@
 import { glob as nativeGlob } from 'node:fs/promises'
 import { z } from 'zod'
 import { ignorePatterns } from './ignore'
-import { validateGlobPattern } from './globSafety'
+import { normalizeGlobPath, validateGlobPattern } from './globSafety'
 import { resolvePath } from './paths'
 import { defineTool } from './types'
 
@@ -22,7 +22,7 @@ export const globTool = defineTool({
     const root = resolvePath(ctx.cwd, input.path ?? '.')
     const files: string[] = []
     for await (const file of nativeGlob(input.pattern, { cwd: root, exclude: ignorePatterns(root) })) {
-      files.push(file)
+      files.push(normalizeGlobPath(file))
     }
     files.sort()
     if (!files.length) return { output: 'No matching files.' }

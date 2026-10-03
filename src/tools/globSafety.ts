@@ -28,3 +28,8 @@ export function validateGlobPattern(pattern: string): string | undefined {
   }
   return undefined
 }
+
+/** Keep tool/UI path output stable across Windows and POSIX. */
+export function normalizeGlobPath(path: string): string {
+  return path.replaceAll('\\', '/')
+}

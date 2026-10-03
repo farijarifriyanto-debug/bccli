@@ -2,7 +2,7 @@ import { globSync } from 'node:fs'
 import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { ignorePatterns } from '../tools/ignore'
-import { validateGlobPattern } from '../tools/globSafety'
+import { normalizeGlobPath, validateGlobPattern } from '../tools/globSafety'
 
 export function completeFile(value: string, cwd: string): string {
   const match = /(^|\s)@([^\s]*)$/.exec(value)
@@ -13,10 +13,11 @@ export function completeFile(value: string, cwd: string): string {
   if (validateGlobPattern(pattern)) return value
   const found = globSync(pattern, { cwd, exclude: ignorePatterns(cwd) })
     .map((entry) => {
+      const normalized = normalizeGlobPath(entry)
       try {
-        return statSync(join(cwd, entry)).isDirectory() ? `${entry}/` : entry
+        return statSync(join(cwd, entry)).isDirectory() ? `${normalized}/` : normalized
       } catch {
-        return entry
+        return normalized
       }
     })
     .sort()
