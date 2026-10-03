@@ -45,5 +45,16 @@
   },
   "overrides": {
     "esbuild": "0.28.2"
-  }
+  },
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "keywords": [],
+  "author": "",
+  "bugs": {
+    "url": "https://github.com/farijarifriyanto-debug/bccli/issues"
+  },
+  "homepage": "https://github.com/farijarifriyanto-debug/bccli#readme"
 }

@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { glob as nativeGlob } from 'node:fs/promises'
 import { z } from 'zod'
 import { ignorePatterns } from './ignore'
-import { validateGlobPattern } from './globSafety'
+import { normalizeGlobPath, validateGlobPattern } from './globSafety'
 import { resolvePath } from './paths'
 import { defineTool } from './types'
 import { t } from '../i18n'
@@ -15,7 +15,7 @@ export async function grepJs(pattern: string, opts: { root: string; glob?: strin
   const regex = new RegExp(pattern, opts.ignoreCase ? 'i' : '')
   const files: string[] = []
   for await (const file of nativeGlob(opts.glob ?? '**/*', { cwd: opts.root, exclude: ignorePatterns(opts.root) })) {
-    files.push(file)
+    files.push(normalizeGlobPath(file))
   }
   const out: string[] = []
   for (const file of files.sort()) {
