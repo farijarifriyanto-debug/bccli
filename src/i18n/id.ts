@@ -270,6 +270,7 @@ Opsi:
   '✻ Thinking (ctrl+t to hide)': '✻ Berpikir (ctrl+t tutup)',
   '  ⏳ queued: {q}': '  ⏳ antri: {q}',
   'Thinking': 'Berpikir',
+  'Cancelling': 'Membatalkan',
   'Language: {lang}. Change it with /language en or /language id.': 'Bahasa: {lang}. Ganti dengan /language en atau /language id.',
   'Unknown language "{lang}". Use en or id.': 'Bahasa "{lang}" tidak dikenal. Pakai en atau id.',
   'Could not save the language: {error}': 'Gagal menyimpan bahasa: {error}',
