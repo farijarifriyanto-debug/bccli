@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { glob as nativeGlob } from 'node:fs/promises'
 import { z } from 'zod'
+import { collectUntilAbort } from '../abort'
 import { ignorePatterns } from './ignore'
 import { normalizeGlobPath, validateGlobPattern } from './globSafety'
 import { resolvePath } from './paths'
@@ -11,14 +12,16 @@ import { t } from '../i18n'
 const MAX_MATCHES = 200
 const MAX_OUTPUT_CHARS = 24_000
 
-export async function grepJs(pattern: string, opts: { root: string; glob?: string; ignoreCase?: boolean }): Promise<string[]> {
+export async function grepJs(pattern: string, opts: { root: string; glob?: string; ignoreCase?: boolean; signal?: AbortSignal }): Promise<string[]> {
   const regex = new RegExp(pattern, opts.ignoreCase ? 'i' : '')
   const files: string[] = []
-  for await (const file of nativeGlob(opts.glob ?? '**/*', { cwd: opts.root, exclude: ignorePatterns(opts.root) })) {
-    files.push(normalizeGlobPath(file))
-  }
+  const finished = await collectUntilAbort(nativeGlob(opts.glob ?? '**/*', { cwd: opts.root, exclude: ignorePatterns(opts.root) }), opts.signal, (file) =>
+    files.push(normalizeGlobPath(file)),
+  )
   const out: string[] = []
+  if (!finished) return out
   for (const file of files.sort()) {
+    if (opts.signal?.aborted) break
     let text: string
     try {
       const buffer = await readFile(resolvePath(opts.root, file))
@@ -36,13 +39,14 @@ export async function grepJs(pattern: string, opts: { root: string; glob?: strin
   return out
 }
 
-function grepRg(pattern: string, opts: { root: string; glob?: string; ignoreCase?: boolean }): Promise<string[] | undefined> {
+function grepRg(pattern: string, opts: { root: string; glob?: string; ignoreCase?: boolean; signal?: AbortSignal }): Promise<string[] | undefined> {
   const args = ['--line-number', '--no-heading', '--color', 'never', '--max-columns', '300', '-e', pattern]
   if (opts.ignoreCase) args.push('-i')
   if (opts.glob) args.push('-g', opts.glob)
   args.push('.')
   return new Promise((resolve) => {
-    execFile('rg', args, { cwd: opts.root, maxBuffer: 10 * 1024 * 1024 }, (error, stdout) => {
+    execFile('rg', args, { cwd: opts.root, maxBuffer: 10 * 1024 * 1024, signal: opts.signal }, (error, stdout) => {
+      if (opts.signal?.aborted) return resolve([]) // the child was killed; do not fall back to the slow JS search
       const code = (error as NodeJS.ErrnoException | null)?.code
       if (code === 'ENOENT') return resolve(undefined)
       if (error && (error as { code?: unknown }).code !== 1) return resolve(undefined)
@@ -67,13 +71,14 @@ export const grepTool = defineTool({
       const invalid = validateGlobPattern(input.glob)
       if (invalid) return { output: invalid, isError: true }
     }
-    const opts = { root: resolvePath(ctx.cwd, input.path ?? '.'), glob: input.glob, ignoreCase: input.ignore_case }
+    const opts = { root: resolvePath(ctx.cwd, input.path ?? '.'), glob: input.glob, ignoreCase: input.ignore_case, signal: ctx.signal }
     try {
       new RegExp(input.pattern)
     } catch (error) {
       return { output: `Invalid regex: ${(error as Error).message}`, isError: true }
     }
     const matches = (await grepRg(input.pattern, opts)) ?? (await grepJs(input.pattern, opts))
+    if (ctx.signal.aborted) return { output: 'Cancelled by the user.', isError: true }
     if (!matches.length) return { output: 'No matches.' }
     const shown: string[] = []
     let size = 0

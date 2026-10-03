@@ -5,6 +5,7 @@ import { recoverTextToolCalls } from './textToolCalls'
 import { type ToolDefinition, toolDefinitions } from './tools/index'
 import type { Tool, ToolContext } from './tools/types'
 import { pruneOldFetches, WebBudget } from './webBudget'
+import { ABORTED, raceAbort } from './abort'
 import { t } from './i18n'
 
 export type AgentEvent =
@@ -44,6 +45,12 @@ export interface AgentOptions {
   reasoning?: ReasoningLevel
 }
 
+interface Ticket {
+  abandoned: boolean
+  open: boolean
+}
+
+const CANCELLED = 'Cancelled by the user.'
 const estimateTokens = (text: string) => Math.ceil(text.length / 4)
 
 const COMPACT_PROMPT =
@@ -140,6 +147,17 @@ export class Agent {
     this.onEvent({ type: 'compacted' })
   }
 
+  /**
+   * Events of one tool execution. A cancelled turn gives up on a tool that does not stop, and whatever that tool
+   * reports later must not reach the screen or a newer turn, so this is per execution and not per call id (ids repeat).
+   */
+  private report(ticket: Ticket, event: AgentEvent): void {
+    if (ticket.abandoned) return
+    if (event.type === 'toolStart') ticket.open = true
+    if (event.type === 'toolEnd') ticket.open = false
+    this.onEvent(event)
+  }
+
   async run(text: string, signal: AbortSignal): Promise<void> {
     this.turnTools = this.tools
     this.turnDefinitions = this.definitions
@@ -199,13 +217,7 @@ export class Agent {
         let i = 0
         while (i < calls.length) {
           if (signal.aborted) {
-            for (const pending of calls.slice(i))
-              this.push({
-                role: 'tool',
-                tool_call_id: pending.id,
-                content: 'Cancelled by the user.',
-                ...(pending.caller ? { responses_caller: pending.caller } : {}),
-              })
+            this.cancelCalls(calls.slice(i))
             this.onEvent({ type: 'aborted' })
             return
           }
@@ -213,12 +225,26 @@ export class Agent {
           let j = i + 1
           if (this.isParallelSafe(calls[i])) while (j < calls.length && this.isParallelSafe(calls[j])) j++
           const batch = calls.slice(i, j)
-          const results = await Promise.all(batch.map((c) => this.runTool(c, signal)))
+          const tickets = batch.map((): Ticket => ({ abandoned: false, open: false }))
+          const running = Promise.all(batch.map((c, k) => this.runTool(c, signal, tickets[k])))
+          // Esc must work even when a tool (a big search, an MCP server, a subagent) does not watch the signal.
+          const outcome = await raceAbort(running, signal)
+          if (outcome === ABORTED) {
+            batch.forEach((c, k) => {
+              const ticket = tickets[k]
+              ticket.abandoned = true
+              if (ticket.open) this.onEvent({ type: 'toolEnd', id: c.id, tool: c.name, output: CANCELLED, isError: true })
+            })
+            running.catch(() => {})
+            this.cancelCalls(calls.slice(i))
+            this.onEvent({ type: 'aborted' })
+            return
+          }
           batch.forEach((c, k) => {
             this.push({
               role: 'tool',
               tool_call_id: c.id,
-              content: results[k],
+              content: outcome[k],
               ...(c.caller ? { responses_caller: c.caller } : {}),
             })
           })
@@ -244,10 +270,22 @@ export class Agent {
     }
   }
 
-  private async runTool(call: ToolCall, signal: AbortSignal): Promise<string> {
+  /** Every tool call needs an answer in the history, or the next request to the model is rejected. */
+  private cancelCalls(calls: ToolCall[]): void {
+    for (const pending of calls)
+      this.push({
+        role: 'tool',
+        tool_call_id: pending.id,
+        content: CANCELLED,
+        ...(pending.caller ? { responses_caller: pending.caller } : {}),
+      })
+  }
+
+  private async runTool(call: ToolCall, signal: AbortSignal, ticket: Ticket): Promise<string> {
+    const emit = (event: AgentEvent) => this.report(ticket, event)
     const fail = (output: string, target = '') => {
-      this.onEvent({ type: 'toolStart', id: call.id, tool: call.name, target })
-      this.onEvent({ type: 'toolEnd', id: call.id, tool: call.name, output, isError: true })
+      emit({ type: 'toolStart', id: call.id, tool: call.name, target })
+      emit({ type: 'toolEnd', id: call.id, tool: call.name, output, isError: true })
       return output
     }
     const tool = this.turnTools.find((t) => t.name === call.name)
@@ -271,7 +309,7 @@ export class Agent {
       signal,
       readFiles: this.readFiles,
       callId: call.id,
-      emit: (event) => this.onEvent(event),
+      emit,
       ask: (req) => this.askPermission(req),
       checkpoint: this.opts.checkpoint,
       refundFetch: () => this.webBudget.refund(),
@@ -281,11 +319,11 @@ export class Agent {
         this.onEvent({ type: 'usage', ...this.totalUsage })
       },
     }
-    this.onEvent({ type: 'toolStart', id: call.id, tool: tool.name, target })
+    emit({ type: 'toolStart', id: call.id, tool: tool.name, target })
     // Don't ask the user to approve something that is going to fail anyway.
     const invalid = await tool.validate?.(input, ctx).catch((error: Error) => error.message)
     if (invalid) {
-      this.onEvent({ type: 'toolEnd', id: call.id, tool: tool.name, output: invalid, isError: true })
+      emit({ type: 'toolEnd', id: call.id, tool: tool.name, output: invalid, isError: true })
       return invalid
     }
     const request: PermissionRequest = { tool: tool.name, kind: tool.kind, target }
@@ -307,7 +345,7 @@ export class Agent {
         this.permissions.mode === 'plan'
           ? 'Denied: plan mode only allows reading and searching. Write the plan for the user without changing anything.'
           : 'The user declined to run this tool. Ask the user what they want, or try another approach.'
-      this.onEvent({ type: 'toolEnd', id: call.id, tool: tool.name, output, isError: true })
+      emit({ type: 'toolEnd', id: call.id, tool: tool.name, output, isError: true })
       return output
     }
     let result: { output: string; isError?: boolean; display?: string }
@@ -317,7 +355,7 @@ export class Agent {
       result = { output: `Error: ${(error as Error).message}`, isError: true }
     }
     if (tool.name === 'fetch' && !result.isError) this.webBudget.record(result.output.length)
-    this.onEvent({ type: 'toolEnd', id: call.id, tool: tool.name, output: result.output, display: result.display, isError: !!result.isError })
+    emit({ type: 'toolEnd', id: call.id, tool: tool.name, output: result.output, display: result.display, isError: !!result.isError })
     return result.output
   }
 }
