@@ -1,5 +1,6 @@
 import { glob as nativeGlob } from 'node:fs/promises'
 import { z } from 'zod'
+import { collectUntilAbort } from '../abort'
 import { ignorePatterns } from './ignore'
 import { normalizeGlobPath, validateGlobPattern } from './globSafety'
 import { resolvePath } from './paths'
@@ -21,9 +22,10 @@ export const globTool = defineTool({
     if (invalid) return { output: invalid, isError: true }
     const root = resolvePath(ctx.cwd, input.path ?? '.')
     const files: string[] = []
-    for await (const file of nativeGlob(input.pattern, { cwd: root, exclude: ignorePatterns(root) })) {
-      files.push(normalizeGlobPath(file))
-    }
+    const finished = await collectUntilAbort(nativeGlob(input.pattern, { cwd: root, exclude: ignorePatterns(root) }), ctx.signal, (file) =>
+      files.push(normalizeGlobPath(file)),
+    )
+    if (!finished) return { output: 'Cancelled by the user.', isError: true }
     files.sort()
     if (!files.length) return { output: 'No matching files.' }
     const first = files.slice(0, 500)

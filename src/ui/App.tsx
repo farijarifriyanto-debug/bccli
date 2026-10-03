@@ -67,6 +67,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const { exit } = useApp()
   const [transcript, setTranscript] = useState<Transcript>(() => ({ done: [entry({ kind: 'header' })], live: [] }))
   const [busy, setBusy] = useState(false)
+  const [cancelling, setCancelling] = useState(false) // Esc was pressed; shows that it registered while the turn winds down
   const [startedAt, setStartedAt] = useState(0)
   const [mode, setMode] = useState<PermissionMode>(runtime.agent.permissions.mode)
   const [reasoning, setReasoning] = useState<ReasoningLevel>(runtime.reasoning)
@@ -132,6 +133,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       controller.current = null
       setTranscript(endTurn)
       setBusy(false)
+      setCancelling(false)
     },
     [runtime],
   )
@@ -166,6 +168,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           }
           controller.current = null
           setBusy(false)
+          setCancelling(false)
           return
         }
         case 'reasoning': {
@@ -577,6 +580,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       setMode(next)
     } else if (key.escape && busy && !pending) {
       controller.current?.abort()
+      setCancelling(true)
       if (queued.length) {
         setQueued([])
         notice(t('{n} queued messages cancelled.', { n: queued.length }), 'warn')
@@ -743,7 +747,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       {transcript.live.map(renderEntry)}
       {busy && !pending && !planAsk ? (
         <Box marginTop={1}>
-          <Spinner label={t('Thinking')} startedAt={startedAt} />
+          <Spinner label={cancelling ? t('Cancelling') : t('Thinking')} startedAt={startedAt} />
         </Box>
       ) : null}
       {pending ? <PermissionPrompt key={pending.id} request={pending.request} onAnswer={answer} /> : null}
