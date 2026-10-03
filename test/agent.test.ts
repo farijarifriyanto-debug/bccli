@@ -300,6 +300,20 @@ test('compacts when the last prompt used most of the context window', async () =
   expect(provider.requests[2].messages[1]).toEqual({ role: 'user', content: expect.stringContaining('RINGKASAN') })
 })
 
+test('tracks cached and cache-write token usage from provider telemetry', async () => {
+  const { agent } = setup([{
+    ...reply('done'),
+    usage: { inputTokens: 100, outputTokens: 7, cachedInputTokens: 80, cacheWriteTokens: 5 },
+  }])
+  await agent.run('hi', new AbortController().signal)
+  expect(agent.totalUsage).toEqual({
+    inputTokens: 100,
+    outputTokens: 7,
+    cachedInputTokens: 80,
+    cacheWriteTokens: 5,
+  })
+})
+
 test('estimates usage when the provider sends none, so compaction still triggers', async () => {
   const { events, agent } = setup([reply('x'.repeat(400)), reply('RINGKASAN'), reply('after')])
   ;(agent as unknown as { contextWindow: number }).contextWindow = 100

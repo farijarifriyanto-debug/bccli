@@ -9,7 +9,7 @@ export interface StatusInput {
   mode: string
   cwd: string
   mcp: { name: string; status: string; error?: string; tools: number }[]
-  usage: { inputTokens: number; outputTokens: number }
+  usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheWriteTokens?: number }
   lastInputTokens: number
 }
 
@@ -23,6 +23,7 @@ export function statusText(s: StatusInput): string {
     t('Folder: {cwd}', { cwd: s.cwd }),
     t('MCP: {ready} active, {errors} errors', { ready, errors }),
     t('Session tokens: {input} in · {output} out', { input: k(s.usage.inputTokens), output: k(s.usage.outputTokens) }),
+    `Cache: ${k(s.usage.cachedInputTokens ?? 0)} read · ${k(s.usage.cacheWriteTokens ?? 0)} write`,
     t('Context: ~{pct}% of 128k', { pct: Math.round((s.lastInputTokens / 128_000) * 100) }),
   ].join('\n')
 }

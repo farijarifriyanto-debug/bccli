@@ -43,6 +43,8 @@ export type ChatMessage =
 export interface Usage {
   inputTokens: number
   outputTokens: number
+  cachedInputTokens?: number
+  cacheWriteTokens?: number
 }
 
 export interface Completion {
@@ -97,6 +99,10 @@ interface ProviderOptions {
 interface RawUsage {
   prompt_tokens?: number
   completion_tokens?: number
+  prompt_tokens_details?: {
+    cached_tokens?: number
+    cache_write_tokens?: number
+  }
 }
 interface RawToolCall {
   index?: number
@@ -187,7 +193,18 @@ function errorMessage(body: string): string {
 }
 
 const toUsage = (u?: RawUsage): Usage | undefined =>
-  u ? { inputTokens: u.prompt_tokens ?? 0, outputTokens: u.completion_tokens ?? 0 } : undefined
+  u
+    ? {
+        inputTokens: u.prompt_tokens ?? 0,
+        outputTokens: u.completion_tokens ?? 0,
+        ...(u.prompt_tokens_details?.cached_tokens != null
+          ? { cachedInputTokens: u.prompt_tokens_details.cached_tokens }
+          : {}),
+        ...(u.prompt_tokens_details?.cache_write_tokens != null
+          ? { cacheWriteTokens: u.prompt_tokens_details.cache_write_tokens }
+          : {}),
+      }
+    : undefined
 
 async function readStream(res: Response, onText?: (delta: string) => void, onThinking?: (delta: string) => void): Promise<Completion> {
   let text = ''
