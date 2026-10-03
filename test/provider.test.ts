@@ -168,6 +168,19 @@ test('Luna cost-aware PTC gate ignores large unsafe tool output and honors kill 
   expect(shouldEnableLunaPtc([{ role: 'user', content: 'Compare all files.' }], false)).toBe(false)
 })
 
+test('Luna native tool plan preserves MCP output_schema when provided', () => {
+  const withSchema = toolDef('mcp__echo__echo')
+  withSchema.function.output_schema = {
+    type: 'object',
+    properties: { echoed: { type: 'string' } },
+    required: ['echoed'],
+    additionalProperties: false,
+  }
+  const plan = lunaToolPlan([withSchema, toolDef('mcp__echo__plain')], true, ['mcp__echo__echo'])
+  expect(plan.tools.find((tool) => tool.name === 'mcp__echo__echo')?.output_schema).toEqual(withSchema.function.output_schema)
+  expect(plan.tools.find((tool) => tool.name === 'mcp__echo__plain')?.output_schema).toBeUndefined()
+})
+
 test('Luna PTC allows only explicitly read-only MCP tools', () => {
   const readOnly = 'mcp__echo__echo'
   const writeLike = 'mcp__echo__mutate'

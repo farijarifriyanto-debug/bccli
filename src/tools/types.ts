@@ -34,6 +34,7 @@ export interface Tool<S extends z.ZodType = z.ZodType> {
   kind: PermissionKind
   /** Raw JSON schema sent to the model instead of converting `schema` (used for MCP tools). */
   jsonSchema?: Record<string, unknown>
+  outputJsonSchema?: Record<string, unknown>
   target(input: z.infer<S>): string
   preview?(input: z.infer<S>, ctx: ToolContext): Promise<string | undefined>
   /** Cheap pre-check run before asking permission; returns an error message when the call cannot succeed. */
