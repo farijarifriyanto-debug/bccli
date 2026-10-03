@@ -18,8 +18,10 @@ test('connects a stdio server and exposes its tools with sanitized unique names'
   expect(echo.kind).toBe('mcp')
   expect(echo.programmaticSafe).toBe(true)
   expect(manager.tools()[1].programmaticSafe).toBe(false)
-  expect(toolDefinitions([echo])[0].function.parameters).toMatchObject({ type: 'object', properties: { text: { type: 'string' } } })
-  expect((await echo.run({ text: 'hi' }, ctx)).output).toBe('echo: hi')
+  const echoDef = toolDefinitions([echo])[0]
+  expect(echoDef.function.parameters).toMatchObject({ type: 'object', properties: { text: { type: 'string' } } })
+  expect(echoDef.function.output_schema).toMatchObject({ type: 'object', properties: { echoed: { type: 'string' } } })
+  expect((await echo.run({ text: 'hi' }, ctx)).output).toContain('echo: hi')
   const huge = await echo.run({ text: 'x'.repeat(40_000) }, ctx)
   expect(huge.output.length).toBeLessThan(32_200)
   expect(huge.output).toContain('truncated at 32000 characters')

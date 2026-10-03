@@ -399,6 +399,7 @@ export function lunaToolPlan(tools?: ToolDefinition[], enableProgrammaticToolCal
     name: tool.function.name,
     description: tool.function.description,
     parameters: tool.function.parameters,
+    ...(tool.function.output_schema ? { output_schema: tool.function.output_schema } : {}),
     strict: false,
   }))
   const mcpIndexes = native
