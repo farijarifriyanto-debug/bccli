@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-/** fast-glob ignore patterns: node_modules, .git, and simple root .gitignore entries. */
+/** Native glob exclude patterns: node_modules, .git, and simple root .gitignore entries. */
 export function ignorePatterns(root: string): string[] {
   const patterns = ['**/node_modules/**', '**/.git/**']
   let lines: string[] = []

@@ -3,7 +3,7 @@ const MAX_BRACE_DEPTH = 16
 
 /**
  * Reject glob inputs that can trigger pathological brace expansion before they
- * reach fast-glob/micromatch/braces. Backslash-escaped braces are literals.
+ * reach the glob engine. Backslash-escaped braces are literals.
  */
 export function validateGlobPattern(pattern: string): string | undefined {
   if (pattern.length > MAX_GLOB_LENGTH) return `Glob pattern is too long (max ${MAX_GLOB_LENGTH} characters).`
