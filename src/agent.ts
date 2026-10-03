@@ -14,7 +14,7 @@ export type AgentEvent =
   | { type: 'textReplace'; text: string }
   | { type: 'toolStart'; id: string; tool: string; target: string }
   | { type: 'toolEnd'; id: string; tool: string; output: string; display?: string; isError: boolean }
-  | { type: 'usage'; inputTokens: number; outputTokens: number }
+  | { type: 'usage'; inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheWriteTokens?: number }
   | { type: 'compacted' }
   | { type: 'stepLimit' }
   | { type: 'aborted' }
@@ -197,6 +197,8 @@ export class Agent {
         }
         this.totalUsage.inputTokens += usage.inputTokens
         this.totalUsage.outputTokens += usage.outputTokens
+        this.totalUsage.cachedInputTokens = (this.totalUsage.cachedInputTokens ?? 0) + (usage.cachedInputTokens ?? 0)
+        this.totalUsage.cacheWriteTokens = (this.totalUsage.cacheWriteTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
         this.lastInputTokens = usage.inputTokens
         this.onEvent({ type: 'usage', ...this.totalUsage })
         this.push(completionAssistantMessage(completion))
@@ -316,6 +318,8 @@ export class Agent {
       addUsage: (u) => {
         this.totalUsage.inputTokens += u.inputTokens
         this.totalUsage.outputTokens += u.outputTokens
+        this.totalUsage.cachedInputTokens = (this.totalUsage.cachedInputTokens ?? 0) + (u.cachedInputTokens ?? 0)
+        this.totalUsage.cacheWriteTokens = (this.totalUsage.cacheWriteTokens ?? 0) + (u.cacheWriteTokens ?? 0)
         this.onEvent({ type: 'usage', ...this.totalUsage })
       },
     }

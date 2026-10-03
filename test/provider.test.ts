@@ -246,7 +246,7 @@ test('streams text, merges tool call fragments and reads usage', async () => {
       chunk({ tool_calls: [{ index: 0, id: 'c1', function: { name: 'read', arguments: '{"pa' } }] }),
       chunk({ tool_calls: [{ index: 0, function: { arguments: 'th":"a"}' } }] }),
       chunk({}, { finish_reason: 'tool_calls' }),
-      { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+      { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 8, cache_write_tokens: 1 } } },
       '[DONE]',
     ]),
   )
@@ -256,7 +256,7 @@ test('streams text, merges tool call fragments and reads usage', async () => {
   expect(c).toEqual({
     text: 'Hello',
     toolCalls: [{ id: 'c1', name: 'read', arguments: '{"path":"a"}' }],
-    usage: { inputTokens: 10, outputTokens: 5 },
+    usage: { inputTokens: 10, outputTokens: 5, cachedInputTokens: 8, cacheWriteTokens: 1 },
     finishReason: 'tool_calls',
   })
   expect(deltas).toEqual(['Hel', 'lo'])
