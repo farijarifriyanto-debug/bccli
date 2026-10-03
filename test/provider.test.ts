@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest'
 import type { ResponseOutputItem } from 'openai/resources/responses/responses'
-import { completionAssistantMessage, createProvider, lunaToolPlan, ProviderError, responseContinuationInput, responseInputFromMessages, shouldEnableLunaPtc, type ChatMessage, type Completion } from '../src/provider'
+import { completionAssistantMessage, createProvider, lunaToolPlan, ProviderError, responseContinuationInput, responseInputFromMessages, shouldEnableLunaPtc, shouldForceLunaPtc, type ChatMessage, type Completion } from '../src/provider'
 import type { ToolDefinition } from '../src/tools/index'
 
 function sse(events: unknown[]): Response {
@@ -117,6 +117,13 @@ test('Luna tool search also activates for one unusually large MCP schema', () =>
 test('Luna cost-aware PTC gate keeps a single small read direct', () => {
   const messages: ChatMessage[] = [{ role: 'user', content: 'Read package.json and return only the version.' }]
   expect(shouldEnableLunaPtc(messages, true)).toBe(false)
+})
+
+test('Luna deterministic aggregation cue forces PTC but compare-only does not', () => {
+  expect(shouldForceLunaPtc([{ role: 'user', content: 'Compare all files.' }], true)).toBe(false)
+  expect(shouldForceLunaPtc([{ role: 'user', content: 'Count all records and return the total.' }], true)).toBe(true)
+  expect(shouldForceLunaPtc([{ role: 'user', content: 'Hitung jumlah semua record.' }], true)).toBe(true)
+  expect(shouldForceLunaPtc([{ role: 'user', content: 'Count all records.' }], false)).toBe(false)
 })
 
 test('Luna cost-aware PTC gate enables multi-source aggregation intent', () => {
@@ -484,7 +491,7 @@ test('Luna Auto PTC omits programmatic marker for a single small read', async ()
   expect(body.tools.some((tool: Record<string, unknown>) => tool.type === 'programmatic_tool_calling')).toBe(false)
 })
 
-test('Luna Auto PTC emits programmatic marker for multi-source aggregation', async () => {
+test('Luna Auto PTC forces programmatic callers for deterministic aggregation', async () => {
   const f = vi.fn(async () =>
     sse([
       {
@@ -508,11 +515,9 @@ test('Luna Auto PTC emits programmatic marker for multi-source aggregation', asy
   const [, init] = f.mock.calls[0] as unknown as [string, RequestInit]
   const body = JSON.parse(String(init.body))
   expect(body.tools.find((tool: Record<string, unknown>) => tool.name === 'read')?.allowed_callers).toEqual([
-    'direct',
     'programmatic',
   ])
   expect(body.tools.find((tool: Record<string, unknown>) => tool.name === 'grep')?.allowed_callers).toEqual([
-    'direct',
     'programmatic',
   ])
   expect(body.tools.find((tool: Record<string, unknown>) => tool.name === 'bash')?.allowed_callers).toBeUndefined()
