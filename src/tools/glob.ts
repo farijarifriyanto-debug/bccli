@@ -1,6 +1,7 @@
 import fg from 'fast-glob'
 import { z } from 'zod'
 import { ignorePatterns } from './ignore'
+import { validateGlobPattern } from './globSafety'
 import { resolvePath } from './paths'
 import { defineTool } from './types'
 
@@ -16,6 +17,8 @@ export const globTool = defineTool({
   kind: 'read',
   target: (input) => input.pattern,
   async run(input, ctx) {
+    const invalid = validateGlobPattern(input.pattern)
+    if (invalid) return { output: invalid, isError: true }
     const root = resolvePath(ctx.cwd, input.path ?? '.')
     const files = (await fg(input.pattern, { cwd: root, ignore: ignorePatterns(root), onlyFiles: true, dot: true })).sort()
     if (!files.length) return { output: 'No matching files.' }
