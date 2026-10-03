@@ -1,4 +1,4 @@
-import fg from 'fast-glob'
+import { glob as nativeGlob } from 'node:fs/promises'
 import { z } from 'zod'
 import { ignorePatterns } from './ignore'
 import { validateGlobPattern } from './globSafety'
@@ -20,7 +20,11 @@ export const globTool = defineTool({
     const invalid = validateGlobPattern(input.pattern)
     if (invalid) return { output: invalid, isError: true }
     const root = resolvePath(ctx.cwd, input.path ?? '.')
-    const files = (await fg(input.pattern, { cwd: root, ignore: ignorePatterns(root), onlyFiles: true, dot: true })).sort()
+    const files: string[] = []
+    for await (const file of nativeGlob(input.pattern, { cwd: root, exclude: ignorePatterns(root) })) {
+      files.push(file)
+    }
+    files.sort()
     if (!files.length) return { output: 'No matching files.' }
     const first = files.slice(0, 500)
     const shown: string[] = []

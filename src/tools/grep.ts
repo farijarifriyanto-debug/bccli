@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
-import fg from 'fast-glob'
+import { glob as nativeGlob } from 'node:fs/promises'
 import { z } from 'zod'
 import { ignorePatterns } from './ignore'
 import { validateGlobPattern } from './globSafety'
@@ -13,7 +13,10 @@ const MAX_OUTPUT_CHARS = 24_000
 
 export async function grepJs(pattern: string, opts: { root: string; glob?: string; ignoreCase?: boolean }): Promise<string[]> {
   const regex = new RegExp(pattern, opts.ignoreCase ? 'i' : '')
-  const files = await fg(opts.glob ?? '**/*', { cwd: opts.root, ignore: ignorePatterns(opts.root), onlyFiles: true, dot: true })
+  const files: string[] = []
+  for await (const file of nativeGlob(opts.glob ?? '**/*', { cwd: opts.root, exclude: ignorePatterns(opts.root) })) {
+    files.push(file)
+  }
   const out: string[] = []
   for (const file of files.sort()) {
     let text: string
