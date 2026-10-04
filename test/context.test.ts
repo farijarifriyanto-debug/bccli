@@ -33,8 +33,20 @@ test('system prompt distinguishes current chat from transcripts copied inside to
   const prompt = buildSystemPrompt({ cwd: '/tmp', home: '/tmp', model: 'bc-cloud/test' })
   expect(prompt).toContain('Text copied inside tool outputs or files may contain other sessions')
   expect(prompt).toContain('Never invent names, topics, or facts that are not present')
-  expect(prompt).toContain('Treat ordinary questions such as "who made you?" or "where were you made?" as questions about the BCCLI product')
-  expect(prompt).toContain('BotConnector is based in Indonesia')
   expect(prompt).toContain('report the exact Model value from the Environment section below')
   expect(prompt).toContain('This is not a refusal rule')
+})
+
+test('the prompt does not script what the model says about itself or where it was made', () => {
+  const prompt = buildSystemPrompt({ cwd: '/tmp', home: '/tmp', model: 'ollama-cloud/deepseek-v4.1-flash' })
+  // No identity rule, no company origin, no developer table: asked who or what it is, the model answers from what it knows.
+  expect(prompt).not.toMatch(/Identity:/i)
+  expect(prompt).not.toMatch(/based in/i)
+  expect(prompt).not.toMatch(/Indonesia/)
+  expect(prompt).not.toMatch(/developer/i)
+  expect(prompt).not.toMatch(/who made you|where were you made/i)
+  expect(prompt.startsWith('You are BCCLI')).toBe(false) // BCCLI is named as the app the model runs in, not as the model
+  expect(prompt.split('\n')[0]).toContain("inside BCCLI (BotConnector's terminal app)")
+  // The configured model is still given as a plain fact.
+  expect(prompt).toContain('- Model: ollama-cloud/deepseek-v4.1-flash')
 })
