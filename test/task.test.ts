@@ -232,3 +232,54 @@ test('subagents inherit the parent reasoning preference', async () => {
   const child = requests.find((r) => String(r.messages[0].content).includes('read-only research agent'))!
   expect(child.reasoning).toBe('high')
 })
+
+test('subagent resolves the parent system prompt at run time', async () => {
+  const requests: ChatRequest[] = []
+  const provider = router({ PARENT: [{ text: 'done', toolCalls: [] }] }, requests)
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-task-dynamic-system-'))
+  const permissions = new Permissions('default', [], cwd)
+  let parentSystem = 'MODEL old'
+  const task = createTaskTool({
+    agents: BUILTIN_AGENTS,
+    baseTools: () => ALL_TOOLS,
+    permissions,
+    provider: () => provider,
+    providerFor: () => provider,
+    systemPrompt: () => parentSystem,
+    cwd,
+  })
+
+  parentSystem = 'MODEL bc-cloud/mimo-v2.6-flash'
+  await task.run(
+    { agent: 'explore', description: 'cek model', prompt: 'laporkan model' },
+    { cwd, signal: new AbortController().signal, readFiles: new Set() },
+  )
+
+  const system = String(requests[0]?.messages[0]?.content)
+  expect(system).toContain('MODEL bc-cloud/mimo-v2.6-flash')
+  expect(system).not.toContain('MODEL old')
+})
+
+test('subagent system prompt reports its own model override', async () => {
+  const requests: ChatRequest[] = []
+  const provider = router({ PARENT: [{ text: 'done', toolCalls: [] }] }, requests)
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-task-model-override-'))
+  const task = createTaskTool({
+    agents: [{ name: 'special', description: 'special', model: 'bc-cloud/mimo-v2.6-flash', prompt: 'special role' }],
+    baseTools: () => ALL_TOOLS,
+    permissions: new Permissions('default', [], cwd),
+    provider: () => provider,
+    providerFor: () => provider,
+    systemPrompt: (modelRef) => `MODEL ${modelRef ?? 'parent'}`,
+    cwd,
+  })
+
+  await task.run(
+    { agent: 'special', description: 'cek model', prompt: 'laporkan model' },
+    { cwd, signal: new AbortController().signal, readFiles: new Set() },
+  )
+
+  const system = String(requests[0]?.messages[0]?.content)
+  expect(system).toContain('MODEL bc-cloud/mimo-v2.6-flash')
+  expect(system).not.toContain('MODEL parent')
+})

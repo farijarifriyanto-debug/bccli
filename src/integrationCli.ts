@@ -88,7 +88,7 @@ function readState(target: IntegrationTarget, env: NodeJS.ProcessEnv): StateReco
 }
 
 async function botConnectorModels(deps: IntegrationDeps): Promise<string[]> {
-  const config = loadConfig(deps.cwd)
+  const config = loadConfig(deps.cwd, deps.env)
   const resolved = resolveModel(config, config.model, deps.env)
   const key = readCredentials(deps.env)['bc-cloud'] || resolved.apiKey
   if (!key) throw new ConfigError(t('No BotConnector API key yet. Run bccli login bc-cloud first.'))

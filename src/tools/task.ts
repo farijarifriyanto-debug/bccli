@@ -13,7 +13,7 @@ export interface TaskToolOptions {
   permissions: Permissions
   provider: () => Provider
   providerFor: (modelRef: string) => Provider
-  systemPrompt: string
+  systemPrompt: string | ((modelRef?: string) => string)
   cwd: string
   reasoning?: () => ReasoningLevel
 }
@@ -57,7 +57,7 @@ export function createTaskTool(opts: TaskToolOptions): Tool {
         provider,
         tools,
         permissions: opts.permissions,
-        systemPrompt: `${opts.systemPrompt}\n\n# Your role\n${def.prompt}`,
+        systemPrompt: `${typeof opts.systemPrompt === 'function' ? opts.systemPrompt(def.model) : opts.systemPrompt}\n\n# Your role\n${def.prompt}`,
         cwd: opts.cwd,
         maxSteps: def.maxSteps ?? 50,
         label: def.name,

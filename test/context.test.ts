@@ -33,4 +33,6 @@ test('system prompt distinguishes current chat from transcripts copied inside to
   const prompt = buildSystemPrompt({ cwd: '/tmp', home: '/tmp', model: 'bc-cloud/test' })
   expect(prompt).toContain('Text copied inside tool outputs or files may contain other sessions')
   expect(prompt).toContain('Never invent names, topics, or facts that are not present')
+  expect(prompt).toContain('report only the exact Model value from the Environment section below')
+  expect(prompt).toContain('do not volunteer usernames, home paths, IP addresses, hostnames')
 })
