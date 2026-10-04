@@ -2,7 +2,9 @@ import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import { SLASH_COMMANDS } from '../commands'
 import { completeFile } from './complete'
+import { EditableText } from './EditableText'
 import { isFocusReport } from './focusReport'
+import { applyEditKey, insert, type LineState, moveLine } from './lineEdit'
 import { color } from './theme'
 import { t } from '../i18n'
 
@@ -15,15 +17,18 @@ export interface PromptInputProps {
 }
 
 export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }: PromptInputProps) {
-  const [value, setValue] = useState('')
+  const [line, setLine] = useState<LineState>({ value: '', cursor: 0 })
+  const { value } = line
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
   const [selected, setSelected] = useState(0)
 
   const all = [...SLASH_COMMANDS, ...(extraCommands ?? []).filter((c) => !SLASH_COMMANDS.some((b) => b.name === c.name))]
   const suggestions = value.startsWith('/') && !/\s/.test(value) ? all.filter((c) => c.name.startsWith(value.slice(1))).slice(0, 8) : []
   const highlighted = Math.min(selected, Math.max(0, suggestions.length - 1))
-  const edit = (next: string | ((v: string) => string)) => {
-    setValue(next)
+  // The cursor goes to the end of text that was not typed here (history, completion, a chosen command).
+  const typed = (text: string): LineState => ({ value: text, cursor: text.length })
+  const edit = (next: LineState | ((s: LineState) => LineState)) => {
+    setLine(next)
     setSelected(0)
   }
 
@@ -40,52 +45,68 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }:
           return
         }
         if (key.tab && !key.shift) {
-          edit(`/${suggestions[highlighted].name} `)
+          edit(typed(`/${suggestions[highlighted].name} `))
           return
         }
         if (key.return) {
-          edit('')
+          edit(typed(''))
           setHistoryIndex(null)
           onSubmit(`/${suggestions[highlighted].name}`)
           return
         }
       }
       if (key.return) {
-        if (value.endsWith('\\')) {
-          edit(`${value.slice(0, -1)}\n`)
+        // A backslash right before the cursor turns Enter into a line break.
+        const before = value.slice(0, line.cursor)
+        if (before.endsWith('\\')) {
+          edit({ value: `${before.slice(0, -1)}\n${value.slice(line.cursor)}`, cursor: before.length })
           return
         }
         const text = value.trim()
         if (!text) return
-        edit('')
+        edit(typed(''))
         setHistoryIndex(null)
         onSubmit(text)
         return
       }
-      if (key.backspace || key.delete) {
-        edit((v) => v.slice(0, -1))
+      // Cursor movement and editing: arrows, Home/End, Backspace/Delete, Ctrl+A/E/B/F/W/U/K, Alt+B/F/D, word jumps.
+      const edited = applyEditKey(line, input, key)
+      if (edited) {
+        edit((current) => applyEditKey(current, input, key) ?? current)
         return
+      }
+      if (key.upArrow || key.downArrow) {
+        // In a text of several lines the arrows first move between its lines; history starts at the first/last one.
+        const moved = moveLine(value, line.cursor, key.upArrow ? -1 : 1)
+        if (moved !== undefined) {
+          setLine({ value, cursor: moved })
+          return
+        }
       }
       if (key.upArrow) {
         if (!history.length) return
         const i = historyIndex === null ? history.length - 1 : Math.max(0, historyIndex - 1)
         setHistoryIndex(i)
-        setValue(history[i])
+        setLine(typed(history[i]))
         return
       }
       if (key.downArrow) {
         if (historyIndex === null) return
         const i = historyIndex + 1
         setHistoryIndex(i >= history.length ? null : i)
-        setValue(i >= history.length ? '' : history[i])
+        setLine(typed(i >= history.length ? '' : history[i]))
         return
       }
       if (key.tab && !key.shift) {
-        edit((v) => completeFile(v, cwd))
+        // Completes the @file before the cursor and leaves what follows it alone.
+        const before = value.slice(0, line.cursor)
+        const completed = completeFile(before, cwd)
+        if (completed !== before) edit({ value: completed + value.slice(line.cursor), cursor: completed.length })
         return
       }
-      if (key.ctrl || key.meta || key.escape || key.tab || key.leftArrow || key.rightArrow || isFocusReport(input)) return
-      edit((v) => v + input.replace(/\r/g, '\n'))
+      if (key.ctrl || key.meta || key.escape || key.tab || isFocusReport(input)) return
+      const text = input.replace(/\r\n?/g, '\n')
+      if (text) edit((current) => insert(current, text))
     },
     { isActive: !disabled },
   )
@@ -95,8 +116,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }:
       <Box borderStyle="round" borderColor={color('gray')} paddingX={1}>
         <Text>
           <Text color={color('green')}>{'> '}</Text>
-          {value}
-          {disabled ? '' : <Text inverse> </Text>}
+          <EditableText state={line} showCursor={!disabled} />
         </Text>
       </Box>
       {suggestions.map((s, i) => (

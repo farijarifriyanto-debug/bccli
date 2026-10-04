@@ -108,3 +108,50 @@ test('once arguments are typed, Enter sends the text as is', async () => {
   await tick()
   expect(onSubmit).toHaveBeenCalledWith('/model qwen')
 })
+
+const LEFT = '\x1b[D'
+const RIGHT = '\x1b[C'
+const HOME = '\x1b[H'
+const END = '\x1b[F'
+const DEL = '\x1b[3~'
+
+async function typeKeys(onSubmit: (s: string) => void, keys: string[], history: string[] = []) {
+  const { stdin } = render(<PromptInput history={history} cwd="." onSubmit={onSubmit} />)
+  await tick()
+  for (const k of keys) {
+    stdin.write(k)
+    await tick()
+  }
+  stdin.write('\r')
+  await tick()
+}
+
+test('arrows move the cursor so text can be inserted in the middle', async () => {
+  const onSubmit = vi.fn()
+  await typeKeys(onSubmit, ['halo dunia', ...Array(6).fill(LEFT), 'X'])
+  expect(onSubmit).toHaveBeenCalledWith('haloX dunia')
+})
+
+test('backspace and delete edit around the cursor', async () => {
+  const a = vi.fn()
+  await typeKeys(a, ['abcdef', LEFT, LEFT, LEFT, '\x7f'])
+  expect(a).toHaveBeenCalledWith('abdef')
+  const b = vi.fn()
+  await typeKeys(b, ['abcdef', LEFT, LEFT, LEFT, DEL])
+  expect(b).toHaveBeenCalledWith('abcef')
+})
+
+test('home and end jump to the ends of the line; ctrl+left jumps a word', async () => {
+  const a = vi.fn()
+  await typeKeys(a, ['dunia', HOME, 'halo ', END, '!'])
+  expect(a).toHaveBeenCalledWith('halo dunia!')
+  const b = vi.fn()
+  await typeKeys(b, ['satu dua tiga', '\x1b[1;5D', 'X'])
+  expect(b).toHaveBeenCalledWith('satu dua Xtiga')
+})
+
+test('up/down walk history when the text is a single line, with the cursor anywhere', async () => {
+  const onSubmit = vi.fn()
+  await typeKeys(onSubmit, ['x', LEFT, '\x1b[A'], ['sebelumnya'])
+  expect(onSubmit).toHaveBeenCalledWith('sebelumnya')
+})
