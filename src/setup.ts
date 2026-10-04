@@ -129,7 +129,7 @@ export function createRuntime(opts: {
     permissions,
     provider: () => agent.provider,
     providerFor: makeProvider,
-    systemPrompt,
+    systemPrompt: (childModelRef) => buildSystemPrompt({ cwd: opts.cwd, home, model: childModelRef ?? modelRef, skills }),
     cwd: opts.cwd,
     reasoning: () => reasoning,
   })
@@ -214,8 +214,10 @@ export function createRuntime(opts: {
       return startedAt
     },
     setModel(ref: string) {
-      agent.provider = makeProvider(ref)
+      const nextProvider = makeProvider(ref)
       modelRef = ref
+      agent.provider = nextProvider
+      agent.setSystemPrompt(buildSystemPrompt({ cwd: opts.cwd, home, model: modelRef, skills }))
     },
     setReasoning(level: ReasoningLevel) {
       reasoning = level
