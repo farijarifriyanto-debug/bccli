@@ -22,6 +22,28 @@ test('defaults to BotConnector Cloud', () => {
   expect(config.providers['bc-cloud'].baseURL).toBe('https://api.botconnector.id/v1')
 })
 
+test('maxSteps is unlimited by default and can be opted into or disabled', () => {
+  expect(loadConfig(project, env).maxSteps).toBeUndefined()
+
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ maxSteps: 200 }))
+  expect(loadConfig(project, env).maxSteps).toBe(200)
+
+  mkdirSync(join(project, '.bccli'))
+  writeFileSync(join(project, '.bccli', 'config.json'), JSON.stringify({ maxSteps: 0 }))
+  expect(loadConfig(project, env).maxSteps).toBeUndefined()
+
+  writeFileSync(join(project, '.bccli', 'config.json'), JSON.stringify({ maxSteps: 12.9 }))
+  expect(loadConfig(project, env).maxSteps).toBe(12)
+
+  writeFileSync(join(project, '.bccli', 'config.json'), JSON.stringify({ maxSteps: null }))
+  expect(loadConfig(project, env).maxSteps).toBeUndefined()
+})
+
+test('invalid maxSteps is rejected instead of silently changing agent behavior', () => {
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ maxSteps: -1 }))
+  expect(() => loadConfig(project, env)).toThrow(/maxSteps/)
+})
+
 test('project config sets the model and adds providers; global allow is kept', () => {
   writeFileSync(join(home, 'config.json'), JSON.stringify({ model: 'a/x', allow: ['edit'], providers: { a: { baseURL: 'http://a' } } }))
   mkdirSync(join(project, '.bccli'))

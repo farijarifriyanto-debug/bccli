@@ -35,12 +35,12 @@ test('skills load from .claude and .bccli, project wins', () => {
 test('commands and agents load with frontmatter', () => {
   const r = roots()
   put(join(r.cwd, '.claude/commands/review.md'), '---\ndescription: review the diff\nargument-hint: <file>\n---\nReview $ARGUMENTS carefully.')
-  put(join(r.home, 'agents/reviewer.md'), '---\nname: reviewer\ndescription: code reviewer\ntools: [read, grep]\nmodel: openrouter/x\n---\nYou review code.')
+  put(join(r.home, 'agents/reviewer.md'), '---\nname: reviewer\ndescription: code reviewer\ntools: [read, grep]\nmodel: openrouter/x\nmaxSteps: 7\n---\nYou review code.')
   const [cmd] = loadCommands(r)
   expect(cmd).toEqual({ name: 'review', description: 'review the diff', argumentHint: '<file>', body: 'Review $ARGUMENTS carefully.' })
   expect(expandCommand(cmd, 'a.ts')).toBe('Review a.ts carefully.')
   expect(expandCommand({ name: 'x', body: 'Do it.' }, 'now')).toBe('Do it.\n\nnow')
-  expect(loadAgentDefs(r)).toEqual([{ name: 'reviewer', description: 'code reviewer', tools: ['read', 'grep'], model: 'openrouter/x', prompt: 'You review code.' }])
+  expect(loadAgentDefs(r)).toEqual([{ name: 'reviewer', description: 'code reviewer', tools: ['read', 'grep'], model: 'openrouter/x', prompt: 'You review code.', maxSteps: 7 }])
 })
 
 test('skill tool returns the skill body with its folder; system prompt lists skills', async () => {

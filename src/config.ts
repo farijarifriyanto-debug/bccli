@@ -18,8 +18,8 @@ export interface Config {
   model: string
   permissionMode: PermissionMode
   reasoning: ReasoningLevel
-  /** Tool-call steps per turn before the agent pauses (minimum 1); default 50. */
-  maxSteps?: number
+  /** Optional tool-call step cap per turn. Omitted, null, or 0 means unlimited. */
+  maxSteps?: number | null
   /** Interface language; only the global config is read for it. */
   language?: Lang
   providers: Record<string, ProviderConfig>
@@ -62,6 +62,16 @@ export function readJsonConfig(path: string): Partial<Config> {
  * The project file comes from whatever repo the user cloned, so it is untrusted: it may pick the model and
  * add providers without a key, but it cannot grant permissions, override known providers, or bind an env key.
  */
+function resolvedMaxSteps(project: Partial<Config>, global: Partial<Config>): number | undefined {
+  const hasProjectValue = Object.hasOwn(project, 'maxSteps')
+  const value = hasProjectValue ? project.maxSteps : global.maxSteps
+  if (value == null || value === 0) return undefined
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new ConfigError(t('maxSteps must be a positive number, or 0/null to disable the limit.'))
+  }
+  return Math.max(1, Math.floor(value))
+}
+
 function untrustedProviders(project: Partial<Config>, known: Record<string, ProviderConfig>): Record<string, ProviderConfig> {
   const out: Record<string, ProviderConfig> = {}
   for (const [id, provider] of Object.entries(project.providers ?? {})) {
@@ -80,6 +90,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     model: project.model ?? global.model ?? DEFAULT_CONFIG.model,
     permissionMode: global.permissionMode ?? DEFAULT_CONFIG.permissionMode,
     reasoning: global.reasoning ?? DEFAULT_CONFIG.reasoning,
+    maxSteps: resolvedMaxSteps(project, global),
     providers: { ...known, ...fromProject },
     projectProviders: Object.keys(fromProject),
     allow: [...(global.allow ?? [])],
