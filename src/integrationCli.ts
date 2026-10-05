@@ -1,4 +1,5 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { parseDocument } from 'yaml'
 import type { CliArgs } from './args'
@@ -13,6 +14,12 @@ export interface IntegrationDeps {
   out: (s: string) => void
   err: (s: string) => void
   fetch: typeof globalThis.fetch
+  run?: (command: string, args: string[], env: NodeJS.ProcessEnv) => {
+    status: number | null
+    stdout?: string
+    stderr?: string
+    error?: Error
+  }
 }
 
 interface StateRecord {
@@ -648,8 +655,10 @@ async function connectHermes(deps: IntegrationDeps): Promise<void> {
   doc.setIn(['model', 'default'], model)
   doc.setIn(['model', 'provider'], 'custom')
   doc.setIn(['model', 'base_url'], BASE_URL)
-  doc.setIn(['model', 'key_env'], 'BOTCONNECTOR_API_KEY')
-  doc.deleteIn(['model', 'api_key'])
+  // Hermes expands ${VAR} references from its environment while keeping the
+  // secret itself out of config.yaml.
+  doc.setIn(['model', 'api_key'], '${BOTCONNECTOR_API_KEY}')
+  doc.deleteIn(['model', 'key_env'])
 
   for (const task of ['vision', 'web_extract', 'approval']) {
     const provider = doc.getIn(['auxiliary', task, 'provider'])
@@ -698,41 +707,58 @@ function openClawModelRow(entry: BotConnectorModelEntry): Record<string, unknown
   return row
 }
 
+function runExternal(
+  deps: IntegrationDeps,
+  command: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+): { status: number | null; stdout: string; stderr: string; error?: Error } {
+  if (deps.run) {
+    const result = deps.run(command, args, env)
+    return {
+      status: result.status,
+      stdout: result.stdout ?? '',
+      stderr: result.stderr ?? '',
+      error: result.error,
+    }
+  }
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    env,
+  })
+  return {
+    status: result.status,
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+    error: result.error,
+  }
+}
+
+function assertExternalOk(
+  result: { status: number | null; stdout: string; stderr: string; error?: Error },
+  label: string,
+): void {
+  if (result.status === 0) return
+  const detail = (result.stderr || result.stdout || result.error?.message || 'unknown error').trim()
+  throw new ConfigError(t('{label} failed: {detail}', { label, detail }))
+}
+
 async function connectOpenClaw(deps: IntegrationDeps): Promise<void> {
   if (readState('openclaw', deps.env)) disconnect('openclaw', deps)
 
   const home = homeDir(deps.env)
   const stateDir = deps.env.OPENCLAW_STATE_DIR || join(home, '.openclaw')
+  const configPath = deps.env.OPENCLAW_CONFIG_PATH || join(stateDir, 'openclaw.json')
   const agentDir = deps.env.OPENCLAW_AGENT_DIR || join(stateDir, 'agents', deps.env.OPENCLAW_AGENT_ID || 'main', 'agent')
   const modelsPath = join(agentDir, 'models.json')
   const envPath = join(stateDir, '.env')
+  const configBackup = safeBackup(configPath, deps.env)
   const modelsBackup = safeBackup(modelsPath, deps.env)
   const envBackup = safeBackup(envPath, deps.env)
   const secret = ensureSecret(deps.env)
   const key = readFileSync(secret, 'utf8').trim()
   const catalog = await botConnectorCatalog(deps)
   const model = integrationDefaultModel(catalog.map((item) => item.id), deps)
-
-  let doc: Record<string, unknown> = { providers: {} }
-  if (existsSync(modelsPath)) {
-    try { doc = JSON.parse(readFileSync(modelsPath, 'utf8')) as Record<string, unknown> }
-    catch { throw new ConfigError(t('The OpenClaw models.json is not valid JSON: {path}', { path: modelsPath })) }
-  }
-  const providers = (doc.providers && typeof doc.providers === 'object' && !Array.isArray(doc.providers))
-    ? { ...(doc.providers as Record<string, unknown>) }
-    : {}
-  const current = providers[PROVIDER_ID] as { baseUrl?: string } | undefined
-  if (current?.baseUrl && current.baseUrl.replace(/\/+$/, '') !== BASE_URL) {
-    throw new ConfigError(t('OpenClaw already has a provider "{id}" with a different endpoint.', { id: PROVIDER_ID }))
-  }
-
-  providers[PROVIDER_ID] = {
-    baseUrl: BASE_URL,
-    apiKey: { source: 'env', provider: 'default', id: 'BOTCONNECTOR_API_KEY' },
-    api: 'openai-completions',
-    models: catalog.map(openClawModelRow),
-  }
-  doc.providers = providers
 
   let envText = existsSync(envPath) ? readFileSync(envPath, 'utf8') : ''
   envText = stripEnvManagedBlock(envText, OPENCLAW_ENV_BEGIN, OPENCLAW_ENV_END)
@@ -742,20 +768,65 @@ async function connectOpenClaw(deps: IntegrationDeps): Promise<void> {
   const managed = [OPENCLAW_ENV_BEGIN, `BOTCONNECTOR_API_KEY=${key}`, OPENCLAW_ENV_END].join('\n')
   const mergedEnv = envText.trim() ? `${envText.trimEnd()}\n\n${managed}\n` : `${managed}\n`
 
-  mkdirSync(dirname(modelsPath), { recursive: true })
   mkdirSync(stateDir, { recursive: true })
-  writeFileSync(modelsPath, `${JSON.stringify(doc, null, 2)}\n`, { mode: 0o600 })
   writeFileSync(envPath, mergedEnv, { mode: 0o600 })
-  try { chmodSync(modelsPath, 0o600) } catch {}
   try { chmodSync(envPath, 0o600) } catch {}
 
+  // Record backups before invoking OpenClaw because config/model commands may
+  // update both the source config and the generated per-agent registry.
   writeState('openclaw', {
     target: 'openclaw',
-    files: [{ path: modelsPath, ...modelsBackup }, { path: envPath, ...envBackup }],
+    files: [
+      { path: configPath, ...configBackup },
+      { path: modelsPath, ...modelsBackup },
+      { path: envPath, ...envBackup },
+    ],
     createdAt: new Date().toISOString(),
   }, deps.env)
+
+  const provider = {
+    baseUrl: BASE_URL,
+    api: 'openai-completions',
+    models: catalog.map(openClawModelRow),
+  }
+  const commandEnv = {
+    ...deps.env,
+    BOTCONNECTOR_API_KEY: key,
+    OPENCLAW_STATE_DIR: stateDir,
+    ...(deps.env.OPENCLAW_CONFIG_PATH ? { OPENCLAW_CONFIG_PATH: deps.env.OPENCLAW_CONFIG_PATH } : {}),
+    ...(deps.env.OPENCLAW_AGENT_DIR ? { OPENCLAW_AGENT_DIR: deps.env.OPENCLAW_AGENT_DIR } : {}),
+  }
+
+  try {
+    assertExternalOk(
+      runExternal(deps, 'openclaw', [
+        'config', 'set', 'models.providers.botconnector',
+        JSON.stringify(provider),
+        '--strict-json', '--merge',
+      ], commandEnv),
+      'openclaw config set provider',
+    )
+    assertExternalOk(
+      runExternal(deps, 'openclaw', [
+        'config', 'set', 'models.providers.botconnector.apiKey',
+        '--ref-provider', 'default',
+        '--ref-source', 'env',
+        '--ref-id', 'BOTCONNECTOR_API_KEY',
+      ], commandEnv),
+      'openclaw config set SecretRef',
+    )
+    assertExternalOk(
+      runExternal(deps, 'openclaw', ['config', 'validate'], commandEnv),
+      'openclaw config validate',
+    )
+  } catch (error) {
+    // Restore the user's previous OpenClaw state if any CLI step fails.
+    disconnect('openclaw', deps)
+    throw error
+  }
+
   deps.out(t('OpenClaw is connected to BotConnector ({n} models available; suggested default {model}).', { n: catalog.length, model }))
-  deps.out(`Models: ${modelsPath}`)
+  deps.out(`Config: ${configPath}`)
   deps.out('Provider: botconnector (openai-completions)')
   deps.out(`Set default: openclaw models set botconnector/${model}`)
 }
