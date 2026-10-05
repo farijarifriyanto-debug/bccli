@@ -265,3 +265,240 @@ test('connect claude-code creates Messages launcher without embedding key', asyn
   await runIntegrationCommand(parseCliArgs(['disconnect', 'claude-code']), deps)
   expect(() => readFileSync(launcherPath, 'utf8')).toThrow()
 })
+
+
+test('connect hermes writes custom BotConnector model config and keeps the key out of YAML', async () => {
+  const e = env()
+  const hermesHome = join(e.HOME, '.hermes-test')
+  const ee = { ...e, HERMES_HOME: hermesHome }
+  saveCredential('bc-cloud', 'bc_live_secret', ee)
+  mkdirSync(hermesHome, { recursive: true })
+  const configPath = join(hermesHome, 'config.yaml')
+  const envPath = join(hermesHome, '.env')
+  const originalConfig = 'other: keep\n'
+  const originalEnv = 'OTHER=value\n'
+  writeFileSync(configPath, originalConfig)
+  writeFileSync(envPath, originalEnv)
+
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [
+      { id: 'agnes-3.0-flash', capabilities: ['Tools', 'Vision', 'Reasoning'], context: 524288 },
+      { id: 'glm-5.3-flash' },
+    ],
+  }), { status: 200 }))
+  const output: string[] = []
+  const deps = { env: ee, cwd: e.HOME, out: (line: string) => output.push(line), err: () => {}, fetch }
+
+  await runIntegrationCommand(parseCliArgs(['connect', 'hermes']), deps)
+
+  const yaml = readFileSync(configPath, 'utf8')
+  const henv = readFileSync(envPath, 'utf8')
+  expect(yaml).toContain('other: keep')
+  expect(yaml).toContain('provider: custom')
+  expect(yaml).toContain('base_url: https://api.botconnector.id/v1')
+  expect(yaml).toContain('api_key: ${BOTCONNECTOR_API_KEY}')
+  expect(yaml).toContain('default: glm-5.3-flash')
+  expect(yaml).toContain('provider: main')
+  expect(yaml).not.toContain('bc_live_secret')
+  expect(henv).toContain('OTHER=value')
+  expect(henv).toContain('BOTCONNECTOR_API_KEY=bc_live_secret')
+  expect(output.some((line) => line.includes('Hermes'))).toBe(true)
+
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'hermes']), deps)
+  expect(readFileSync(configPath, 'utf8')).toBe(originalConfig)
+  expect(readFileSync(envPath, 'utf8')).toBe(originalEnv)
+})
+
+test('connect openclaw configures source config via CLI, SecretRef, and model metadata', async () => {
+  const e = env()
+  const stateDir = join(e.HOME, '.openclaw-test')
+  const ee = { ...e, OPENCLAW_STATE_DIR: stateDir, OPENCLAW_AGENT_ID: 'main' }
+  saveCredential('bc-cloud', 'bc_live_secret', ee)
+  const agentDir = join(stateDir, 'agents', 'main', 'agent')
+  mkdirSync(agentDir, { recursive: true })
+  const configPath = join(stateDir, 'openclaw.json')
+  const modelsPath = join(agentDir, 'models.json')
+  const envPath = join(stateDir, '.env')
+  const originalConfig = '{"existing":true}\n'
+  const originalModels = '{"providers":{"keep":{"baseUrl":"https://keep.example/v1"}}}\n'
+  const originalEnv = 'OTHER=value\n'
+  writeFileSync(configPath, originalConfig)
+  writeFileSync(modelsPath, originalModels)
+  writeFileSync(envPath, originalEnv)
+
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [
+      {
+        id: 'agnes-3.0-flash',
+        name: 'Agnes 3.0 Flash',
+        capabilities: ['Tools', 'Vision', 'Reasoning'],
+        context: 524288,
+        max_tokens: 32768,
+      },
+      { id: 'glm-5.3-flash', capabilities: ['Tools'] },
+    ],
+  }), { status: 200 }))
+  const run = vi.fn((command: string, args: string[], processEnv: NodeJS.ProcessEnv) => {
+    expect(command).toBe('openclaw')
+    expect(processEnv.BOTCONNECTOR_API_KEY).toBe('bc_live_secret')
+    if (args[0] === 'config' && args[1] === 'set' && args[2] === 'models.providers.botconnector') {
+      // Simulate OpenClaw updating source config + generated agent registry.
+      writeFileSync(configPath, '{"changed":true}\n')
+      writeFileSync(modelsPath, '{"generated":true}\n')
+    }
+    return { status: 0, stdout: '', stderr: '' }
+  })
+  const output: string[] = []
+  const deps = { env: ee, cwd: e.HOME, out: (line: string) => output.push(line), err: () => {}, fetch, run }
+
+  await runIntegrationCommand(parseCliArgs(['connect', 'openclaw']), deps)
+
+  expect(run).toHaveBeenCalledTimes(3)
+  const providerArgs = run.mock.calls[0][1] as string[]
+  expect(providerArgs.slice(0, 3)).toEqual(['config', 'set', 'models.providers.botconnector'])
+  expect(providerArgs).toContain('--strict-json')
+  expect(providerArgs).toContain('--merge')
+  const provider = JSON.parse(providerArgs[3])
+  expect(provider.baseUrl).toBe('https://api.botconnector.id/v1')
+  expect(provider.api).toBe('openai-completions')
+  expect(provider.apiKey).toBeUndefined()
+  expect(provider.models[0]).toMatchObject({
+    id: 'agnes-3.0-flash',
+    name: 'Agnes 3.0 Flash',
+    reasoning: true,
+    input: ['text', 'image'],
+    contextWindow: 524288,
+    maxTokens: 32768,
+  })
+
+  const secretArgs = run.mock.calls[1][1] as string[]
+  expect(secretArgs).toEqual([
+    'config', 'set', 'models.providers.botconnector.apiKey',
+    '--ref-provider', 'default',
+    '--ref-source', 'env',
+    '--ref-id', 'BOTCONNECTOR_API_KEY',
+  ])
+  expect(run.mock.calls[2][1]).toEqual(['config', 'validate'])
+  expect(readFileSync(configPath, 'utf8')).not.toContain('bc_live_secret')
+  expect(readFileSync(modelsPath, 'utf8')).not.toContain('bc_live_secret')
+  expect(readFileSync(envPath, 'utf8')).toContain('BOTCONNECTOR_API_KEY=bc_live_secret')
+  expect(output).toContain('Set default: openclaw models set botconnector/glm-5.3-flash')
+
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'openclaw']), deps)
+  expect(readFileSync(configPath, 'utf8')).toBe(originalConfig)
+  expect(readFileSync(modelsPath, 'utf8')).toBe(originalModels)
+  expect(readFileSync(envPath, 'utf8')).toBe(originalEnv)
+})
+
+
+test('connect crush writes a managed openai-compat provider and restores crushrc', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  const configPath = join(e.HOME, '.config', 'crush', 'crushrc')
+  mkdirSync(join(e.HOME, '.config', 'crush'), { recursive: true })
+  const original = 'option progress false\n'
+  writeFileSync(configPath, original)
+
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [
+      {
+        id: 'agnes-3.0-flash',
+        name: 'Agnes 3.0 Flash',
+        capabilities: ['Tools', 'Vision', 'Reasoning'],
+        context: 524288,
+        max_tokens: 32768,
+      },
+      { id: 'glm-5.3-flash', name: 'GLM 5.3 Flash', capabilities: ['Tools'] },
+    ],
+  }), { status: 200 }))
+  const output: string[] = []
+  const deps = { env: e, cwd: e.HOME, out: (line: string) => output.push(line), err: () => {}, fetch }
+
+  await runIntegrationCommand(parseCliArgs(['connect', 'crush']), deps)
+
+  const rc = readFileSync(configPath, 'utf8')
+  expect(rc).toContain('option progress false')
+  expect(rc).toContain('# BEGIN BCCLI BOTCONNECTOR')
+  expect(rc).toContain('provider add botconnector')
+  expect(rc).toContain('--type openai-compat')
+  expect(rc).toContain("--base-url 'https://api.botconnector.id/v1'")
+  expect(rc).toContain('--discover-models true')
+  expect(rc).toContain("model add 'botconnector/agnes-3.0-flash'")
+  expect(rc).toContain('--context-window 524288')
+  expect(rc).toContain('--default-max-tokens 32768')
+  expect(rc).toContain('--can-reason true')
+  expect(rc).toContain('--supports-images true')
+  expect(rc).toContain("model large 'botconnector/glm-5.3-flash'")
+  expect(rc).not.toContain('bc_live_secret')
+  expect(output.some((line) => line.includes('Crush'))).toBe(true)
+
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'crush']), deps)
+  expect(readFileSync(configPath, 'utf8')).toBe(original)
+})
+
+test('connect kilo merges global config, maps capabilities, and uses a file secret', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  const configPath = join(e.HOME, '.config', 'kilo', 'kilo.json')
+  mkdirSync(join(e.HOME, '.config', 'kilo'), { recursive: true })
+  const original = JSON.stringify({
+    provider: {
+      keep: {
+        name: 'Keep',
+        models: { 'keep-model': { name: 'Keep Model' } },
+      },
+    },
+  }, null, 2) + '\n'
+  writeFileSync(configPath, original)
+
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [
+      {
+        id: 'agnes-3.0-flash',
+        name: 'Agnes 3.0 Flash',
+        capabilities: ['Tools', 'Vision', 'Reasoning'],
+        context_window: 524288,
+        max_tokens: 32768,
+      },
+      { id: 'glm-5.3-flash', name: 'GLM 5.3 Flash', capabilities: ['Tools'] },
+    ],
+  }), { status: 200 }))
+  const output: string[] = []
+  const deps = { env: e, cwd: e.HOME, out: (line: string) => output.push(line), err: () => {}, fetch }
+
+  await runIntegrationCommand(parseCliArgs(['connect', 'kilo']), deps)
+
+  const raw = readFileSync(configPath, 'utf8')
+  const doc = JSON.parse(raw)
+  expect(doc.provider.keep.name).toBe('Keep')
+  const provider = doc.provider.botconnector
+  expect(provider.name).toBe('BotConnector')
+  expect(provider.npm).toBe('@ai-sdk/openai-compatible')
+  expect(provider.options.baseURL).toBe('https://api.botconnector.id/v1')
+  expect(provider.options.apiKey).toMatch(/^\{file:/)
+  expect(provider.models['agnes-3.0-flash']).toMatchObject({
+    name: 'Agnes 3.0 Flash',
+    tool_call: true,
+    reasoning: true,
+    modalities: { input: ['text', 'image'], output: ['text'] },
+    limit: { context: 524288, output: 32768 },
+  })
+  expect(doc.model).toBe('botconnector/glm-5.3-flash')
+  expect(raw).not.toContain('bc_live_secret')
+  expect(output.some((line) => line.includes('Kilo Code'))).toBe(true)
+
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'kilo']), deps)
+  expect(readFileSync(configPath, 'utf8')).toBe(original)
+})
+
+test('parses crush and kilo aliases', () => {
+  expect(parseCliArgs(['connect', 'crush']).subArgs).toEqual(['crush'])
+  expect(parseCliArgs(['connect', 'kilo']).subArgs).toEqual(['kilo'])
+  expect(parseCliArgs(['connect', 'kilocode']).subArgs).toEqual(['kilocode'])
+  expect(parseCliArgs(['connect', 'kilo-code']).subArgs).toEqual(['kilo-code'])
+})
+
+test('parses hermes and openclaw integration targets', () => {
+  expect(parseCliArgs(['connect', 'hermes']).subArgs).toEqual(['hermes'])
+  expect(parseCliArgs(['connect', 'openclaw']).subArgs).toEqual(['openclaw'])
+})
