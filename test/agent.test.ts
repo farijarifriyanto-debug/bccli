@@ -28,11 +28,11 @@ function scripted(steps: Completion[]): Provider & { requests: ChatRequest[] } {
 const call = (name: string, args: unknown, id = `id_${name}`) => ({ id, name, arguments: typeof args === 'string' ? args : JSON.stringify(args) })
 const reply = (text: string): Completion => ({ text, toolCalls: [] })
 
-function setup(steps: Completion[], mode: 'default' | 'plan' | 'allowAll' = 'default') {
+function setup(steps: Completion[], mode: 'default' | 'plan' | 'allowAll' = 'default', maxSteps?: number | null) {
   const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-'))
   const provider = scripted(steps)
   const events: AgentEvent[] = []
-  const agent = new Agent({ provider, tools: ALL_TOOLS, permissions: new Permissions(mode, [], cwd), systemPrompt: 'SYS', cwd })
+  const agent = new Agent({ provider, tools: ALL_TOOLS, permissions: new Permissions(mode, [], cwd), systemPrompt: 'SYS', cwd, maxSteps })
   agent.onEvent = (e) => events.push(e)
   return { cwd, provider, events, agent }
 }
@@ -170,12 +170,20 @@ test('unknown tools and malformed arguments become error results, not crashes', 
   expect(events.at(-1)?.type).toBe('done')
 })
 
-test('stops at the step limit', async () => {
+test('stops at an explicitly configured step limit', async () => {
   const loop = Array.from({ length: 5 }, (_, i) => ({ text: '', toolCalls: [call('glob', { pattern: '*' }, `g${i}`)] }))
-  const { events, agent } = setup(loop)
-  ;(agent as unknown as { maxSteps: number }).maxSteps = 3
+  const { events, agent } = setup(loop, 'default', 3)
   await agent.run('x', new AbortController().signal)
-  expect(events.at(-1)?.type).toBe('stepLimit')
+  expect(events.at(-1)).toEqual({ type: 'stepLimit', maxSteps: 3 })
+})
+
+test('has no default step limit', async () => {
+  const loop = Array.from({ length: 55 }, () => ({ text: '', toolCalls: [], finishReason: 'continue' as const }))
+  const { events, provider, agent } = setup([...loop, reply('done')])
+  await agent.run('x', new AbortController().signal)
+  expect(provider.requests).toHaveLength(56)
+  expect(events.some((event) => event.type === 'stepLimit')).toBe(false)
+  expect(events.at(-1)?.type).toBe('done')
 })
 
 test('provider errors become an error event', async () => {

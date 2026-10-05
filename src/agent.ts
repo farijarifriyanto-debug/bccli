@@ -16,7 +16,7 @@ export type AgentEvent =
   | { type: 'toolEnd'; id: string; tool: string; output: string; display?: string; isError: boolean }
   | { type: 'usage'; inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheWriteTokens?: number }
   | { type: 'compacted' }
-  | { type: 'stepLimit' }
+  | { type: 'stepLimit'; maxSteps: number }
   | { type: 'aborted' }
   | { type: 'error'; message: string }
   | { type: 'done' }
@@ -33,7 +33,7 @@ export interface AgentOptions {
   systemPrompt: string
   cwd: string
   history?: ChatMessage[]
-  maxSteps?: number
+  maxSteps?: number | null
   contextWindow?: number
   onMessage?: (message: ChatMessage) => void
   onReset?: () => void
@@ -73,7 +73,7 @@ export class Agent {
   private turnDefinitions: ToolDefinition[]
   private readonly readFiles = new Set<string>()
   private readonly webBudget = new WebBudget()
-  private readonly maxSteps: number
+  private readonly maxSteps?: number
   // ponytail: one window for every model; read it from /v1/models metadata when providers expose it.
   private readonly contextWindow: number
   private systemPrompt: string
@@ -86,7 +86,10 @@ export class Agent {
     this.turnTools = this.tools
     this.turnDefinitions = this.definitions
     this.messages = [...(opts.history ?? [])]
-    this.maxSteps = opts.maxSteps ?? 50
+    this.maxSteps =
+      typeof opts.maxSteps === 'number' && Number.isFinite(opts.maxSteps) && opts.maxSteps > 0
+        ? Math.max(1, Math.floor(opts.maxSteps))
+        : undefined
     this.contextWindow = opts.contextWindow ?? 128_000
     this.systemPrompt = opts.systemPrompt
     this.reasoning = opts.reasoning ?? 'auto'
@@ -166,7 +169,7 @@ export class Agent {
     try {
       if (this.lastInputTokens > this.contextWindow * 0.8 && !hasPendingProgrammaticReplay(this.messages)) await this.compact(signal)
       this.push({ role: 'user', content: text })
-      for (let step = 0; step < this.maxSteps; step++) {
+      for (let step = 0; this.maxSteps === undefined || step < this.maxSteps; step++) {
         if (step > 0 && this.lastInputTokens > this.contextWindow * 0.8 && !hasPendingProgrammaticReplay(this.messages)) {
           await this.compact(signal)
           // The summary ends with an assistant turn; restate the task so the model has something to answer.
@@ -257,7 +260,7 @@ export class Agent {
           return
         }
       }
-      this.onEvent({ type: 'stepLimit' })
+      if (this.maxSteps !== undefined) this.onEvent({ type: 'stepLimit', maxSteps: this.maxSteps })
     } catch (error) {
       if (signal.aborted) {
         this.onEvent({ type: 'aborted' })
