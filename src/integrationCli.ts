@@ -5,7 +5,7 @@ import type { CliArgs } from './args'
 import { bccliHome, ConfigError, loadConfig, readCredentials, resolveModel } from './config'
 import { t } from './i18n'
 
-type IntegrationTarget = 'opencode' | 'aider' | 'cline' | 'deepseek-harness' | 'cursor' | 'openai-cli' | 'openai-sdk' | 'openai-compatible' | 'codex' | 'claude-code'
+type IntegrationTarget = 'opencode' | 'aider' | 'cline' | 'deepseek-harness' | 'cursor' | 'openai-cli' | 'openai-sdk' | 'openai-compatible' | 'codex' | 'claude-code' | 'hermes' | 'openclaw'
 
 export interface IntegrationDeps {
   env: NodeJS.ProcessEnv
@@ -40,11 +40,11 @@ function parseTarget(raw: string | undefined): IntegrationTarget {
   if (
     raw === 'opencode' || raw === 'aider' || raw === 'cline' || raw === 'deepseek-harness' ||
     raw === 'cursor' || raw === 'openai-cli' || raw === 'openai-sdk' || raw === 'openai-compatible' ||
-    raw === 'codex' || raw === 'claude-code'
+    raw === 'codex' || raw === 'claude-code' || raw === 'hermes' || raw === 'openclaw'
   ) return raw
   if (raw === 'dsh') return 'deepseek-harness'
   throw new ConfigError(
-    t('Agent must be one of: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code'),
+    t('Agent must be one of: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code, hermes, openclaw'),
   )
 }
 
@@ -87,7 +87,19 @@ function readState(target: IntegrationTarget, env: NodeJS.ProcessEnv): StateReco
   try { return JSON.parse(readFileSync(path, 'utf8')) as StateRecord } catch { return null }
 }
 
-async function botConnectorModels(deps: IntegrationDeps): Promise<string[]> {
+interface BotConnectorModelEntry {
+  id: string
+  name?: string
+  context?: number
+  context_window?: number
+  contextWindow?: number
+  max_tokens?: number
+  maxTokens?: number
+  capabilities?: string[]
+  input?: string[]
+}
+
+async function botConnectorCatalog(deps: IntegrationDeps): Promise<BotConnectorModelEntry[]> {
   const config = loadConfig(deps.cwd, deps.env)
   const resolved = resolveModel(config, config.model, deps.env)
   const key = readCredentials(deps.env)['bc-cloud'] || resolved.apiKey
@@ -98,8 +110,32 @@ async function botConnectorModels(deps: IntegrationDeps): Promise<string[]> {
     headers: { authorization: `Bearer ${key}` },
   })
   if (!response.ok) throw new ConfigError(t('Could not load the BotConnector model catalog (HTTP {status}).', { status: response.status }))
-  const payload = await response.json() as { data?: Array<{ id?: string }> }
-  return (payload.data ?? []).map((item) => item.id).filter((id): id is string => typeof id === 'string' && !!id)
+  const payload = await response.json() as { data?: Array<Record<string, unknown>> }
+  return (payload.data ?? []).flatMap((item) => {
+    const id = typeof item.id === 'string' ? item.id : ''
+    if (!id) return []
+    const capabilities = Array.isArray(item.capabilities)
+      ? item.capabilities.filter((v): v is string => typeof v === 'string')
+      : undefined
+    const input = Array.isArray(item.input)
+      ? item.input.filter((v): v is string => typeof v === 'string')
+      : undefined
+    return [{
+      id,
+      name: typeof item.name === 'string' ? item.name : undefined,
+      context: typeof item.context === 'number' ? item.context : undefined,
+      context_window: typeof item.context_window === 'number' ? item.context_window : undefined,
+      contextWindow: typeof item.contextWindow === 'number' ? item.contextWindow : undefined,
+      max_tokens: typeof item.max_tokens === 'number' ? item.max_tokens : undefined,
+      maxTokens: typeof item.maxTokens === 'number' ? item.maxTokens : undefined,
+      capabilities,
+      input,
+    }]
+  })
+}
+
+async function botConnectorModels(deps: IntegrationDeps): Promise<string[]> {
+  return (await botConnectorCatalog(deps)).map((item) => item.id)
 }
 
 async function connectOpenCode(deps: IntegrationDeps): Promise<void> {
@@ -563,6 +599,167 @@ async function connectClaudeCode(deps: IntegrationDeps): Promise<void> {
   deps.out(`Default coding model: ${model}`)
 }
 
+const HERMES_ENV_BEGIN = '# BEGIN BCCLI BOTCONNECTOR'
+const HERMES_ENV_END = '# END BCCLI BOTCONNECTOR'
+const OPENCLAW_ENV_BEGIN = '# BEGIN BCCLI BOTCONNECTOR'
+const OPENCLAW_ENV_END = '# END BCCLI BOTCONNECTOR'
+
+function stripEnvManagedBlock(input: string, begin: string, endMarker: string): string {
+  const start = input.indexOf(begin)
+  if (start < 0) return input
+  const end = input.indexOf(endMarker, start)
+  if (end < 0) return input
+  const after = end + endMarker.length
+  const left = input.slice(0, start).trimEnd()
+  const right = input.slice(after).trimStart()
+  return right ? `${left}\n${right}` : left
+}
+
+function integrationDefaultModel(models: string[], deps: IntegrationDeps): string {
+  const config = loadConfig(deps.cwd, deps.env)
+  const preferred = config.model.startsWith('bc-cloud/') ? config.model.slice('bc-cloud/'.length) : ''
+  if (preferred && models.includes(preferred)) return preferred
+  for (const id of ['agnes-3.0-flash', 'glm-5.3-flash', 'ling-3.0-flash-sante', 'mimo-v2.6-flash']) {
+    if (models.includes(id)) return id
+  }
+  const first = models[0]
+  if (!first) throw new ConfigError(t('The BotConnector catalog has no model that external agents can use.'))
+  return first
+}
+
+async function connectHermes(deps: IntegrationDeps): Promise<void> {
+  if (readState('hermes', deps.env)) disconnect('hermes', deps)
+
+  const home = homeDir(deps.env)
+  const hermesHome = deps.env.HERMES_HOME || join(home, '.hermes')
+  const configPath = join(hermesHome, 'config.yaml')
+  const envPath = join(hermesHome, '.env')
+  const configBackup = safeBackup(configPath, deps.env)
+  const envBackup = safeBackup(envPath, deps.env)
+  const secret = ensureSecret(deps.env)
+  const key = readFileSync(secret, 'utf8').trim()
+  const models = await botConnectorModels(deps)
+  const model = integrationDefaultModel(models, deps)
+
+  const source = existsSync(configPath) ? readFileSync(configPath, 'utf8') : '{}\n'
+  const doc = parseDocument(source)
+  if (doc.errors.length) throw new ConfigError(t('The Hermes config is not valid YAML: {path}', { path: configPath }))
+
+  doc.setIn(['model', 'default'], model)
+  doc.setIn(['model', 'provider'], 'custom')
+  doc.setIn(['model', 'base_url'], BASE_URL)
+  doc.setIn(['model', 'key_env'], 'BOTCONNECTOR_API_KEY')
+  doc.deleteIn(['model', 'api_key'])
+
+  for (const task of ['vision', 'web_extract', 'approval']) {
+    const provider = doc.getIn(['auxiliary', task, 'provider'])
+    const baseUrl = doc.getIn(['auxiliary', task, 'base_url'])
+    if (!provider && !baseUrl) doc.setIn(['auxiliary', task, 'provider'], 'main')
+  }
+
+  let envText = existsSync(envPath) ? readFileSync(envPath, 'utf8') : ''
+  envText = stripEnvManagedBlock(envText, HERMES_ENV_BEGIN, HERMES_ENV_END)
+  if (/^\s*BOTCONNECTOR_API_KEY\s*=/m.test(envText)) {
+    throw new ConfigError(t('Hermes .env already has BOTCONNECTOR_API_KEY outside the BCCLI block: {path}', { path: envPath }))
+  }
+  const managed = [HERMES_ENV_BEGIN, `BOTCONNECTOR_API_KEY=${key}`, HERMES_ENV_END].join('\n')
+  const mergedEnv = envText.trim() ? `${envText.trimEnd()}\n\n${managed}\n` : `${managed}\n`
+
+  mkdirSync(hermesHome, { recursive: true })
+  writeFileSync(configPath, doc.toString())
+  writeFileSync(envPath, mergedEnv, { mode: 0o600 })
+  try { chmodSync(envPath, 0o600) } catch {}
+
+  writeState('hermes', {
+    target: 'hermes',
+    files: [{ path: configPath, ...configBackup }, { path: envPath, ...envBackup }],
+    createdAt: new Date().toISOString(),
+  }, deps.env)
+  deps.out(t('Hermes is connected to BotConnector ({n} models available; default {model}).', { n: models.length, model }))
+  deps.out(`Config: ${configPath}`)
+  deps.out('Provider: custom (OpenAI Chat Completions)')
+  deps.out('Auxiliary tasks without an existing override use provider: main.')
+}
+
+function openClawModelRow(entry: BotConnectorModelEntry): Record<string, unknown> {
+  const capabilities = new Set((entry.capabilities ?? []).map((v) => v.toLowerCase()))
+  const declaredInput = new Set((entry.input ?? []).map((v) => v.toLowerCase()))
+  const vision = capabilities.has('vision') || capabilities.has('image') || declaredInput.has('image')
+  const row: Record<string, unknown> = {
+    id: entry.id,
+    name: entry.name || entry.id,
+    reasoning: capabilities.has('reasoning'),
+    input: vision ? ['text', 'image'] : ['text'],
+  }
+  const contextWindow = entry.contextWindow ?? entry.context_window ?? entry.context
+  const maxTokens = entry.maxTokens ?? entry.max_tokens
+  if (typeof contextWindow === 'number' && Number.isFinite(contextWindow) && contextWindow > 0) row.contextWindow = contextWindow
+  if (typeof maxTokens === 'number' && Number.isFinite(maxTokens) && maxTokens > 0) row.maxTokens = maxTokens
+  return row
+}
+
+async function connectOpenClaw(deps: IntegrationDeps): Promise<void> {
+  if (readState('openclaw', deps.env)) disconnect('openclaw', deps)
+
+  const home = homeDir(deps.env)
+  const stateDir = deps.env.OPENCLAW_STATE_DIR || join(home, '.openclaw')
+  const agentDir = deps.env.OPENCLAW_AGENT_DIR || join(stateDir, 'agents', deps.env.OPENCLAW_AGENT_ID || 'main', 'agent')
+  const modelsPath = join(agentDir, 'models.json')
+  const envPath = join(stateDir, '.env')
+  const modelsBackup = safeBackup(modelsPath, deps.env)
+  const envBackup = safeBackup(envPath, deps.env)
+  const secret = ensureSecret(deps.env)
+  const key = readFileSync(secret, 'utf8').trim()
+  const catalog = await botConnectorCatalog(deps)
+  const model = integrationDefaultModel(catalog.map((item) => item.id), deps)
+
+  let doc: Record<string, unknown> = { providers: {} }
+  if (existsSync(modelsPath)) {
+    try { doc = JSON.parse(readFileSync(modelsPath, 'utf8')) as Record<string, unknown> }
+    catch { throw new ConfigError(t('The OpenClaw models.json is not valid JSON: {path}', { path: modelsPath })) }
+  }
+  const providers = (doc.providers && typeof doc.providers === 'object' && !Array.isArray(doc.providers))
+    ? { ...(doc.providers as Record<string, unknown>) }
+    : {}
+  const current = providers[PROVIDER_ID] as { baseUrl?: string } | undefined
+  if (current?.baseUrl && current.baseUrl.replace(/\/+$/, '') !== BASE_URL) {
+    throw new ConfigError(t('OpenClaw already has a provider "{id}" with a different endpoint.', { id: PROVIDER_ID }))
+  }
+
+  providers[PROVIDER_ID] = {
+    baseUrl: BASE_URL,
+    apiKey: { source: 'env', provider: 'default', id: 'BOTCONNECTOR_API_KEY' },
+    api: 'openai-completions',
+    models: catalog.map(openClawModelRow),
+  }
+  doc.providers = providers
+
+  let envText = existsSync(envPath) ? readFileSync(envPath, 'utf8') : ''
+  envText = stripEnvManagedBlock(envText, OPENCLAW_ENV_BEGIN, OPENCLAW_ENV_END)
+  if (/^\s*BOTCONNECTOR_API_KEY\s*=/m.test(envText)) {
+    throw new ConfigError(t('OpenClaw .env already has BOTCONNECTOR_API_KEY outside the BCCLI block: {path}', { path: envPath }))
+  }
+  const managed = [OPENCLAW_ENV_BEGIN, `BOTCONNECTOR_API_KEY=${key}`, OPENCLAW_ENV_END].join('\n')
+  const mergedEnv = envText.trim() ? `${envText.trimEnd()}\n\n${managed}\n` : `${managed}\n`
+
+  mkdirSync(dirname(modelsPath), { recursive: true })
+  mkdirSync(stateDir, { recursive: true })
+  writeFileSync(modelsPath, `${JSON.stringify(doc, null, 2)}\n`, { mode: 0o600 })
+  writeFileSync(envPath, mergedEnv, { mode: 0o600 })
+  try { chmodSync(modelsPath, 0o600) } catch {}
+  try { chmodSync(envPath, 0o600) } catch {}
+
+  writeState('openclaw', {
+    target: 'openclaw',
+    files: [{ path: modelsPath, ...modelsBackup }, { path: envPath, ...envBackup }],
+    createdAt: new Date().toISOString(),
+  }, deps.env)
+  deps.out(t('OpenClaw is connected to BotConnector ({n} models available; suggested default {model}).', { n: catalog.length, model }))
+  deps.out(`Models: ${modelsPath}`)
+  deps.out('Provider: botconnector (openai-completions)')
+  deps.out(`Set default: openclaw models set botconnector/${model}`)
+}
+
 function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {
   const state = readState(target, deps.env)
   if (!state) {
@@ -582,7 +779,7 @@ function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {
 }
 
 function listIntegrations(deps: IntegrationDeps): void {
-  for (const target of ['opencode', 'aider', 'cline', 'deepseek-harness', 'cursor', 'openai-cli', 'openai-sdk', 'openai-compatible', 'codex', 'claude-code'] as const) {
+  for (const target of ['opencode', 'aider', 'cline', 'deepseek-harness', 'cursor', 'openai-cli', 'openai-sdk', 'openai-compatible', 'codex', 'claude-code', 'hermes', 'openclaw'] as const) {
     deps.out(`${target}\t${readState(target, deps.env) ? 'connected' : 'not connected'}`)
   }
 }
@@ -606,6 +803,8 @@ export async function runIntegrationCommand(args: CliArgs, deps: IntegrationDeps
   else if (target === 'openai-sdk') await connectOpenAiSdk(deps)
   else if (target === 'openai-compatible') await connectOpenAiCompatible(deps)
   else if (target === 'codex') await connectCodex(deps)
-  else await connectClaudeCode(deps)
+  else if (target === 'claude-code') await connectClaudeCode(deps)
+  else if (target === 'hermes') await connectHermes(deps)
+  else await connectOpenClaw(deps)
   return 0
 }
