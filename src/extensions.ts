@@ -110,6 +110,11 @@ export function loadAgentDefs(r: ExtensionRoots): AgentDef[] {
               .map((s) => s.trim())
               .filter(Boolean)
       if (data.model) def.model = str(data.model)
+      const rawMaxSteps = str(data.maxSteps ?? data['max-steps'])
+      if (rawMaxSteps) {
+        const maxSteps = Number(rawMaxSteps)
+        if (Number.isFinite(maxSteps) && maxSteps > 0) def.maxSteps = Math.max(1, Math.floor(maxSteps))
+      }
       byName.set(name, def)
     }
   }

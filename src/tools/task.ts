@@ -59,7 +59,7 @@ export function createTaskTool(opts: TaskToolOptions): Tool {
         permissions: opts.permissions,
         systemPrompt: `${typeof opts.systemPrompt === 'function' ? opts.systemPrompt(def.model) : opts.systemPrompt}\n\n# Your role\n${def.prompt}`,
         cwd: opts.cwd,
-        maxSteps: def.maxSteps ?? 50,
+        maxSteps: def.maxSteps,
         label: def.name,
         reasoning: opts.reasoning?.() ?? 'auto',
         // Subagent edits belong to the parent's turn so /undo reverts them too.
@@ -81,7 +81,7 @@ export function createTaskTool(opts: TaskToolOptions): Tool {
       if (outcome?.type === 'aborted') return { output: `Subagent ${def.name} was cancelled.`, isError: true, display }
       const last = [...child.messages].reverse().find((m) => m.role === 'assistant' && m.content)
       const report = last && typeof last.content === 'string' ? last.content : '(no report)'
-      const suffix = outcome?.type === 'stepLimit' ? `\n\n(The subagent stopped at its ${def.maxSteps ?? 50}-step limit.)` : ''
+      const suffix = outcome?.type === 'stepLimit' ? `\n\n(The subagent stopped at its ${outcome.maxSteps}-step limit.)` : ''
       return { output: report + suffix, display }
     },
   }) as Tool
