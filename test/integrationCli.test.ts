@@ -265,3 +265,109 @@ test('connect claude-code creates Messages launcher without embedding key', asyn
   await runIntegrationCommand(parseCliArgs(['disconnect', 'claude-code']), deps)
   expect(() => readFileSync(launcherPath, 'utf8')).toThrow()
 })
+
+
+test('connect hermes writes custom BotConnector model config and keeps the key out of YAML', async () => {
+  const e = env()
+  const hermesHome = join(e.HOME, '.hermes-test')
+  const ee = { ...e, HERMES_HOME: hermesHome }
+  saveCredential('bc-cloud', 'bc_live_secret', ee)
+  mkdirSync(hermesHome, { recursive: true })
+  const configPath = join(hermesHome, 'config.yaml')
+  const envPath = join(hermesHome, '.env')
+  const originalConfig = 'other: keep\n'
+  const originalEnv = 'OTHER=value\n'
+  writeFileSync(configPath, originalConfig)
+  writeFileSync(envPath, originalEnv)
+
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [
+      { id: 'agnes-3.0-flash', capabilities: ['Tools', 'Vision', 'Reasoning'], context: 524288 },
+      { id: 'glm-5.3-flash' },
+    ],
+  }), { status: 200 }))
+  const output: string[] = []
+  const deps = { env: ee, cwd: e.HOME, out: (line: string) => output.push(line), err: () => {}, fetch }
+
+  await runIntegrationCommand(parseCliArgs(['connect', 'hermes']), deps)
+
+  const yaml = readFileSync(configPath, 'utf8')
+  const henv = readFileSync(envPath, 'utf8')
+  expect(yaml).toContain('other: keep')
+  expect(yaml).toContain('provider: custom')
+  expect(yaml).toContain('base_url: https://api.botconnector.id/v1')
+  expect(yaml).toContain('key_env: BOTCONNECTOR_API_KEY')
+  expect(yaml).toContain('default: agnes-3.0-flash')
+  expect(yaml).toContain('provider: main')
+  expect(yaml).not.toContain('bc_live_secret')
+  expect(henv).toContain('OTHER=value')
+  expect(henv).toContain('BOTCONNECTOR_API_KEY=bc_live_secret')
+  expect(output.some((line) => line.includes('Hermes'))).toBe(true)
+
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'hermes']), deps)
+  expect(readFileSync(configPath, 'utf8')).toBe(originalConfig)
+  expect(readFileSync(envPath, 'utf8')).toBe(originalEnv)
+})
+
+test('connect openclaw merges BotConnector provider with SecretRef and model metadata', async () => {
+  const e = env()
+  const stateDir = join(e.HOME, '.openclaw-test')
+  const ee = { ...e, OPENCLAW_STATE_DIR: stateDir, OPENCLAW_AGENT_ID: 'main' }
+  saveCredential('bc-cloud', 'bc_live_secret', ee)
+  const agentDir = join(stateDir, 'agents', 'main', 'agent')
+  mkdirSync(agentDir, { recursive: true })
+  const modelsPath = join(agentDir, 'models.json')
+  const envPath = join(stateDir, '.env')
+  const originalModels = JSON.stringify({
+    providers: {
+      keep: { baseUrl: 'https://keep.example/v1', api: 'openai-completions', models: [{ id: 'keep-model' }] },
+    },
+  }, null, 2) + '\n'
+  const originalEnv = 'OTHER=value\n'
+  writeFileSync(modelsPath, originalModels)
+  writeFileSync(envPath, originalEnv)
+
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [
+      {
+        id: 'agnes-3.0-flash',
+        name: 'Agnes 3.0 Flash',
+        capabilities: ['Tools', 'Vision', 'Reasoning'],
+        context: 524288,
+        max_tokens: 32768,
+      },
+      { id: 'glm-5.3-flash', capabilities: ['Tools'] },
+    ],
+  }), { status: 200 }))
+  const output: string[] = []
+  const deps = { env: ee, cwd: e.HOME, out: (line: string) => output.push(line), err: () => {}, fetch }
+
+  await runIntegrationCommand(parseCliArgs(['connect', 'openclaw']), deps)
+
+  const doc = JSON.parse(readFileSync(modelsPath, 'utf8'))
+  const provider = doc.providers.botconnector
+  expect(doc.providers.keep).toBeTruthy()
+  expect(provider.baseUrl).toBe('https://api.botconnector.id/v1')
+  expect(provider.api).toBe('openai-completions')
+  expect(provider.apiKey).toEqual({ source: 'env', provider: 'default', id: 'BOTCONNECTOR_API_KEY' })
+  expect(provider.models[0]).toMatchObject({
+    id: 'agnes-3.0-flash',
+    name: 'Agnes 3.0 Flash',
+    reasoning: true,
+    input: ['text', 'image'],
+    contextWindow: 524288,
+    maxTokens: 32768,
+  })
+  expect(readFileSync(modelsPath, 'utf8')).not.toContain('bc_live_secret')
+  expect(readFileSync(envPath, 'utf8')).toContain('BOTCONNECTOR_API_KEY=bc_live_secret')
+  expect(output).toContain('Set default: openclaw models set botconnector/agnes-3.0-flash')
+
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'openclaw']), deps)
+  expect(readFileSync(modelsPath, 'utf8')).toBe(originalModels)
+  expect(readFileSync(envPath, 'utf8')).toBe(originalEnv)
+})
+
+test('parses hermes and openclaw integration targets', () => {
+  expect(parseCliArgs(['connect', 'hermes']).subArgs).toEqual(['hermes'])
+  expect(parseCliArgs(['connect', 'openclaw']).subArgs).toEqual(['openclaw'])
+})
