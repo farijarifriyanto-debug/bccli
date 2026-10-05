@@ -296,7 +296,7 @@ test('connect hermes writes custom BotConnector model config and keeps the key o
   expect(yaml).toContain('other: keep')
   expect(yaml).toContain('provider: custom')
   expect(yaml).toContain('base_url: https://api.botconnector.id/v1')
-  expect(yaml).toContain('key_env: BOTCONNECTOR_API_KEY')
+  expect(yaml).toContain('api_key: ${BOTCONNECTOR_API_KEY}')
   expect(yaml).toContain('default: glm-5.3-flash')
   expect(yaml).toContain('provider: main')
   expect(yaml).not.toContain('bc_live_secret')
@@ -309,21 +309,20 @@ test('connect hermes writes custom BotConnector model config and keeps the key o
   expect(readFileSync(envPath, 'utf8')).toBe(originalEnv)
 })
 
-test('connect openclaw merges BotConnector provider with SecretRef and model metadata', async () => {
+test('connect openclaw configures source config via CLI, SecretRef, and model metadata', async () => {
   const e = env()
   const stateDir = join(e.HOME, '.openclaw-test')
   const ee = { ...e, OPENCLAW_STATE_DIR: stateDir, OPENCLAW_AGENT_ID: 'main' }
   saveCredential('bc-cloud', 'bc_live_secret', ee)
   const agentDir = join(stateDir, 'agents', 'main', 'agent')
   mkdirSync(agentDir, { recursive: true })
+  const configPath = join(stateDir, 'openclaw.json')
   const modelsPath = join(agentDir, 'models.json')
   const envPath = join(stateDir, '.env')
-  const originalModels = JSON.stringify({
-    providers: {
-      keep: { baseUrl: 'https://keep.example/v1', api: 'openai-completions', models: [{ id: 'keep-model' }] },
-    },
-  }, null, 2) + '\n'
+  const originalConfig = '{"existing":true}\n'
+  const originalModels = '{"providers":{"keep":{"baseUrl":"https://keep.example/v1"}}}\n'
   const originalEnv = 'OTHER=value\n'
+  writeFileSync(configPath, originalConfig)
   writeFileSync(modelsPath, originalModels)
   writeFileSync(envPath, originalEnv)
 
@@ -339,17 +338,30 @@ test('connect openclaw merges BotConnector provider with SecretRef and model met
       { id: 'glm-5.3-flash', capabilities: ['Tools'] },
     ],
   }), { status: 200 }))
+  const run = vi.fn((command: string, args: string[], processEnv: NodeJS.ProcessEnv) => {
+    expect(command).toBe('openclaw')
+    expect(processEnv.BOTCONNECTOR_API_KEY).toBe('bc_live_secret')
+    if (args[0] === 'config' && args[1] === 'set' && args[2] === 'models.providers.botconnector') {
+      // Simulate OpenClaw updating source config + generated agent registry.
+      writeFileSync(configPath, '{"changed":true}\n')
+      writeFileSync(modelsPath, '{"generated":true}\n')
+    }
+    return { status: 0, stdout: '', stderr: '' }
+  })
   const output: string[] = []
-  const deps = { env: ee, cwd: e.HOME, out: (line: string) => output.push(line), err: () => {}, fetch }
+  const deps = { env: ee, cwd: e.HOME, out: (line: string) => output.push(line), err: () => {}, fetch, run }
 
   await runIntegrationCommand(parseCliArgs(['connect', 'openclaw']), deps)
 
-  const doc = JSON.parse(readFileSync(modelsPath, 'utf8'))
-  const provider = doc.providers.botconnector
-  expect(doc.providers.keep).toBeTruthy()
+  expect(run).toHaveBeenCalledTimes(3)
+  const providerArgs = run.mock.calls[0][1] as string[]
+  expect(providerArgs.slice(0, 3)).toEqual(['config', 'set', 'models.providers.botconnector'])
+  expect(providerArgs).toContain('--strict-json')
+  expect(providerArgs).toContain('--merge')
+  const provider = JSON.parse(providerArgs[3])
   expect(provider.baseUrl).toBe('https://api.botconnector.id/v1')
   expect(provider.api).toBe('openai-completions')
-  expect(provider.apiKey).toEqual({ source: 'env', provider: 'default', id: 'BOTCONNECTOR_API_KEY' })
+  expect(provider.apiKey).toBeUndefined()
   expect(provider.models[0]).toMatchObject({
     id: 'agnes-3.0-flash',
     name: 'Agnes 3.0 Flash',
@@ -358,11 +370,22 @@ test('connect openclaw merges BotConnector provider with SecretRef and model met
     contextWindow: 524288,
     maxTokens: 32768,
   })
+
+  const secretArgs = run.mock.calls[1][1] as string[]
+  expect(secretArgs).toEqual([
+    'config', 'set', 'models.providers.botconnector.apiKey',
+    '--ref-provider', 'default',
+    '--ref-source', 'env',
+    '--ref-id', 'BOTCONNECTOR_API_KEY',
+  ])
+  expect(run.mock.calls[2][1]).toEqual(['config', 'validate'])
+  expect(readFileSync(configPath, 'utf8')).not.toContain('bc_live_secret')
   expect(readFileSync(modelsPath, 'utf8')).not.toContain('bc_live_secret')
   expect(readFileSync(envPath, 'utf8')).toContain('BOTCONNECTOR_API_KEY=bc_live_secret')
   expect(output).toContain('Set default: openclaw models set botconnector/glm-5.3-flash')
 
   await runIntegrationCommand(parseCliArgs(['disconnect', 'openclaw']), deps)
+  expect(readFileSync(configPath, 'utf8')).toBe(originalConfig)
   expect(readFileSync(modelsPath, 'utf8')).toBe(originalModels)
   expect(readFileSync(envPath, 'utf8')).toBe(originalEnv)
 })
