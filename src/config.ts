@@ -18,6 +18,8 @@ export interface Config {
   model: string
   permissionMode: PermissionMode
   reasoning: ReasoningLevel
+  /** Tool-call steps per turn before the agent pauses (minimum 1); default 50. */
+  maxSteps?: number
   /** Interface language; only the global config is read for it. */
   language?: Lang
   providers: Record<string, ProviderConfig>

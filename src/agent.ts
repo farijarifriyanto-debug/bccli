@@ -16,7 +16,7 @@ export type AgentEvent =
   | { type: 'toolEnd'; id: string; tool: string; output: string; display?: string; isError: boolean }
   | { type: 'usage'; inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheWriteTokens?: number }
   | { type: 'compacted' }
-  | { type: 'stepLimit' }
+  | { type: 'stepLimit'; maxSteps?: number }
   | { type: 'aborted' }
   | { type: 'error'; message: string }
   | { type: 'done' }
@@ -86,7 +86,7 @@ export class Agent {
     this.turnTools = this.tools
     this.turnDefinitions = this.definitions
     this.messages = [...(opts.history ?? [])]
-    this.maxSteps = opts.maxSteps ?? 50
+    this.maxSteps = Math.max(1, Math.floor(opts.maxSteps ?? 50))
     this.contextWindow = opts.contextWindow ?? 128_000
     this.systemPrompt = opts.systemPrompt
     this.reasoning = opts.reasoning ?? 'auto'
@@ -257,7 +257,7 @@ export class Agent {
           return
         }
       }
-      this.onEvent({ type: 'stepLimit' })
+      this.onEvent({ type: 'stepLimit', maxSteps: this.maxSteps })
     } catch (error) {
       if (signal.aborted) {
         this.onEvent({ type: 'aborted' })

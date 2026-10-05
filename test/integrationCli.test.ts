@@ -265,3 +265,117 @@ test('connect claude-code creates Messages launcher without embedding key', asyn
   await runIntegrationCommand(parseCliArgs(['disconnect', 'claude-code']), deps)
   expect(() => readFileSync(launcherPath, 'utf8')).toThrow()
 })
+
+test('connect openclaw uses env SecretRef, dynamic models, and no context-window guesses', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  const clawHome = join(e.HOME, '.openclaw')
+  mkdirSync(clawHome, { recursive: true })
+  const configPath = join(clawHome, 'openclaw.json')
+  writeFileSync(configPath, JSON.stringify({ gateway: { mode: 'local' } }))
+
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [{ id: 'glm-5.3-flash' }, { id: 'gpt-oss-20b' }],
+  }), { status: 200 }))
+  const deps = { env: e, cwd: e.HOME, out: () => {}, err: () => {}, fetch }
+  await runIntegrationCommand(parseCliArgs(['connect', 'openclaw']), deps)
+
+  const doc = JSON.parse(readFileSync(configPath, 'utf8'))
+  expect(doc.gateway.mode).toBe('local')
+  const bc = doc.models.providers.botconnector
+  expect(bc.baseUrl).toBe('https://api.botconnector.id/v1')
+  expect(bc.api).toBe('openai-completions')
+  // Key must be a SecretRef, never plaintext
+  expect(bc.apiKey).toEqual({ source: 'env', provider: 'botconnector', id: 'BOTCONNECTOR_API_KEY' })
+  // Dynamic model list mirrored from the live catalog
+  expect(bc.models).toEqual([
+    { id: 'glm-5.3-flash', name: 'glm-5.3-flash' },
+    { id: 'gpt-oss-20b', name: 'gpt-oss-20b' },
+  ])
+  // No guessed context or output limits
+  expect(JSON.stringify(bc.models)).not.toContain('contextWindow')
+  expect(JSON.stringify(bc.models)).not.toContain('maxTokens')
+  expect(readFileSync(configPath, 'utf8')).not.toContain('bc_live_secret')
+
+  // Disconnect restores the original config exactly
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'openclaw']), deps)
+  expect(readFileSync(configPath, 'utf8')).toBe('{"gateway":{"mode":"local"}}')
+})
+
+test('connect openclaw refuses to overwrite a different botconnector endpoint', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  const clawHome = join(e.HOME, '.openclaw')
+  mkdirSync(clawHome, { recursive: true })
+  writeFileSync(join(clawHome, 'openclaw.json'), JSON.stringify({
+    models: { providers: { botconnector: { baseUrl: 'https://other.example/v1', models: [{ id: 'x', name: 'x' }] } } },
+  }))
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [{ id: 'glm-5.3-flash' }],
+  }), { status: 200 }))
+  await expect(runIntegrationCommand(parseCliArgs(['connect', 'openclaw']), {
+    env: e, cwd: e.HOME, out: () => {}, err: () => {}, fetch,
+  })).rejects.toThrow(/tidak akan menimpanya/)
+})
+
+test('connect hermes writes key_env-only yaml with dynamic model map and restores on disconnect', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  const hermesHome = join(e.HOME, '.hermes-test')
+  const ee = { ...e, HERMES_HOME: hermesHome }
+  mkdirSync(hermesHome, { recursive: true })
+  const configPath = join(hermesHome, 'config.yaml')
+  const original = 'model:\n  default: something-else\n  provider: custom:other-cloud\n'
+  writeFileSync(configPath, original)
+
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [{ id: 'glm-5.3-flash' }, { id: 'agnes-3.0-flash' }],
+  }), { status: 200 }))
+  const deps = { env: ee, cwd: e.HOME, out: () => {}, err: () => {}, fetch }
+  await runIntegrationCommand(parseCliArgs(['connect', 'hermes']), deps)
+
+  const text = readFileSync(configPath, 'utf8')
+  expect(text).toContain('api: https://api.botconnector.id/v1')
+  expect(text).toContain('key_env: BOTCONNECTOR_API_KEY')
+  expect(text).toContain('transport: chat_completions')
+  expect(text).toContain('discover_models: true')
+  expect(text).toContain('glm-5.3-flash')
+  expect(text).toContain("provider: custom:botconnector-cloud")
+  // No plaintext key, no context-length hardcode
+  expect(text).not.toContain('bc_live_secret')
+  expect(text).not.toContain('context_length')
+  expect(text).not.toContain('131072')
+
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'hermes']), deps)
+  expect(readFileSync(configPath, 'utf8')).toBe(original)
+})
+
+test('connect hermes prefers the BCCLI bc-cloud model as the default when available', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  const hermesHome = join(e.HOME, '.hermes-test2')
+  const ee = { ...e, HERMES_HOME: hermesHome }
+  const model = 'ling-3.0-flash'
+  // write global config.json with model bc-cloud/<model>
+  mkdirSync(e.BCCLI_HOME, { recursive: true })
+  writeFileSync(join(e.BCCLI_HOME, 'config.json'), JSON.stringify({ model: `bc-cloud/${model}` }))
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [{ id: model }, { id: 'glm-5.3-flash' }],
+  }), { status: 200 }))
+  mkdirSync(hermesHome, { recursive: true })
+  await runIntegrationCommand(parseCliArgs(['connect', 'hermes']), {
+    env: ee, cwd: e.HOME, out: () => {}, err: () => {}, fetch,
+  })
+  const text = readFileSync(join(hermesHome, 'config.yaml'), 'utf8')
+  expect(text).toContain(`default_model: ${model}`)
+})
+
+test('integrations list includes openclaw and hermes', () => {
+  const e = env()
+  const output: string[] = []
+  runIntegrationCommand(parseCliArgs(['integrations']), {
+    env: e, cwd: e.HOME, out: (s: string) => output.push(s), err: () => {}, fetch: vi.fn(),
+  })
+  expect(output.join('\n')).toContain('openclaw\tnot connected')
+  expect(output.join('\n')).toContain('hermes\tnot connected')
+})
