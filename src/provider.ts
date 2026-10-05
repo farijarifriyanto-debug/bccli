@@ -988,10 +988,18 @@ export function createProvider(options: ProviderOptions): Provider {
       } catch (error) {
         const err = error instanceof ProviderError ? error : new ProviderError((error as Error).message)
         const lostPrevious = err.code === 'previous_response_not_found'
+        const handshakeStatus = /unexpected server response:\s*(\d{3})\b/i.exec(err.message)
+        const handshakeRejected = Boolean(handshakeStatus && Number(handshakeStatus[1]) >= 400)
         const connectionLost =
           /websocket|connection closed|socket|network/i.test(err.message) ||
           err.code === 'websocket_connection_limit_reached'
         resetLunaWebSocket()
+        // ws emits a bare "Unexpected server response: NNN" for rejected HTTP upgrades.
+        // Fall back immediately so BotConnector's HTTP Responses endpoint can return the structured reason
+        // (quota, auth, plan allowance, etc.) instead of leaking an opaque WebSocket handshake error.
+        if (!emittedText && !signal?.aborted && handshakeRejected) {
+          throw new ProviderError(err.message, Number(handshakeStatus?.[1]), 'bc_ws_http_fallback')
+        }
         if (
           attempt === 0 &&
           !emittedText &&
@@ -1025,7 +1033,9 @@ export function createProvider(options: ProviderOptions): Provider {
       if (res.ok) return res
       const text = await res.text().catch(() => '')
       lastError = new ProviderError(t('{status} from {url}: {message}', { status: res.status, url: baseURL, message: errorMessage(text) }), res.status)
-      if (!retryable(res.status)) throw lastError
+      const deterministicQuota429 =
+        res.status === 429 && /"code"\s*:\s*"(?:luna_monthly_quota_exhausted|plan_allowance_exhausted)"/i.test(text)
+      if (!retryable(res.status) || deterministicQuota429) throw lastError
     }
     throw lastError ?? new ProviderError(t('Request failed'))
   }

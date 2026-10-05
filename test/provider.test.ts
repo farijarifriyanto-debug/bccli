@@ -671,6 +671,56 @@ test('Luna Responses WebSocket falls back to HTTP SSE when the socket fails befo
   })
 })
 
+test('Luna Responses WebSocket rejected with HTTP 429 falls back immediately and surfaces the quota reason', async () => {
+  type WsFactory = NonNullable<Parameters<typeof createProvider>[0]['responsesWebSocketFactory']>
+  const wsFactory = vi.fn(
+    () =>
+      ({
+        send() {
+          throw new Error('Unexpected server response: 429')
+        },
+        stream() {
+          return {
+            async next() {
+              return { done: true, value: undefined }
+            },
+            [Symbol.asyncIterator]() {
+              return this
+            },
+          }
+        },
+        close() {},
+      }) as unknown as ReturnType<WsFactory>,
+  )
+  const f = vi.fn(async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          type: 'botconnector_error',
+          code: 'luna_monthly_quota_exhausted',
+          message: 'Kuota 1 juta token GPT-6 Luna bulan ini sudah habis.',
+        },
+      }),
+      { status: 429, headers: { 'content-type': 'application/json' } },
+    ),
+  )
+  const p = createProvider({
+    baseURL: 'https://api.botconnector.id/v1',
+    apiKey: 'bc_live_test_key',
+    model: 'gpt-6-luna',
+    providerId: 'bc-cloud',
+    fetch: f,
+    responsesWebSocketFactory: wsFactory,
+  })
+
+  await expect(p.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toMatchObject({
+    status: 429,
+    message: expect.stringContaining('Kuota 1 juta token GPT-6 Luna bulan ini sudah habis.'),
+  })
+  expect(wsFactory).toHaveBeenCalledTimes(1)
+  expect(f).toHaveBeenCalledTimes(1)
+})
+
 test('Luna Responses WebSocket does not replay through HTTP after partial text was emitted', async () => {
   type WsFactory = NonNullable<Parameters<typeof createProvider>[0]['responsesWebSocketFactory']>
   const envelopes = [
