@@ -141,6 +141,7 @@ export function createRuntime(opts: {
     cwd: opts.cwd,
     history,
     reasoning,
+    maxSteps: config.maxSteps,
     onMessage: (m) => session.append(m),
     onReset: () => session.reset(),
     onTurnStart: () => checkpoints.beginTurn(),

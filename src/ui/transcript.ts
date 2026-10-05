@@ -32,7 +32,7 @@ export const entry = (e: EntryInput): Entry => ({ ...e, id: nextId++ }) as Entry
 
 const NOTICES: Partial<Record<AgentEvent['type'], [string, 'info' | 'warn' | 'error']>> = {
   compacted: ['Conversation summarized to fit the model context.', 'info'],
-  stepLimit: ['Step limit of 50 reached. Type "continue" to keep going.', 'warn'],
+  stepLimit: ['Step limit of 50 reached (limit {n}). Type "continue" to keep going.', 'warn'],
   aborted: ['Cancelled.', 'warn'],
 }
 
@@ -128,6 +128,13 @@ export function applyEvent(t: Transcript, event: AgentEvent): Transcript {
     }
     case 'error':
       return { ...t, live: [...t.live, entry({ kind: 'notice', text: `Error: ${event.message}`, tone: 'error' })] }
+    case 'stepLimit': {
+      const limit = typeof event.maxSteps === 'number' ? event.maxSteps : 50
+      const notice = NOTICES.stepLimit
+      return notice
+        ? { ...t, live: [...t.live, entry({ kind: 'notice', text: translate(notice[0], { n: limit }), tone: notice[1] })] }
+        : t
+    }
     default: {
       const notice = NOTICES[event.type]
       return notice ? { ...t, live: [...t.live, entry({ kind: 'notice', text: translate(notice[0]), tone: notice[1] })] } : t
