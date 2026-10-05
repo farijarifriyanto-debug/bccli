@@ -96,7 +96,7 @@ Usage:
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>    manage MCP servers (catalog, or --url <url>)
   bccli integrations             show the status of external agent integrations
-  bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible
+  bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, hermes, openclaw, cursor, openai-cli, openai-sdk, openai-compatible
   bccli disconnect <agent>       remove an integration and restore the previous config
 
 Options:
@@ -119,7 +119,7 @@ Pemakaian:
   bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <nama>|remove <nama>    kelola server MCP (katalog, atau --url <url>)
   bccli integrations             lihat status integrasi agent eksternal
-  bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible
+  bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, hermes, openclaw, cursor, openai-cli, openai-sdk, openai-compatible
   bccli disconnect <agent>       lepas integrasi dan pulihkan config sebelumnya
 
 Opsi:
@@ -180,7 +180,7 @@ Opsi:
   '-p mode needs a task, e.g. bccli -p "explain this repo"': 'Mode -p butuh tugas, contoh: bccli -p "jelaskan repo ini"',
   'Project MCP server "{name}" skipped (not approved yet; run interactive bccli once to approve it).': 'Server MCP project "{name}" dilewati (belum diizinkan; jalankan bccli interaktif sekali untuk menyetujuinya).',
   'Interactive mode needs a terminal. For scripts/CI use: bccli -p "task"': 'Mode interaktif butuh terminal. Untuk skrip/CI pakai: bccli -p "tugas"',
-  'Agent must be one of: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code': 'Agent harus salah satu dari: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code',
+  'Agent must be one of: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code, hermes, openclaw': 'Agent harus salah satu dari: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code, hermes, openclaw',
   'Cannot determine the home directory.': 'Home directory tidak dapat ditentukan.',
   'No BotConnector API key yet. Run bccli login bc-cloud first.': 'API key BotConnector belum tersedia. Jalankan bccli login bc-cloud terlebih dahulu.',
   'Could not load the BotConnector model catalog (HTTP {status}).': 'Katalog model BotConnector gagal dimuat (HTTP {status}).',
@@ -204,6 +204,13 @@ Opsi:
   'Codex already has botconnector.config.toml. BCCLI will not overwrite it.': 'Codex sudah memiliki botconnector.config.toml. BCCLI tidak akan menimpanya.',
   'Codex CLI is connected to the BotConnector Responses API.': 'Codex CLI terhubung ke BotConnector Responses API.',
   'Claude Code is connected to the BotConnector Anthropic Messages compatibility API.': 'Claude Code terhubung ke BotConnector Anthropic Messages compatibility API.',
+  'The Hermes config is not valid YAML: {path}': 'Config Hermes tidak valid YAML: {path}',
+  'Hermes .env already has BOTCONNECTOR_API_KEY outside the BCCLI block: {path}': 'Hermes .env sudah memiliki BOTCONNECTOR_API_KEY di luar blok BCCLI: {path}',
+  'Hermes is connected to BotConnector ({n} models available; default {model}).': 'Hermes terhubung ke BotConnector ({n} model tersedia; default {model}).',
+  'The OpenClaw models.json is not valid JSON: {path}': 'models.json OpenClaw tidak valid JSON: {path}',
+  'OpenClaw already has a provider "{id}" with a different endpoint.': 'OpenClaw sudah memiliki provider "{id}" dengan endpoint lain.',
+  'OpenClaw .env already has BOTCONNECTOR_API_KEY outside the BCCLI block: {path}': 'OpenClaw .env sudah memiliki BOTCONNECTOR_API_KEY di luar blok BCCLI: {path}',
+  'OpenClaw is connected to BotConnector ({n} models available; suggested default {model}).': 'OpenClaw terhubung ke BotConnector ({n} model tersedia; default yang disarankan {model}).',
   '{target}: not managed by BCCLI yet.': '{target}: belum dikelola oleh BCCLI.',
   '{target}: the BotConnector integration was removed and the config restored.': '{target}: integrasi BotConnector dilepas dan config dipulihkan.',
   'Custom commands:': 'Perintah custom:',
