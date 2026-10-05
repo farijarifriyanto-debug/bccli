@@ -6,7 +6,7 @@ import type { CliArgs } from './args'
 import { bccliHome, ConfigError, loadConfig, readCredentials, resolveModel } from './config'
 import { t } from './i18n'
 
-type IntegrationTarget = 'opencode' | 'aider' | 'cline' | 'deepseek-harness' | 'cursor' | 'openai-cli' | 'openai-sdk' | 'openai-compatible' | 'codex' | 'claude-code' | 'hermes' | 'openclaw'
+type IntegrationTarget = 'opencode' | 'aider' | 'cline' | 'deepseek-harness' | 'cursor' | 'openai-cli' | 'openai-sdk' | 'openai-compatible' | 'codex' | 'claude-code' | 'hermes' | 'openclaw' | 'crush' | 'kilo'
 
 export interface IntegrationDeps {
   env: NodeJS.ProcessEnv
@@ -47,11 +47,13 @@ function parseTarget(raw: string | undefined): IntegrationTarget {
   if (
     raw === 'opencode' || raw === 'aider' || raw === 'cline' || raw === 'deepseek-harness' ||
     raw === 'cursor' || raw === 'openai-cli' || raw === 'openai-sdk' || raw === 'openai-compatible' ||
-    raw === 'codex' || raw === 'claude-code' || raw === 'hermes' || raw === 'openclaw'
+    raw === 'codex' || raw === 'claude-code' || raw === 'hermes' || raw === 'openclaw' ||
+    raw === 'crush' || raw === 'kilo'
   ) return raw
   if (raw === 'dsh') return 'deepseek-harness'
+  if (raw === 'kilocode' || raw === 'kilo-code') return 'kilo'
   throw new ConfigError(
-    t('Agent must be one of: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code, hermes, openclaw'),
+    t('Agent must be one of: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code, hermes, openclaw, crush, kilo'),
   )
 }
 
@@ -831,6 +833,172 @@ async function connectOpenClaw(deps: IntegrationDeps): Promise<void> {
   deps.out(`Set default: openclaw models set botconnector/${model}`)
 }
 
+
+const CRUSH_BEGIN = '# BEGIN BCCLI BOTCONNECTOR'
+const CRUSH_END = '# END BCCLI BOTCONNECTOR'
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`
+}
+
+function modelCapabilitySet(entry: BotConnectorModelEntry): Set<string> {
+  return new Set([
+    ...(entry.capabilities ?? []),
+    ...(entry.input ?? []),
+  ].map((value) => value.toLowerCase()))
+}
+
+function modelContextWindow(entry: BotConnectorModelEntry): number | undefined {
+  return entry.contextWindow ?? entry.context_window ?? entry.context
+}
+
+function modelOutputLimit(entry: BotConnectorModelEntry): number | undefined {
+  return entry.maxTokens ?? entry.max_tokens
+}
+
+async function connectCrush(deps: IntegrationDeps): Promise<void> {
+  if (readState('crush', deps.env)) disconnect('crush', deps)
+
+  const home = homeDir(deps.env)
+  const configRoot = deps.env.XDG_CONFIG_HOME || join(home, '.config')
+  const configPath = join(configRoot, 'crush', 'crushrc')
+  const backup = safeBackup(configPath, deps.env)
+  const secret = ensureSecret(deps.env)
+  const catalog = await botConnectorCatalog(deps)
+  const model = integrationDefaultModel(catalog.map((item) => item.id), deps)
+
+  let existing = existsSync(configPath) ? readFileSync(configPath, 'utf8') : ''
+  existing = stripEnvManagedBlock(existing, CRUSH_BEGIN, CRUSH_END)
+  if (/(^|\n)\s*provider\s+add\s+botconnector\b/.test(existing)) {
+    throw new ConfigError(t('Crush already has a botconnector provider outside the BCCLI block: {path}', { path: configPath }))
+  }
+
+  const managed: string[] = [
+    CRUSH_BEGIN,
+    'provider add botconnector \\',
+    '  --name ' + shellQuote('BotConnector') + ' \\',
+    '  --type openai-compat \\',
+    '  --base-url ' + shellQuote(BASE_URL) + ' \\',
+    '  --api-key "$(cat ' + shellQuote(secret.replace(/\\/g, '/')) + ')" \\',
+    '  --discover-models true',
+  ]
+
+  for (const entry of catalog) {
+    const caps = modelCapabilitySet(entry)
+    const args = [
+      'model add ' + shellQuote(`botconnector/${entry.id}`),
+      '--name ' + shellQuote(entry.name || entry.id),
+    ]
+    const context = modelContextWindow(entry)
+    const output = modelOutputLimit(entry)
+    if (typeof context === 'number' && Number.isFinite(context) && context > 0) {
+      args.push(`--context-window ${Math.floor(context)}`)
+    }
+    if (typeof output === 'number' && Number.isFinite(output) && output > 0) {
+      args.push(`--default-max-tokens ${Math.floor(output)}`)
+    }
+    if (caps.has('reasoning')) args.push('--can-reason true')
+    if (caps.has('vision') || caps.has('image')) args.push('--supports-images true')
+    managed.push(args.join(' '))
+  }
+  managed.push('model large ' + shellQuote(`botconnector/${model}`))
+  managed.push(CRUSH_END)
+
+  const merged = existing.trim()
+    ? `${existing.trimEnd()}\n\n${managed.join('\n')}\n`
+    : `${managed.join('\n')}\n`
+  mkdirSync(dirname(configPath), { recursive: true })
+  writeFileSync(configPath, merged)
+
+  writeState('crush', {
+    target: 'crush',
+    files: [{ path: configPath, ...backup }],
+    createdAt: new Date().toISOString(),
+  }, deps.env)
+  deps.out(t('Crush is connected to BotConnector ({n} models available; large model {model}).', { n: catalog.length, model }))
+  deps.out(`Config: ${configPath}`)
+  deps.out('Provider: botconnector (openai-compat, discover-models=true)')
+}
+
+function kiloModelRow(entry: BotConnectorModelEntry): Record<string, unknown> {
+  const caps = modelCapabilitySet(entry)
+  const row: Record<string, unknown> = {
+    name: entry.name || entry.id,
+  }
+  if (caps.has('tools') || caps.has('tool') || caps.has('tool_use')) row.tool_call = true
+  if (caps.has('reasoning')) row.reasoning = true
+  if (caps.has('vision') || caps.has('image')) {
+    row.modalities = { input: ['text', 'image'], output: ['text'] }
+  }
+  const context = modelContextWindow(entry)
+  const output = modelOutputLimit(entry)
+  if (
+    (typeof context === 'number' && Number.isFinite(context) && context > 0) ||
+    (typeof output === 'number' && Number.isFinite(output) && output > 0)
+  ) {
+    const limit: Record<string, number> = {}
+    if (typeof context === 'number' && Number.isFinite(context) && context > 0) limit.context = Math.floor(context)
+    if (typeof output === 'number' && Number.isFinite(output) && output > 0) limit.output = Math.floor(output)
+    row.limit = limit
+  }
+  return row
+}
+
+async function connectKilo(deps: IntegrationDeps): Promise<void> {
+  if (readState('kilo', deps.env)) disconnect('kilo', deps)
+
+  const home = homeDir(deps.env)
+  const configRoot = deps.env.XDG_CONFIG_HOME || join(home, '.config')
+  // Kilo reads global config files in merge order. kilo.json is intentionally
+  // used as the BCCLI-managed layer so an existing higher-priority kilo.jsonc
+  // remains untouched.
+  const configPath = join(configRoot, 'kilo', 'kilo.json')
+  const backup = safeBackup(configPath, deps.env)
+  const secret = ensureSecret(deps.env)
+  const catalog = await botConnectorCatalog(deps)
+  const model = integrationDefaultModel(catalog.map((item) => item.id), deps)
+
+  let doc: Record<string, unknown> = {}
+  if (existsSync(configPath)) {
+    try { doc = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown> }
+    catch { throw new ConfigError(t('The Kilo global kilo.json is not valid JSON: {path}', { path: configPath })) }
+  }
+
+  const providers = (doc.provider && typeof doc.provider === 'object' && !Array.isArray(doc.provider))
+    ? { ...(doc.provider as Record<string, unknown>) }
+    : {}
+  const current = providers[PROVIDER_ID] as { options?: { baseURL?: string } } | undefined
+  const currentBase = current?.options?.baseURL
+  if (currentBase && currentBase.replace(/\/+$/, '') !== BASE_URL) {
+    throw new ConfigError(t('Kilo already has a provider "{id}" with a different endpoint.', { id: PROVIDER_ID }))
+  }
+
+  providers[PROVIDER_ID] = {
+    name: 'BotConnector',
+    npm: '@ai-sdk/openai-compatible',
+    models: Object.fromEntries(catalog.map((entry) => [entry.id, kiloModelRow(entry)])),
+    options: {
+      apiKey: `{file:${secret.replace(/\\/g, '/')}}`,
+      baseURL: BASE_URL,
+    },
+  }
+  if (!doc.$schema) doc.$schema = 'https://app.kilo.ai/config.json'
+  doc.provider = providers
+  if (!doc.model) doc.model = `botconnector/${model}`
+
+  mkdirSync(dirname(configPath), { recursive: true })
+  writeFileSync(configPath, `${JSON.stringify(doc, null, 2)}\n`)
+
+  writeState('kilo', {
+    target: 'kilo',
+    files: [{ path: configPath, ...backup }],
+    createdAt: new Date().toISOString(),
+  }, deps.env)
+  deps.out(t('Kilo Code is connected to BotConnector ({n} models available; suggested model {model}).', { n: catalog.length, model }))
+  deps.out(`Config: ${configPath}`)
+  deps.out('Provider: botconnector (@ai-sdk/openai-compatible)')
+}
+
 function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {
   const state = readState(target, deps.env)
   if (!state) {
@@ -850,7 +1018,7 @@ function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {
 }
 
 function listIntegrations(deps: IntegrationDeps): void {
-  for (const target of ['opencode', 'aider', 'cline', 'deepseek-harness', 'cursor', 'openai-cli', 'openai-sdk', 'openai-compatible', 'codex', 'claude-code', 'hermes', 'openclaw'] as const) {
+  for (const target of ['opencode', 'aider', 'cline', 'deepseek-harness', 'cursor', 'openai-cli', 'openai-sdk', 'openai-compatible', 'codex', 'claude-code', 'hermes', 'openclaw', 'crush', 'kilo'] as const) {
     deps.out(`${target}\t${readState(target, deps.env) ? 'connected' : 'not connected'}`)
   }
 }
@@ -876,6 +1044,8 @@ export async function runIntegrationCommand(args: CliArgs, deps: IntegrationDeps
   else if (target === 'codex') await connectCodex(deps)
   else if (target === 'claude-code') await connectClaudeCode(deps)
   else if (target === 'hermes') await connectHermes(deps)
-  else await connectOpenClaw(deps)
+  else if (target === 'openclaw') await connectOpenClaw(deps)
+  else if (target === 'crush') await connectCrush(deps)
+  else await connectKilo(deps)
   return 0
 }
