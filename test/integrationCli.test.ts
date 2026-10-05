@@ -297,7 +297,7 @@ test('connect hermes writes custom BotConnector model config and keeps the key o
   expect(yaml).toContain('provider: custom')
   expect(yaml).toContain('base_url: https://api.botconnector.id/v1')
   expect(yaml).toContain('key_env: BOTCONNECTOR_API_KEY')
-  expect(yaml).toContain('default: agnes-3.0-flash')
+  expect(yaml).toContain('default: glm-5.3-flash')
   expect(yaml).toContain('provider: main')
   expect(yaml).not.toContain('bc_live_secret')
   expect(henv).toContain('OTHER=value')
@@ -360,7 +360,7 @@ test('connect openclaw merges BotConnector provider with SecretRef and model met
   })
   expect(readFileSync(modelsPath, 'utf8')).not.toContain('bc_live_secret')
   expect(readFileSync(envPath, 'utf8')).toContain('BOTCONNECTOR_API_KEY=bc_live_secret')
-  expect(output).toContain('Set default: openclaw models set botconnector/agnes-3.0-flash')
+  expect(output).toContain('Set default: openclaw models set botconnector/glm-5.3-flash')
 
   await runIntegrationCommand(parseCliArgs(['disconnect', 'openclaw']), deps)
   expect(readFileSync(modelsPath, 'utf8')).toBe(originalModels)
