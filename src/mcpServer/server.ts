@@ -137,5 +137,46 @@ export function createMcpServer(deps: McpServerDeps): McpServer {
     },
   )
 
+  server.registerTool(
+    'bc_chat',
+    {
+      description:
+        'Send a prompt to a BotConnector model and get the reply. Returns the answer plus token usage. The model pays from the same API key.',
+      inputSchema: {
+        prompt: z.string().min(1).max(100_000).describe('The user message'),
+        model: z.string().optional().describe('Model id (default: the configured model)'),
+        max_tokens: z.number().int().min(1).max(4096).optional().describe('Reply budget (default 1024, max 4096)'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async ({ prompt, model, max_tokens }) => {
+      const res = await fetchFn(`${deps.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${deps.apiKey}` },
+        body: JSON.stringify({
+          model: model ?? deps.defaultModel,
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: max_tokens ?? 1024,
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      })
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: { message?: string }
+        choices?: { message?: { content?: string } }[]
+        usage?: { prompt_tokens?: number; completion_tokens?: number }
+      }
+      if (!res.ok) {
+        const message = body.error?.message ?? `HTTP ${res.status}`
+        return { content: [{ type: 'text' as const, text: `bc_chat failed: ${message}` }], isError: true }
+      }
+      const reply = body.choices?.[0]?.message?.content ?? ''
+      const usage = body.usage
+        ? `\n\n[usage: ${body.usage.prompt_tokens ?? 0} in / ${body.usage.completion_tokens ?? 0} out]`
+        : ''
+      return { content: [{ type: 'text' as const, text: reply + usage }] }
+    },
+  )
+
   return server
 }
