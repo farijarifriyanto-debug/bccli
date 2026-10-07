@@ -56,6 +56,11 @@ export async function runPrint(
         io.err.write(`${t('Step limit reached.')}\n`)
         failed = true
         break
+      case 'budgetExceeded':
+        io.err.write(`${t('Budget exceeded ({kind}): {used} of {limit}. Further model calls are blocked; raise usageCap in ~/.bccli/config.json.', { kind: event.kind, used: Math.round(event.used * 100) / 100, limit: event.limit })}\n`)
+        if (format === 'stream-json') emit({ type: 'error', message: 'budgetExceeded' })
+        failed = true
+        break
       case 'aborted':
         io.err.write(`${t('Cancelled.')}\n`)
         failed = true

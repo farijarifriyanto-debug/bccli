@@ -528,3 +528,35 @@ test('images from a tool result are injected as a user parts message', async () 
   expect(next.content[1].type).toBe('image_url')
   expect(next.content[1].image_url?.url).toMatch(/^data:image\/png;base64,/)
 })
+
+test('usageCap.tokens blocks further model calls and emits budgetExceeded', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-'))
+  const provider = scripted([{ ...reply('first'), usage: { inputTokens: 90, outputTokens: 90 } }])
+  const events: AgentEvent[] = []
+  const agent = new Agent({
+    provider, tools: ALL_TOOLS, permissions: new Permissions('default', [], cwd), systemPrompt: 'SYS', cwd,
+    usageCap: { tokens: 100 }, budgetModel: 'bc-cloud/glm-5.3-flash',
+  })
+  agent.onEvent = (e) => events.push(e)
+  await agent.run('satu', new AbortController().signal)
+  expect(provider.requests.length).toBe(1)
+  expect(events.some((e) => e.type === 'budgetExceeded')).toBe(false)
+  await agent.run('dua', new AbortController().signal)
+  expect(provider.requests.length).toBe(1) // model tidak dipanggil lagi
+  expect(events.find((e) => e.type === 'budgetExceeded')).toEqual({ type: 'budgetExceeded', kind: 'tokens', used: 180, limit: 100 })
+})
+
+test('usageCap.usd blocks using prices matched against the model ref', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-'))
+  const provider = scripted([{ ...reply('first'), usage: { inputTokens: 400_000, outputTokens: 100_000 } }])
+  const events: AgentEvent[] = []
+  const agent = new Agent({
+    provider, tools: ALL_TOOLS, permissions: new Permissions('default', [], cwd), systemPrompt: 'SYS', cwd,
+    usageCap: { usd: 1, prices: { glm: { input: 2, output: 8 } } }, budgetModel: 'bc-cloud/glm-5.3-flash',
+  })
+  agent.onEvent = (e) => events.push(e)
+  await agent.run('satu', new AbortController().signal)
+  await agent.run('dua', new AbortController().signal)
+  expect(provider.requests.length).toBe(1)
+  expect(events.find((e) => e.type === 'budgetExceeded')).toEqual({ type: 'budgetExceeded', kind: 'usd', used: 1.6, limit: 1 })
+})

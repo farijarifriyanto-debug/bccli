@@ -122,6 +122,16 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       if ((event.tool === 'edit' || event.tool === 'write') && !event.isError) editedInTurn.current = true
     }
     if (event.type === 'usage') setTokens(event.inputTokens + event.outputTokens)
+    if (event.type === 'budgetExceeded') {
+      notice(
+        t('Budget exceeded ({kind}): {used} of {limit}. Further model calls are blocked; raise usageCap in ~/.bccli/config.json.', {
+          kind: event.kind,
+          used: Math.round(event.used * 100) / 100,
+          limit: event.limit,
+        }),
+        'warn',
+      )
+    }
     setTranscript((t) => applyEvent(t, event))
   }, [])
 

@@ -5,6 +5,7 @@ import { PRESETS } from './presets'
 import type { ReasoningLevel } from './reasoning'
 import type { HooksConfig } from './hooks'
 import { DEFAULT_KEYBINDS, KEYBIND_ACTIONS, defaultKeybinds, type Keybind, type KeybindAction, parseKeybind } from './keybinds'
+import type { UsageCap } from './budget'
 import { t } from './i18n'
 import type { Lang } from './i18n'
 
@@ -36,6 +37,8 @@ export interface Config {
   keybinds: Record<KeybindAction, Keybind>
   /** Commands run after a turn that edited files (aider --test-cmd style). Only the global config is read. */
   verifyCommands: string[]
+  /** Per-session token/USD budget; the agent stops calling the model once it is exceeded. Only the global config is read. */
+  usageCap?: UsageCap
   providers: Record<string, ProviderConfig>
   allow: string[]
   /** Provider ids that came from the (untrusted) project config. */
@@ -117,6 +120,31 @@ function resolvedPlugins(global: Partial<Config>): string[] {
   return [...(value as string[])]
 }
 
+function resolvedUsageCap(global: Partial<Config>): UsageCap | undefined {
+  const cap = global.usageCap
+  if (cap === undefined) return undefined
+  if (typeof cap !== 'object' || cap === null || Array.isArray(cap)) {
+    throw new ConfigError(t('usageCap must be an object, e.g. { "tokens": 2000000 }.'))
+  }
+  const { tokens, usd, prices } = cap as UsageCap
+  const positive = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0
+  const nonNegative = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0
+  if (tokens !== undefined && !positive(tokens)) throw new ConfigError(t('usageCap.tokens must be a number greater than 0.'))
+  if (usd !== undefined && !positive(usd)) throw new ConfigError(t('usageCap.usd must be a number greater than 0.'))
+  if (usd !== undefined && (prices === undefined || !Object.keys(prices).length)) {
+    throw new ConfigError(t('usageCap.usd requires usageCap.prices (USD per 1M tokens).'))
+  }
+  if (prices !== undefined) {
+    for (const [key, price] of Object.entries(prices)) {
+      if (!price || !nonNegative(price.input) || !nonNegative(price.output)) {
+        throw new ConfigError(t('usageCap.prices["{key}"] must have numeric input and output (USD per 1M tokens).', { key }))
+      }
+    }
+  }
+  if (tokens === undefined && usd === undefined) throw new ConfigError(t('usageCap needs at least one of: tokens, usd.'))
+  return { ...(tokens !== undefined ? { tokens } : {}), ...(usd !== undefined ? { usd } : {}), ...(prices !== undefined ? { prices } : {}) }
+}
+
 function resolvedVerifyCommands(global: Partial<Config>): string[] {
   const value = global.verifyCommands
   if (value === undefined) return []
@@ -177,6 +205,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     plugins: resolvedPlugins(global),
     keybinds: resolvedKeybinds(global),
     verifyCommands: resolvedVerifyCommands(global),
+    usageCap: resolvedUsageCap(global),
     providers: { ...known, ...fromProject },
     projectProviders: Object.keys(fromProject),
     allow: [...(global.allow ?? [])],
