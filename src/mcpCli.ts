@@ -9,6 +9,10 @@ import { t } from './i18n'
 export async function runMcpCommand(args: CliArgs, deps: CliDeps): Promise<number> {
   const home = bccliHome(deps.env)
   const [action = 'list', name] = args.subArgs
+  if (action === 'serve') {
+    const { runMcpServe } = await import('./mcpServer/serve')
+    return runMcpServe(args, deps)
+  }
   const installed = readMcpFile(globalMcpPath(home))
   if (action === 'list') {
     for (const entry of CATALOG) deps.out(`${installed[entry.name] ? '✓' : '○'} ${entry.name.padEnd(12)} ${entry.description}`)
@@ -47,7 +51,7 @@ export async function runMcpCommand(args: CliArgs, deps: CliDeps): Promise<numbe
     }
   }
   if (action !== 'add') {
-    deps.err(t('Unknown action: {action}. Use list, add, remove, auth, or logout.', { action }))
+    deps.err(t('Unknown action: {action}. Use list, add, remove, auth, logout, or serve.', { action }))
     return 1
   }
   if (args.url) {

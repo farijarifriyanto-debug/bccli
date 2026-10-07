@@ -228,8 +228,8 @@ Opsi:
   'Usage: bccli provider {action} <id>': 'Pemakaian: bccli provider {action} <id>',
   '{id} removed.': '{id} dihapus.',
   'Unknown action: {action}. Use list, add, or remove.': 'Aksi tidak dikenal: {action}. Pakai list, add, atau remove.',
-  'Unknown action: {action}. Use list, add, remove, auth, or logout.':
-    'Aksi tidak dikenal: {action}. Pakai list, add, remove, auth, atau logout.',
+  'Unknown action: {action}. Use list, add, remove, auth, logout, or serve.':
+    'Aksi tidak dikenal: {action}. Pakai list, add, remove, auth, logout, atau serve.',
   'OAuth required for {name}: run bccli mcp auth {name}': 'OAuth diperlukan untuk {name}: jalankan bccli mcp auth {name}',
   '{name} is not an installed HTTP MCP server. Add it first with: bccli mcp add {name} --url <url>':
     '{name} bukan server MCP HTTP yang terpasang. Tambahkan dulu: bccli mcp add {name} --url <url>',
