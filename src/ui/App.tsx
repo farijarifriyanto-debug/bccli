@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { Box, Static, Text, useApp, useInput } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -47,6 +47,7 @@ import { ToolBlock } from './ToolBlock'
 import { applyEvent, type Entry, endTurn, entry, type Transcript } from './transcript'
 import { getLanguage, locale, parseLang, setLanguage, t } from '../i18n'
 import { matchKeybind } from '../keybinds'
+import { grabClipboardImage } from '../clipboardImage'
 import { MAX_VERIFY_ROUNDS, runVerify, verifyFollowup } from '../verify'
 
 
@@ -97,6 +98,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   // Messages typed while the agent works; each runs after the turn before it.
   const [queued, setQueued] = useState<string[]>([])
   const [showThinking, setShowThinking] = useState(false)
+  const [injected, setInjected] = useState<{ text: string; n: number } | undefined>()
   useEffect(() => runtime.todos.subscribe(setTodos), [runtime])
   const extraCommands = [
     ...runtime.commands
@@ -686,6 +688,16 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         setQueued([])
         notice(t('{n} queued messages cancelled.', { n: queued.length }), 'warn')
       }
+    } else if (matchKeybind(runtime.config.keybinds.pasteImage, input, key)) {
+      void (async () => {
+        const path = await grabClipboardImage({ platform: process.platform, tmpdir: tmpdir(), now: new Date() })
+        if (path) {
+          setInjected((prev) => ({ text: `${path} `, n: (prev?.n ?? 0) + 1 }))
+          notice(t('Clipboard image saved to {path} — the path is inserted in the input; the model sees it when you send.', { path }))
+        } else {
+          notice(t('No image on the clipboard.'), 'warn')
+        }
+      })()
     } else if (matchKeybind(runtime.config.keybinds.thinking, input, key)) {
       const bind = runtime.config.keybinds.thinking.spec
       const next = !showThinking
@@ -894,7 +906,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       {queued.map((q, i) => (
         <Text key={`${i}-${q}`} dimColor>{t('  ⏳ queued: {q}', { q })}</Text>
       ))}
-      <PromptInput disabled={!!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu || !!listPicker} history={history} cwd={runtime.cwd} onSubmit={onPrompt} extraCommands={extraCommands} />
+      <PromptInput disabled={!!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu || !!listPicker} history={history} cwd={runtime.cwd} onSubmit={onPrompt} extraCommands={extraCommands} injected={injected} />
       <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} reasoning={reasoning} />
     </Box>
   )

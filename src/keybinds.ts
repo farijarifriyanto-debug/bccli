@@ -1,10 +1,11 @@
-export type KeybindAction = 'thinking' | 'toolOutput'
+export type KeybindAction = 'thinking' | 'toolOutput' | 'pasteImage'
 
-export const KEYBIND_ACTIONS: KeybindAction[] = ['thinking', 'toolOutput']
+export const KEYBIND_ACTIONS: KeybindAction[] = ['thinking', 'toolOutput', 'pasteImage']
 
 export const DEFAULT_KEYBINDS: Record<KeybindAction, string> = {
   thinking: 'ctrl+t',
   toolOutput: 'ctrl+o',
+  pasteImage: 'alt+v',
 }
 
 export function defaultKeybinds(): Record<KeybindAction, Keybind> {

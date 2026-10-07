@@ -23,6 +23,7 @@ test('defaults keep ctrl+t for thinking and ctrl+o for tool output', () => {
   const config = load({})
   expect(config.keybinds.thinking.spec).toBe('ctrl+t')
   expect(config.keybinds.toolOutput.spec).toBe('ctrl+o')
+  expect(config.keybinds.pasteImage.spec).toBe('alt+v')
   expect(DEFAULT_KEYBINDS.thinking).toBe('ctrl+t')
 })
 
