@@ -319,6 +319,55 @@ export async function startServe(opts: ServeOptions = {}): Promise<ServeHandle> 
       json(res, 202, { turnId })
       return
     }
+    const approvals = url.pathname.match(/^\/v1\/sessions\/([^/]+)\/approvals$/)
+    if (approvals && method === 'POST') {
+      const raw = await readBody(req)
+      if (raw === null) {
+        jsonError(res, 413, 'request body exceeds 1 MB')
+        return
+      }
+      let body: { requestId?: unknown; answer?: unknown } = {}
+      if (raw) {
+        try {
+          body = JSON.parse(raw) as typeof body
+        } catch {
+          jsonError(res, 400, 'invalid JSON body')
+          return
+        }
+      }
+      const answers = ['yes', 'no', 'session', 'all']
+      if (typeof body.requestId !== 'string' || !answers.includes(body.answer as string)) {
+        jsonError(res, 400, "requestId must be a string and answer one of 'yes'|'no'|'session'|'all'")
+        return
+      }
+      const s = sessions.get(decodeURIComponent(approvals[1]))
+      if (!s) {
+        jsonError(res, 404, `unknown session ${decodeURIComponent(approvals[1])}`)
+        return
+      }
+      const pending = s.pending.get(body.requestId)
+      if (!pending) {
+        jsonError(res, 404, `unknown or already answered requestId ${body.requestId}`)
+        return
+      }
+      s.pending.delete(body.requestId)
+      pending.resolve(body.answer as PermissionAnswer)
+      json(res, 200, { accepted: true })
+      return
+    }
+    const cancel = url.pathname.match(/^\/v1\/sessions\/([^/]+)\/cancel$/)
+    if (cancel && method === 'POST') {
+      const s = sessions.get(decodeURIComponent(cancel[1]))
+      if (!s) {
+        jsonError(res, 404, `unknown session ${decodeURIComponent(cancel[1])}`)
+        return
+      }
+      if (s.busy) s.busy.controller.abort()
+      // Fail closed: approvals waiting when the turn is cancelled answer 'no'.
+      failPending(s)
+      json(res, 200, { cancelled: true })
+      return
+    }
     jsonError(res, 404, `no route ${method} ${url.pathname}`)
   }
 
@@ -385,9 +434,8 @@ export async function startServe(opts: ServeOptions = {}): Promise<ServeHandle> 
     } finally {
       s.rt.agent.onEvent = () => {}
       s.busy = null
-      // Fail closed: approvals left pending when the turn ends are answered 'no'.
-      for (const [, p] of s.pending) p.resolve('no')
-      s.pending.clear()
+      // Safety net: a turn that ends without an answer also fails closed.
+      failPending(s)
       broadcast(s, { type: 'result', text, toolCalls, usage, stopReason })
     }
   }
@@ -431,8 +479,33 @@ export async function startServe(opts: ServeOptions = {}): Promise<ServeHandle> 
       streams: new Set(),
       pending: new Map(),
     }
+    if (permissionMode === 'bypassPermissions') {
+      rt.agent.askPermission = async () => 'yes'
+    } else {
+      // DSH user-approval pattern: request with id → pending promise on the host,
+      // answered via POST /approvals, replayed when a session stream reopens.
+      rt.agent.askPermission = (req) =>
+        new Promise<PermissionAnswer>((resolve) => {
+          const requestId = randomBytes(6).toString('hex')
+          s.pending.set(requestId, { resolve, req })
+          broadcast(s, {
+            type: 'approval_request',
+            requestId,
+            tool: req.tool,
+            kind: req.kind,
+            target: req.target,
+            preview: req.preview,
+          })
+        })
+    }
     sessions.set(sessionId, s)
     return s
+  }
+
+  /** All pending approvals are answered 'no' (fail-closed) and removed. */
+  function failPending(s: ServedSession): void {
+    for (const [, p] of s.pending) p.resolve('no')
+    s.pending.clear()
   }
 
   await new Promise<void>((resolve) =>
@@ -446,10 +519,7 @@ export async function startServe(opts: ServeOptions = {}): Promise<ServeHandle> 
     url: `http://127.0.0.1:${port}`,
     close: () =>
       new Promise<void>((resolve) => {
-        for (const s of sessions.values()) {
-          for (const [, p] of s.pending) p.resolve('no')
-          s.pending.clear()
-        }
+        for (const s of sessions.values()) failPending(s)
         for (const ws of allSockets) ws.terminate()
         allSockets.clear()
         server.closeAllConnections()

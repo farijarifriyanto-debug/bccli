@@ -128,8 +128,8 @@ Satu koneksi WS bersama memuat banyak logical stream. Frame JSON newline-free:
 ## 8. Approvals (pola `user-approval` DSH)
 
 - Mode `ask` (default): `AskPermission` di-wire ke host serve → buat `requestId`
-  (random), emit item `approval_request {requestId, tool, input, preview}` ke stream
-  sesi, simpan promise pending di map.
+  (random), emit item `approval_request {requestId, tool, kind, target, preview?}`
+  ke stream sesi, simpan promise pending di map.
 - Jawaban via unary `POST .../approvals`; `answer` diteruskan apa adanya ke
   `PermissionAnswer` (`yes|no|session|all`); aturan `session`/`all` dipegang
   `Permissions` in-memory sesi itu (semantik sama dengan TUI).

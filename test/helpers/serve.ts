@@ -23,7 +23,7 @@ export function scripted(texts: string[]): Provider {
 }
 
 export async function withServe(
-  texts: string[],
+  source: string[] | Provider,
   fn: (ctx: { h: ServeHandle; base: string }) => Promise<void>,
 ): Promise<void> {
   const home = mkdtempSync(join(tmpdir(), 'bccli-serve-'))
@@ -31,7 +31,7 @@ export async function withServe(
   const h = await startServe({
     port: 0,
     cwd,
-    provider: scripted(texts),
+    provider: Array.isArray(source) ? scripted(source) : source,
     env: { BCCLI_HOME: home, BOTCONNECTOR_API_KEY: 'k' } as NodeJS.ProcessEnv,
   })
   try {
