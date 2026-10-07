@@ -41,6 +41,8 @@ export interface Config {
   usageCap?: UsageCap
   /** Daily npm registry check with a notice when a newer bccli exists. Only the global config is read; default "on". */
   updateCheck?: 'on' | 'off'
+  /** Include a repo map (files + top-level symbols) in the system prompt. Only the global config is read; default false. */
+  repoMap: boolean
   providers: Record<string, ProviderConfig>
   allow: string[]
   /** Provider ids that came from the (untrusted) project config. */
@@ -73,6 +75,7 @@ const DEFAULT_CONFIG: Config = {
   networkPolicy: 'allow',
   keybinds: defaultKeybinds(),
   verifyCommands: [],
+  repoMap: false,
   providers: Object.fromEntries(PRESETS.map((p) => [p.id, { baseURL: p.baseURL, apiKeyEnv: p.apiKeyEnv }])),
   allow: [],
 }
@@ -154,6 +157,12 @@ function resolvedUsageCap(global: Partial<Config>): UsageCap | undefined {
   return { ...(tokens !== undefined ? { tokens } : {}), ...(usd !== undefined ? { usd } : {}), ...(prices !== undefined ? { prices } : {}) }
 }
 
+function resolvedRepoMap(global: Partial<Config>): boolean {
+  const value = global.repoMap ?? false
+  if (typeof value !== 'boolean') throw new ConfigError(t('repoMap must be true or false.'))
+  return value
+}
+
 function resolvedVerifyCommands(global: Partial<Config>): string[] {
   const value = global.verifyCommands
   if (value === undefined) return []
@@ -214,6 +223,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     plugins: resolvedPlugins(global),
     keybinds: resolvedKeybinds(global),
     verifyCommands: resolvedVerifyCommands(global),
+    repoMap: resolvedRepoMap(global),
     usageCap: resolvedUsageCap(global),
     updateCheck: resolvedUpdateCheck(global),
     providers: { ...known, ...fromProject },

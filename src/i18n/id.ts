@@ -162,6 +162,7 @@ Opsi:
   'usageCap.prices["{key}"] must have numeric input and output (USD per 1M tokens).': 'usageCap.prices["{key}"] harus punya input dan output numerik (USD per 1 juta token).',
   'usageCap needs at least one of: tokens, usd.': 'usageCap memerlukan setidaknya salah satu dari: tokens, usd.',
   'updateCheck must be "on" or "off".': 'updateCheck harus "on" atau "off".',
+  'repoMap must be true or false.': 'repoMap harus true atau false.',
   'A new bccli is available: {latest} (you have {current}). Run: bccli update': 'bccli versi baru tersedia: {latest} (kamu punya {current}). Jalankan: bccli update',
   'Clipboard image saved to {path} — the path is inserted in the input; the model sees it when you send.':
     'Gambar clipboard disimpan ke {path} — path disisipkan ke input; model melihatnya saat kamu kirim.',
