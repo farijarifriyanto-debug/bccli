@@ -11,6 +11,7 @@ import type { Provider } from './provider'
 import { Session } from './session'
 import { MAX_FRAME_BYTES, bearerOk, parseClientFrame, randomToken, type ServerFrame, trustFence } from './serveProtocol'
 import { createRuntime, type Runtime } from './setup'
+import { createHeartbeat } from './serveHeartbeat'
 import { VERSION } from './version'
 
 export interface ServeOptions {
@@ -124,6 +125,10 @@ export async function startServe(opts: ServeOptions = {}): Promise<ServeHandle> 
 
   wss.on('connection', (ws: WebSocket) => {
     allSockets.add(ws)
+    const heartbeat = createHeartbeat(opts.heartbeatMs ?? 2000, () => ws.ping(), () => ws.terminate())
+    ws.on('pong', () => heartbeat.pong())
+    ws.on('close', () => heartbeat.stop())
+    heartbeat.start()
     const connStreams = new Map<string, MuxStream>()
     ws.on('close', () => {
       allSockets.delete(ws)
