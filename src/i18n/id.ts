@@ -152,6 +152,13 @@ Opsi:
   '--reasoning must be one of: {levels}': '--reasoning harus salah satu dari: {levels}',
   'networkPolicy must be "allow" or "offline".': 'networkPolicy harus "allow" atau "offline".',
   'plugins must be an array of strings.': 'plugins harus berupa array of string.',
+  'verifyCommands must be an array of non-empty strings.': 'verifyCommands harus berupa array of string tidak kosong.',
+  'Verifying edits: {cmds}': 'Memverifikasi edit: {cmds}',
+  'Verification passed.': 'Verifikasi lulus.',
+  'Verification still failing after {n} fix round(s). Run the commands manually to see why.':
+    'Verifikasi masih gagal setelah {n} ronde perbaikan. Jalankan perintahnya secara manual untuk melihat penyebabnya.',
+  'Automatic verification after your edits failed. Fix the problems so these commands pass, then stop.\n\n{blocks}':
+    'Verifikasi otomatis setelah editmu gagal. Perbaiki masalahnya agar perintah-perintah ini lulus, lalu berhenti.\n\n{blocks}',
   'keybinds must be an object mapping action to binding.': 'keybinds harus berupa objek yang memetakan aksi ke binding.',
   'Keybind for "{action}" must be a string like "ctrl+t".': 'Keybind untuk "{action}" harus string seperti "ctrl+t".',
   'Keybind "{spec}" for "{action}" is invalid: use ctrl or alt plus one letter, e.g. "ctrl+t".': 'Keybind "{spec}" untuk "{action}" tidak valid: gunakan ctrl atau alt plus satu huruf, mis. "ctrl+t".',
