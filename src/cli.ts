@@ -62,6 +62,11 @@ async function main(): Promise<number> {
     const { runUpdateCommand } = await import('./update')
     return runUpdateCommand({ env: process.env })
   }
+  if (args.command === 'acp') {
+    const { runtimeAgent, runAcp } = await import('./acp')
+    await runAcp(process.stdin, process.stdout, { cwd, newAgent: (c) => runtimeAgent(c) })
+    return 0
+  }
   const rt = createRuntime({ cwd, args })
   setTheme(rt.config.theme)
   try {

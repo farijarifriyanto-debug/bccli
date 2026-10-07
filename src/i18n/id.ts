@@ -106,6 +106,7 @@ Usage:
   bccli login [provider]        save an API key (default: bc-cloud)
   bccli models [provider]       list models (default: the active provider)
   bccli update                  install the newest bccli from npm
+  bccli acp                     run as an ACP agent for editors (Zed, ...)
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>    manage MCP servers (catalog, --url <url>, OAuth)
   bccli integrations             show the status of external agent integrations
@@ -132,6 +133,7 @@ Pemakaian:
   bccli login [provider]        simpan API key (default: bc-cloud)
   bccli models [provider]       daftar model (default: provider aktif)
   bccli update                  pasang bccli terbaru dari npm
+  bccli acp                     jalankan sebagai agen ACP untuk editor (Zed, ...)
   bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <nama>|remove <nama>|auth <nama>|logout <nama>    kelola server MCP (katalog, --url <url>, OAuth)
   bccli integrations             lihat status integrasi agent eksternal
