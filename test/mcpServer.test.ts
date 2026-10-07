@@ -128,3 +128,52 @@ test('bc_fetch returns clean text and rejects private hosts', async () => {
   }
   expect(blocked.isError).toBe(true)
 })
+
+test('bc_chat calls chat completions, reports usage, and caps max_tokens', async () => {
+  const seen: { url: string; auth?: string; body: Record<string, unknown> }[] = []
+  const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    seen.push({
+      url: String(input),
+      auth: (init?.headers as Record<string, string>)?.authorization,
+      body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+    })
+    if (seen.length === 3) {
+      return new Response(JSON.stringify({ error: { message: 'billing limit reached' } }), { status: 402 })
+    }
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: 'Halo!' } }],
+        usage: { prompt_tokens: 5, completion_tokens: 2 },
+      }),
+    )
+  }) as typeof fetch
+  const client = await connected({ fetchFn })
+
+  const out = (await client.callTool({ name: 'bc_chat', arguments: { prompt: 'hai' } })) as {
+    content: { type: string; text: string }[]
+    isError?: boolean
+  }
+  expect(out.isError).toBeFalsy()
+  expect(out.content[0].text).toContain('Halo!')
+  expect(out.content[0].text).toContain('[usage: 5 in / 2 out]')
+  expect(seen[0].url).toBe('https://api.test/v1/chat/completions')
+  expect(seen[0].auth).toBe('Bearer k-test')
+  expect(seen[0].body).toMatchObject({ model: 'glm-5.3-flash', max_tokens: 1024, stream: false })
+
+  await client.callTool({ name: 'bc_chat', arguments: { prompt: 'x', model: 'gpt-6-luna' } })
+  expect(seen[1].body).toMatchObject({ model: 'gpt-6-luna' })
+
+  const tooBig = (await client.callTool({ name: 'bc_chat', arguments: { prompt: 'x', max_tokens: 99999 } })) as {
+    content: { type: string; text: string }[]
+    isError?: boolean
+  }
+  expect(tooBig.isError).toBe(true)
+  expect(tooBig.content[0].text).toContain('4096')
+
+  const failed = (await client.callTool({ name: 'bc_chat', arguments: { prompt: 'x' } })) as {
+    content: { type: string; text: string }[]
+    isError?: boolean
+  }
+  expect(failed.isError).toBe(true)
+  expect(failed.content[0].text).toContain('billing limit reached')
+})
