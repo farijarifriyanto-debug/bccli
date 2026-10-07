@@ -6,6 +6,7 @@ import type { ReasoningLevel } from './reasoning'
 import type { HooksConfig } from './hooks'
 import { DEFAULT_KEYBINDS, KEYBIND_ACTIONS, defaultKeybinds, type Keybind, type KeybindAction, parseKeybind } from './keybinds'
 import { THEMES } from './ui/theme'
+import type { LspServer } from './lsp'
 import type { UsageCap } from './budget'
 import { t } from './i18n'
 import type { Lang } from './i18n'
@@ -50,6 +51,8 @@ export interface Config {
   editor: 'emacs' | 'vim'
   /** Run bash commands inside the OS sandbox (macOS sandbox-exec / Linux bwrap). Only the global config is read; default "off". */
   sandbox: 'off' | 'on'
+  /** LSP servers used by the diagnostics tool. Only the global config is read (it spawns commands). */
+  lsp?: { servers: LspServer[] }
   providers: Record<string, ProviderConfig>
   allow: string[]
   /** Provider ids that came from the (untrusted) project config. */
@@ -167,6 +170,28 @@ function resolvedUsageCap(global: Partial<Config>): UsageCap | undefined {
   return { ...(tokens !== undefined ? { tokens } : {}), ...(usd !== undefined ? { usd } : {}), ...(prices !== undefined ? { prices } : {}) }
 }
 
+function resolvedLsp(global: Partial<Config>): { servers: LspServer[] } | undefined {
+  if (global.lsp === undefined) return undefined
+  const lsp = global.lsp as { servers?: unknown }
+  if (typeof global.lsp !== 'object' || global.lsp === null || !Array.isArray(lsp.servers)) {
+    throw new ConfigError(t('lsp must be an object with a "servers" array.'))
+  }
+  for (const s of lsp.servers as unknown[]) {
+    const server = s as Partial<LspServer>
+    if (
+      typeof server?.command !== 'string' ||
+      !server.command ||
+      !Array.isArray(server.extensions) ||
+      server.extensions.length === 0 ||
+      server.extensions.some((e) => typeof e !== 'string' || !e.startsWith('.')) ||
+      (server.args !== undefined && (!Array.isArray(server.args) || server.args.some((a) => typeof a !== 'string')))
+    ) {
+      throw new ConfigError(t('Each lsp server needs { "extensions": [".ts"], "command": "...", "args": ["..."] }.'))
+    }
+  }
+  return { servers: lsp.servers as LspServer[] }
+}
+
 function resolvedSandbox(global: Partial<Config>): 'off' | 'on' {
   const value = global.sandbox ?? 'off'
   if (value !== 'off' && value !== 'on') throw new ConfigError(t('sandbox must be "off" or "on".'))
@@ -257,6 +282,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     theme: resolvedTheme(global),
     editor: resolvedEditor(global),
     sandbox: resolvedSandbox(global),
+    lsp: resolvedLsp(global),
     usageCap: resolvedUsageCap(global),
     updateCheck: resolvedUpdateCheck(global),
     providers: { ...known, ...fromProject },

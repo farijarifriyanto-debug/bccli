@@ -25,6 +25,7 @@ import type { Tool } from './tools/types'
 import { createTodoTool, TodoStore } from './tools/todo'
 import { createSaveMemoryTool } from './tools/memory'
 import { createRepoMapTool } from './tools/repomap'
+import { createDiagnosticsTool } from './tools/diagnostics'
 import { buildRepoMapSync } from './repomap'
 import { createReadTool } from './tools/read'
 import { createBashTool } from './tools/bash'
@@ -164,6 +165,7 @@ export function createRuntime(opts: {
     saveMemory,
     createRepoMapTool(),
   ]
+  if (config.lsp?.servers.length) baseTools.push(createDiagnosticsTool(config.lsp.servers))
   // Plugins are global-config only (project config never executes code); loaded at boot,
   // so a broken plugin fails fast and a fix needs a restart.
   const plugins: LoadedPlugins = loadPlugins(config.plugins ?? [], {
