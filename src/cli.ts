@@ -5,6 +5,7 @@ import { runPrint } from './print'
 import { readGlobalConfigFile } from './providers'
 import { pruneSessions } from './session'
 import { createRuntime } from './setup'
+import { setTheme } from './ui/theme'
 import { VERSION } from './version'
 import { resolveLanguage, setLanguage, t } from './i18n'
 import { resolveWorktree } from './worktree'
@@ -62,6 +63,7 @@ async function main(): Promise<number> {
     return runUpdateCommand({ env: process.env })
   }
   const rt = createRuntime({ cwd, args })
+  setTheme(rt.config.theme)
   try {
     pruneSessions(rt.home)
   } catch {
