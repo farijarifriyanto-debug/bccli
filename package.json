@@ -47,7 +47,10 @@
   "overrides": {
     "esbuild": "0.28.2"
   },
-  "main": "index.js",
+  "main": "dist/sdk.js",
+  "exports": {
+    ".": "./dist/sdk.js"
+  },
   "directories": {
     "doc": "docs",
     "test": "test"
