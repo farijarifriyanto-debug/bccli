@@ -35,7 +35,7 @@ Usage:
   bccli -p "task"               run one task without interaction (scripts/CI)
   bccli login [provider]        save an API key (default: bc-cloud)
   bccli models [provider]       list models (default: the active provider)
-  bccli update                    install the newest bccli from npm
+  bccli update                  install the newest bccli from npm
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>    manage MCP servers (catalog, --url <url>, OAuth)
   bccli integrations             show the status of external agent integrations

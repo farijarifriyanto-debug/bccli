@@ -31,7 +31,7 @@ test('checkForUpdate writes the cache and returns a notice only when newer', asy
   const home = mkdtempSync(join(tmpdir(), 'bccli-upd-'))
   const fetchOk = (async () => new Response(JSON.stringify({ latest: '9.9.9', next: '9.9.9-beta.1' }))) as typeof fetch
   const notice = await checkForUpdate({ home, fetch: fetchOk, now: new Date() })
-  // VERSION in tests is 0.0.0-dev â†’ channel "next"
+  // VERSION in tests is 0.0.0-dev -> channel "next"
   expect(notice).toContain('9.9.9-beta.1')
   expect(notice).toContain('bccli update')
   expect(existsSync(join(home, 'update-check.json'))).toBe(true)
