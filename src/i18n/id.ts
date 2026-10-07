@@ -29,7 +29,7 @@ export const ID: Record<string, string> = {
   '… {n} earlier steps': '… {n} langkah sebelumnya',
   '✗ failed': '✗ gagal',
   '✓ done': '✓ selesai',
-  '… {n} more lines (ctrl+o)': '… {n} baris lagi (ctrl+o)',
+  '… {n} more lines ({bind})': '… {n} baris lagi ({bind})',
   'No sessions in this folder yet; starting a new one.': 'Belum ada sesi di folder ini; memulai sesi baru.',
   'Session number (enter = new): ': 'Nomor sesi (enter = baru): ',
   'This repo wants to run the MCP server "{name}" ({what}). Allow? [y/N] ': 'Repo ini ingin menjalankan server MCP "{name}" ({what}). Izinkan? [y/N] ',
@@ -82,6 +82,7 @@ export const ID: Record<string, string> = {
   'version, model, permission mode, MCP, context': 'versi, model, mode izin, MCP, konteks',
   'view/revoke permissions': 'lihat/cabut izin',
   'undo the file edits of the last turn': 'batalkan edit file giliran terakhir',
+  're-apply the file edits that /undo just reverted': 'terapkan ulang edit file yang baru dibatalkan /undo',
   'git diff of the project': 'git diff project',
   'copy the last answer': 'salin jawaban terakhir',
   'save the conversation as markdown': 'simpan percakapan ke markdown',
@@ -103,7 +104,7 @@ Usage:
   bccli [task]                  interactive mode (optionally start with a task)
   bccli -p "task"               run one task without interaction (scripts/CI)
   bccli login [provider]        save an API key (default: bc-cloud)
-  bccli models                  list models from the active provider
+  bccli models [provider]       list models (default: the active provider)
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>    manage MCP servers (catalog, --url <url>, OAuth)
   bccli integrations             show the status of external agent integrations
@@ -128,7 +129,7 @@ Pemakaian:
   bccli [tugas]                 mode interaktif (opsional langsung dengan tugas)
   bccli -p "tugas"              jalankan satu tugas tanpa interaksi (skrip/CI)
   bccli login [provider]        simpan API key (default: bc-cloud)
-  bccli models                  daftar model dari provider aktif
+  bccli models [provider]       daftar model (default: provider aktif)
   bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <nama>|remove <nama>|auth <nama>|logout <nama>    kelola server MCP (katalog, --url <url>, OAuth)
   bccli integrations             lihat status integrasi agent eksternal
@@ -151,6 +152,10 @@ Opsi:
   '--reasoning must be one of: {levels}': '--reasoning harus salah satu dari: {levels}',
   'networkPolicy must be "allow" or "offline".': 'networkPolicy harus "allow" atau "offline".',
   'plugins must be an array of strings.': 'plugins harus berupa array of string.',
+  'keybinds must be an object mapping action to binding.': 'keybinds harus berupa objek yang memetakan aksi ke binding.',
+  'Keybind for "{action}" must be a string like "ctrl+t".': 'Keybind untuk "{action}" harus string seperti "ctrl+t".',
+  'Keybind "{spec}" for "{action}" is invalid: use ctrl or alt plus one letter, e.g. "ctrl+t".': 'Keybind "{spec}" untuk "{action}" tidak valid: gunakan ctrl atau alt plus satu huruf, mis. "ctrl+t".',
+  'Unknown keybind action "{action}". Known actions: {list}.': 'Aksi keybind "{action}" tidak dikenal. Aksi yang dikenal: {list}.',
   'Plugin not found: {spec}': 'Plugin tidak ditemukan: {spec}',
   'Plugin failed to load: {spec}: {reason}': 'Plugin gagal dimuat: {spec}: {reason}',
   'Plugin {spec} registered a tool name that is already in use: {name}':
@@ -257,8 +262,8 @@ Opsi:
   'Custom commands:': 'Perintah custom:',
   'Skills:': 'Skill:',
   'shift+tab  switch permission mode    esc  cancel the turn': 'shift+tab  ganti mode izin    esc  batalkan giliran',
-  'ctrl+o     full output of the last tool    \\ + enter  new line': 'ctrl+o     output alat terakhir lengkap    \\ + enter  baris baru',
-  'ctrl+t     show/hide the model’s thinking': 'ctrl+t     buka/tutup thinking model',
+  '{bind} full output of the last tool    \\ + enter  new line': '{bind} output alat terakhir lengkap    \\ + enter  baris baru',
+  '{bind} show/hide the model’s thinking': '{bind} buka/tutup thinking model',
   '@file + tab  complete file names    ↑↓  input history': '@file + tab  lengkapi nama file    ↑↓  riwayat input',
   'custom command': 'perintah custom',
   'skill · {description}': 'skill · {description}',
@@ -293,6 +298,9 @@ Opsi:
   'No stored key for {provider}.': 'Tidak ada key tersimpan untuk {provider}.',
   'Key for {provider} deleted. Use /login or /provider to add one again.': 'Key {provider} dihapus. Pakai /login atau /provider untuk menambah lagi.',
   'No file edits to undo.': 'Tidak ada edit file yang bisa dibatalkan.',
+  'No file edits to redo.': 'Tidak ada edit file yang bisa di-redo.',
+  'Re-applied: {files}': 'Diterapkan ulang: {files}',
+  'Deleted again: {files}': 'Dihapus lagi: {files}',
   'Could not restore: {files}': 'Gagal dikembalikan: {files}',
   'Restored: {files}': 'Dikembalikan: {files}',
   'Deleted (new files): {files}': 'Dihapus (file baru): {files}',
@@ -307,15 +315,15 @@ Opsi:
   'Unknown command: /{name}. Type /help.': 'Perintah tidak dikenal: /{name}. Ketik /help.',
   'Skill {name} cannot be read: {error}': 'Skill {name} tidak bisa dibaca: {error}',
   '{n} queued messages cancelled.': '{n} pesan antrian dibatalkan.',
-  'Thinking shown (ctrl+t to hide).': 'Thinking ditampilkan (ctrl+t untuk menutup).',
-  'Thinking hidden (ctrl+t to show).': 'Thinking disembunyikan (ctrl+t untuk membuka).',
+  'Thinking shown ({bind} to hide).': 'Thinking ditampilkan ({bind} untuk menutup).',
+  'Thinking hidden ({bind} to show).': 'Thinking disembunyikan ({bind} untuk membuka).',
   'MCP {name} removed.': 'MCP {name} dihapus.',
   'MCP {name} installed, connecting…': 'MCP {name} dipasang, menghubungkan…',
   'MCP {name} active · {n} tools.': 'MCP {name} aktif · {n} alat.',
   'MCP {name} failed: {error}': 'MCP {name} gagal: {error}',
   'unknown': 'tidak diketahui',
-  '✻ Thinking · {n} lines · ctrl+t to show': '✻ Berpikir · {n} baris · ctrl+t buka',
-  '✻ Thinking (ctrl+t to hide)': '✻ Berpikir (ctrl+t tutup)',
+  '✻ Thinking · {n} lines · {bind} to show': '✻ Berpikir · {n} baris · {bind} buka',
+  '✻ Thinking ({bind} to hide)': '✻ Berpikir ({bind} tutup)',
   '  ⏳ queued: {q}': '  ⏳ antri: {q}',
   'Thinking': 'Berpikir',
   'Cancelling': 'Membatalkan',

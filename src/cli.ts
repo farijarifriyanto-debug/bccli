@@ -1,8 +1,7 @@
 import { helpText, parseCliArgs } from './args'
-import { ConfigError, loadConfig, resolveModel } from './config'
+import { ConfigError } from './config'
 import { runLogin } from './login'
 import { runPrint } from './print'
-import { createProvider } from './provider'
 import { readGlobalConfigFile } from './providers'
 import { pruneSessions } from './session'
 import { createRuntime } from './setup'
@@ -55,11 +54,8 @@ async function main(): Promise<number> {
     })
   }
   if (args.command === 'models') {
-    const config = loadConfig(cwd)
-    const resolved = resolveModel(config, args.model ?? config.model)
-    const models = await createProvider(resolved).listModels()
-    console.log(models.map((m) => `${resolved.providerId}/${m}`).join('\n'))
-    return 0
+    const { runModelsCommand } = await import('./modelsCli')
+    return runModelsCommand(args, { env: process.env, cwd, out: (s) => console.log(s), err: (s) => console.error(s), fetch: globalThis.fetch })
   }
   const rt = createRuntime({ cwd, args })
   try {

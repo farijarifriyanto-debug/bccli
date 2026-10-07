@@ -102,3 +102,18 @@ test('createRuntime loads tools from the global config plugins list', async () =
   expect(rt.agent.tools.map((t) => t.name)).toContain('greeter')
   await expect(rt.emitPlugins('Stop')).resolves.toBeUndefined()
 })
+
+test('a CommonJS plugin (module.exports = fn) activates like the ESM forms', async () => {
+  const { tools } = loadPlugins([fixture('tool-plugin.cjs')], loadOpts())
+  expect(tools.map((t) => t.name)).toContain('cjs_greeter')
+  await expect(tools[0]!.run({}, { cwd: '.', signal: new AbortController().signal, readFiles: new Set() })).resolves.toMatchObject({
+    output: 'hello from cjs',
+  })
+})
+
+test('a module without any activate function fails fast naming the supported shapes', () => {
+  const opts = loadOpts()
+  const file = join(opts.home, 'empty.cjs')
+  writeFileSync(file, 'module.exports = { notAFunction: true }')
+  expect(() => loadPlugins([file], opts)).toThrow(/export default|module\.exports/)
+})

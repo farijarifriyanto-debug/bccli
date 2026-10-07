@@ -34,7 +34,7 @@ Usage:
   bccli [task]                  interactive mode (optionally start with a task)
   bccli -p "task"               run one task without interaction (scripts/CI)
   bccli login [provider]        save an API key (default: bc-cloud)
-  bccli models                  list models from the active provider
+  bccli models [provider]       list models (default: the active provider)
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>    manage MCP servers (catalog, --url <url>, OAuth)
   bccli integrations             show the status of external agent integrations
@@ -119,7 +119,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     help: !!values.help,
     version: !!values.version,
     loginProvider: command === 'login' ? (rest[0] ?? 'bc-cloud') : undefined,
-    subArgs: ['provider', 'mcp', 'connect', 'disconnect', 'integrations'].includes(command) ? rest : [],
+    subArgs: ['models', 'provider', 'mcp', 'connect', 'disconnect', 'integrations'].includes(command) ? rest : [],
     url: values.url,
     name: values.name,
     keyEnv: values['key-env'],

@@ -22,3 +22,12 @@ test('the /pr command is registered with a review description', () => {
   expect(cmd).toBeDefined()
   expect(cmd?.description).toMatch(/pull request/i)
 })
+
+test('the review prompt forbids mutating the repository state', () => {
+  for (const selector of ['', '123']) {
+    const prompt = prReviewPrompt(selector)
+    expect(prompt).toMatch(/never change the repository state/i)
+    expect(prompt).toContain('git show')
+    expect(prompt).not.toContain('git checkout')
+  }
+})

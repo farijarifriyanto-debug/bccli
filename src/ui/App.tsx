@@ -46,18 +46,20 @@ import { TodoList } from './TodoList'
 import { ToolBlock } from './ToolBlock'
 import { applyEvent, type Entry, endTurn, entry, type Transcript } from './transcript'
 import { getLanguage, locale, parseLang, setLanguage, t } from '../i18n'
+import { matchKeybind } from '../keybinds'
 
 
 function helpText(runtime: Runtime): string {
   const custom = runtime.commands.filter((c) => !SLASH_COMMANDS.some((b) => b.name === c.name))
+  const kb = runtime.config.keybinds
   return [
     ...SLASH_COMMANDS.map((c) => `/${c.name.padEnd(12)} ${t(c.description)}`),
     ...(custom.length ? ['', t('Custom commands:'), ...custom.map((c) => `/${c.name.padEnd(8)} ${c.description ?? ''}`)] : []),
     ...(runtime.skills.length ? ['', t('Skills:'), ...runtime.skills.map((s) => `/${s.name.padEnd(8)} ${s.description.slice(0, 60)}`)] : []),
     '',
     t('shift+tab  switch permission mode    esc  cancel the turn'),
-    t('ctrl+o     full output of the last tool    \\ + enter  new line'),
-    t('ctrl+t     show/hide the model’s thinking'),
+    t('{bind} full output of the last tool    \\ + enter  new line', { bind: kb.toolOutput.spec.padEnd(10) }),
+    t('{bind} show/hide the model’s thinking', { bind: kb.thinking.spec.padEnd(10) }),
     t('@file + tab  complete file names    ↑↓  input history'),
   ].join('\n')
 }
@@ -499,6 +501,25 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           )
           return
         }
+        case 'redo': {
+          const result = await runtime.checkpoints.redo()
+          if (!result) {
+            notice(t('No file edits to redo.'))
+            return
+          }
+          const rel = (p: string) => relative(runtime.cwd, p) || p
+          notice(
+            [
+              result.failed.length ? t('Could not restore: {files}', { files: result.failed.map(rel).join(', ') }) : '',
+              result.restored.length ? t('Re-applied: {files}', { files: result.restored.map(rel).join(', ') }) : '',
+              result.deleted.length ? t('Deleted again: {files}', { files: result.deleted.map(rel).join(', ') }) : '',
+              result.skipped.length ? t('Too large to back up, left unchanged: {files}', { files: result.skipped.map(rel).join(', ') }) : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          )
+          return
+        }
         case 'rewind': {
           const parsed = Number.parseInt(args.trim(), 10)
           const result = await runtime.rewindTurns(Number.isFinite(parsed) && parsed > 0 ? parsed : 1)
@@ -634,9 +655,10 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         setQueued([])
         notice(t('{n} queued messages cancelled.', { n: queued.length }), 'warn')
       }
-    } else if (key.ctrl && input === 't') {
+    } else if (matchKeybind(runtime.config.keybinds.thinking, input, key)) {
+      const bind = runtime.config.keybinds.thinking.spec
       const next = !showThinking
-      const toggled = next ? t('Thinking shown (ctrl+t to hide).') : t('Thinking hidden (ctrl+t to show).')
+      const toggled = next ? t('Thinking shown ({bind} to hide).', { bind }) : t('Thinking hidden ({bind} to show).', { bind })
       setShowThinking(next)
       setTranscript((t) => {
         // Scrollback is printed once, so an already finished thinking block is reprinted open.
@@ -651,7 +673,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           ],
         }
       })
-    } else if (key.ctrl && input === 'o' && lastTool.current) {
+    } else if (matchKeybind(runtime.config.keybinds.toolOutput, input, key) && lastTool.current) {
       const t = lastTool.current
       notice(`⎿ ${t.tool} ${t.target}\n${t.output}`)
     }
@@ -760,13 +782,13 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           const lines = text.split('\n').length
           return (
             <Box key={e.id} marginTop={1}>
-              <Text dimColor>{t('✻ Thinking · {n} lines · ctrl+t to show', { n: lines })}</Text>
+              <Text dimColor>{t('✻ Thinking · {n} lines · {bind} to show', { n: lines, bind: runtime.config.keybinds.thinking.spec })}</Text>
             </Box>
           )
         }
         return (
           <Box key={e.id} marginTop={1} flexDirection="column">
-            <Text dimColor>{t('✻ Thinking (ctrl+t to hide)')}</Text>
+            <Text dimColor>{t('✻ Thinking ({bind} to hide)', { bind: runtime.config.keybinds.thinking.spec })}</Text>
             <Box paddingLeft={2}>
               <Text dimColor italic>
                 {text}
@@ -777,7 +799,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       }
       case 'tool':
         return (
-          <ToolBlock key={e.id} tool={e.tool} target={e.target} output={e.output} display={e.display} isError={e.isError} done={e.done} sub={e.sub} />
+          <ToolBlock key={e.id} tool={e.tool} target={e.target} output={e.output} display={e.display} isError={e.isError} done={e.done} sub={e.sub} moreBind={runtime.config.keybinds.toolOutput.spec} />
         )
       case 'notice':
         return (

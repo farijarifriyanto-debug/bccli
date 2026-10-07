@@ -16,9 +16,11 @@ export interface ToolBlockProps {
   done: boolean
   expanded?: boolean
   sub?: SubLine[]
+  /** Display spec of the "show full output" keybind, so the hint follows a rebound key. */
+  moreBind?: string
 }
 
-export function ToolBlock({ tool, target, output, display, isError, done, expanded, sub }: ToolBlockProps) {
+export function ToolBlock({ tool, target, output, display, isError, done, expanded, sub, moreBind = 'ctrl+o' }: ToolBlockProps) {
   const isTask = tool === 'task'
   const isDiff = !!display && /^\s*\d+ [+\- ] /.test(display)
   const lines = (output ?? '').split('\n')
@@ -55,7 +57,7 @@ export function ToolBlock({ tool, target, output, display, isError, done, expand
               {line}
             </Text>
           ))}
-          {lines.length > shown.length ? <Text dimColor>{t('… {n} more lines (ctrl+o)', { n: lines.length - shown.length })}</Text> : null}
+          {lines.length > shown.length ? <Text dimColor>{t('… {n} more lines ({bind})', { n: lines.length - shown.length, bind: moreBind })}</Text> : null}
         </Box>
       ) : null}
     </Box>
