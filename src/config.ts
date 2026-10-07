@@ -46,6 +46,8 @@ export interface Config {
   repoMap: boolean
   /** Color theme name. Only the global config is read; default "default". */
   theme: string
+  /** Prompt editing style. Only the global config is read; default "emacs". */
+  editor: 'emacs' | 'vim'
   providers: Record<string, ProviderConfig>
   allow: string[]
   /** Provider ids that came from the (untrusted) project config. */
@@ -80,6 +82,7 @@ const DEFAULT_CONFIG: Config = {
   verifyCommands: [],
   repoMap: false,
   theme: 'default',
+  editor: 'emacs',
   providers: Object.fromEntries(PRESETS.map((p) => [p.id, { baseURL: p.baseURL, apiKeyEnv: p.apiKeyEnv }])),
   allow: [],
 }
@@ -161,6 +164,12 @@ function resolvedUsageCap(global: Partial<Config>): UsageCap | undefined {
   return { ...(tokens !== undefined ? { tokens } : {}), ...(usd !== undefined ? { usd } : {}), ...(prices !== undefined ? { prices } : {}) }
 }
 
+function resolvedEditor(global: Partial<Config>): 'emacs' | 'vim' {
+  const value = global.editor ?? 'emacs'
+  if (value !== 'emacs' && value !== 'vim') throw new ConfigError(t('editor must be "emacs" or "vim".'))
+  return value
+}
+
 function resolvedTheme(global: Partial<Config>): string {
   const value = global.theme ?? 'default'
   if (typeof value !== 'string' || !(THEMES as readonly string[]).includes(value)) {
@@ -237,6 +246,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     verifyCommands: resolvedVerifyCommands(global),
     repoMap: resolvedRepoMap(global),
     theme: resolvedTheme(global),
+    editor: resolvedEditor(global),
     usageCap: resolvedUsageCap(global),
     updateCheck: resolvedUpdateCheck(global),
     providers: { ...known, ...fromProject },

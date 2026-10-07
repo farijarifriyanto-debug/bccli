@@ -906,7 +906,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       {queued.map((q, i) => (
         <Text key={`${i}-${q}`} dimColor>{t('  ⏳ queued: {q}', { q })}</Text>
       ))}
-      <PromptInput disabled={!!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu || !!listPicker} history={history} cwd={runtime.cwd} onSubmit={onPrompt} extraCommands={extraCommands} injected={injected} />
+      <PromptInput disabled={!!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu || !!listPicker} history={history} cwd={runtime.cwd} onSubmit={onPrompt} extraCommands={extraCommands} injected={injected} vim={runtime.config.editor === 'vim'} />
       <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} reasoning={reasoning} />
     </Box>
   )
