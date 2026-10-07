@@ -76,15 +76,30 @@ export function loadPlugins(
     }
     if (!existsSync(file)) throw new ConfigError(t('Plugin not found: {spec}', { spec }))
 
-    let mod: { default?: unknown; activate?: unknown }
+    let mod: unknown
     try {
-      mod = require_(file) as { default?: unknown; activate?: unknown }
+      mod = require_(file)
     } catch (error) {
       throw new ConfigError(t('Plugin failed to load: {spec}: {reason}', { spec, reason: (error as Error).message }))
     }
-    const activate = typeof mod.default === 'function' ? mod.default : typeof mod.activate === 'function' ? mod.activate : undefined
+    // ESM: `export default fn` (interop → mod.default) or `export function activate`.
+    // CJS: `module.exports = fn` — require_ hands back the function itself.
+    const asRecord = (mod ?? {}) as { default?: unknown; activate?: unknown }
+    const activate =
+      typeof mod === 'function'
+        ? mod
+        : typeof asRecord.default === 'function'
+          ? asRecord.default
+          : typeof asRecord.activate === 'function'
+            ? asRecord.activate
+            : undefined
     if (!activate) {
-      throw new ConfigError(t('Plugin failed to load: {spec}: {reason}', { spec, reason: 'no default or activate export' }))
+      throw new ConfigError(
+        t('Plugin failed to load: {spec}: {reason}', {
+          spec,
+          reason: 'no activate function (use export default fn, export function activate, or module.exports = fn)',
+        }),
+      )
     }
 
     const ctx: PluginContext = {

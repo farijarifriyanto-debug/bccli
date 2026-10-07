@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { PRESETS } from './presets'
 import type { ReasoningLevel } from './reasoning'
 import type { HooksConfig } from './hooks'
+import { DEFAULT_KEYBINDS, KEYBIND_ACTIONS, defaultKeybinds, type Keybind, type KeybindAction, parseKeybind } from './keybinds'
 import { t } from './i18n'
 import type { Lang } from './i18n'
 
@@ -31,6 +32,8 @@ export interface Config {
   networkPolicy?: 'allow' | 'offline'
   /** JS plugin specs, loaded at boot. Only the global config is read — the project file must never execute code. */
   plugins?: string[]
+  /** Resolved TUI key bindings; only the global config is read (a cloned project must not rebind your keys). */
+  keybinds: Record<KeybindAction, Keybind>
   providers: Record<string, ProviderConfig>
   allow: string[]
   /** Provider ids that came from the (untrusted) project config. */
@@ -61,6 +64,7 @@ const DEFAULT_CONFIG: Config = {
   reasoning: 'auto',
   vision: true,
   networkPolicy: 'allow',
+  keybinds: defaultKeybinds(),
   providers: Object.fromEntries(PRESETS.map((p) => [p.id, { baseURL: p.baseURL, apiKeyEnv: p.apiKeyEnv }])),
   allow: [],
 }
@@ -110,6 +114,32 @@ function resolvedPlugins(global: Partial<Config>): string[] {
   return [...(value as string[])]
 }
 
+function resolvedKeybinds(global: Partial<Config>): Record<KeybindAction, Keybind> {
+  const raw = global.keybinds ?? {}
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new ConfigError(t('keybinds must be an object mapping action to binding.'))
+  }
+  const out = {} as Record<KeybindAction, Keybind>
+  for (const action of KEYBIND_ACTIONS) {
+    const spec = (raw as Record<string, unknown>)[action]
+    const value = spec === undefined ? DEFAULT_KEYBINDS[action] : spec
+    if (typeof value !== 'string') {
+      throw new ConfigError(t('Keybind for "{action}" must be a string like "ctrl+t".', { action }))
+    }
+    const parsed = parseKeybind(value)
+    if (!parsed) {
+      throw new ConfigError(t('Keybind "{spec}" for "{action}" is invalid: use ctrl or alt plus one letter, e.g. "ctrl+t".', { spec: value, action }))
+    }
+    out[action] = parsed
+  }
+  for (const key of Object.keys(raw as object)) {
+    if (!KEYBIND_ACTIONS.includes(key as KeybindAction)) {
+      throw new ConfigError(t('Unknown keybind action "{action}". Known actions: {list}.', { action: key, list: KEYBIND_ACTIONS.join(', ') }))
+    }
+  }
+  return out
+}
+
 function untrustedProviders(project: Partial<Config>, known: Record<string, ProviderConfig>): Record<string, ProviderConfig> {
   const out: Record<string, ProviderConfig> = {}
   for (const [id, provider] of Object.entries(project.providers ?? {})) {
@@ -133,6 +163,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     vision: global.vision ?? DEFAULT_CONFIG.vision,
     networkPolicy: resolvedNetworkPolicy(global),
     plugins: resolvedPlugins(global),
+    keybinds: resolvedKeybinds(global),
     providers: { ...known, ...fromProject },
     projectProviders: Object.keys(fromProject),
     allow: [...(global.allow ?? [])],

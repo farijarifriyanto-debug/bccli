@@ -13,6 +13,7 @@ export const SLASH_COMMANDS = [
   { name: 'status', description: 'version, model, permission mode, MCP, context' },
   { name: 'permissions', description: 'view/revoke permissions' },
   { name: 'undo', description: 'undo the file edits of the last turn' },
+  { name: 'redo', description: 're-apply the file edits that /undo just reverted' },
   { name: 'rewind', description: 'step back turns: conversation and file edits (/rewind 2)' },
   { name: 'diff', description: 'git diff of the project' },
   { name: 'worktree', description: 'list git worktrees; create one with bccli -w <name>' },
@@ -57,5 +58,6 @@ export function prReviewPrompt(selector: string): string {
   return `Review this pull request like a senior reviewer.
 ${refs}
 Read the changed files in the repository when the diff alone is not enough to judge the change.
+Never change the repository state while reviewing: do not check out, switch, create, delete, merge or rebase branches, do not reset, stash, commit, pull, or fetch into the working tree, and do not write, edit or delete any file. The review is strictly read-only. To read a file as it exists in another revision, use read-only commands such as \`git show <ref>:<path>\` or \`gh pr diff\`.
 Write the review as: a 2-3 sentence summary; concrete problems (bugs, security, race conditions, error handling), each with file:line and why it matters; missing or weak tests; smaller style/nit issues; then a final verdict — approve, request changes, or comment — with the single most important reason.`
 }
