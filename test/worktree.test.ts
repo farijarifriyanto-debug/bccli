@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { expect, test } from 'vitest'
@@ -22,7 +22,10 @@ test('creates a sibling worktree on a new branch and reuses it next time', async
   const dir = repo()
   const first = await resolveWorktree(dir, 'feat-a')
   expect(first.created).toBe(true)
-  expect(first.path).toBe(join(dirname(dir), `${basename(dir)}.worktrees`, 'feat-a'))
+  // git reports canonical paths (/private/var on macOS, long names on Windows 8.3
+  // temp dirs) while mkdtempSync keeps the raw form — compare realpaths.
+  const expected = join(dirname(dir), `${basename(dir)}.worktrees`, 'feat-a')
+  expect(realpathSync(first.path)).toBe(realpathSync(expected))
   expect(existsSync(join(first.path, 'a.txt'))).toBe(true)
   const second = await resolveWorktree(dir, 'feat-a')
   expect(second.created).toBe(false)
