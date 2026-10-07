@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { z } from 'zod'
+import { sandboxArgv } from './sandbox'
 import { defineTool } from './types'
 
 const HALF = 15_000
@@ -55,17 +56,11 @@ interface BackgroundTask {
 const backgrounds = new Map<number, BackgroundTask>()
 let nextBackgroundId = 1
 
-function startBackground(command: string, cwd: string, env?: NodeJS.ProcessEnv): BackgroundTask {
-  const child = spawn(command, {
-    cwd,
-    shell: true,
-    detached: process.platform !== 'win32',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env,
-  })
+function startBackground(command: string | string[], cwd: string, env?: NodeJS.ProcessEnv): BackgroundTask {
+  const child = spawnChild(command, cwd, env)
   const task: BackgroundTask = {
     id: nextBackgroundId++,
-    command,
+    command: Array.isArray(command) ? command.join(' ') : command,
     startedAt: Date.now(),
     status: 'running',
     killed: false,
@@ -148,6 +143,13 @@ export interface CommandResult {
   aborted: boolean
 }
 
+/** One place that spawns: a string goes through the shell, an argv array runs directly (sandbox wrappers). */
+function spawnChild(command: string | string[], cwd: string, env?: NodeJS.ProcessEnv) {
+  return Array.isArray(command)
+    ? spawn(command[0], command.slice(1), { cwd, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] as const, env })
+    : spawn(command, { cwd, shell: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] as const, env })
+}
+
 /** Best-effort detection of commands that reach the internet (networkPolicy "offline"). */
 const NETWORK_PATTERNS: RegExp[] = [
   /\b(curl|wget|ftp|scp|sftp|rsync|lynx|telnet)\b/i,
@@ -186,17 +188,11 @@ export function offlineEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Process
 }
 
 export function runCommand(
-  command: string,
+  command: string | string[],
   opts: { cwd: string; timeoutMs: number; signal: AbortSignal; env?: NodeJS.ProcessEnv },
 ): Promise<CommandResult> {
   return new Promise((resolve) => {
-    const child = spawn(command, {
-      cwd: opts.cwd,
-      shell: true,
-      detached: process.platform !== 'win32',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: opts.env,
-    })
+    const child = spawnChild(command, opts.cwd, opts.env)
     if (!exitHookInstalled) {
       process.on('exit', killAllCommands)
       exitHookInstalled = true
@@ -276,14 +272,18 @@ const BASH_SCHEMA = z.object({
 export interface BashToolOptions {
   /** "offline" blocks known network commands and points proxy env at a dead local port. */
   networkPolicy?: 'allow' | 'offline'
+  /** Run every command inside the OS sandbox (sandbox-exec on macOS, bwrap on Linux). */
+  sandbox?: boolean
+  /** Test hook: pretend to be another platform. */
+  platform?: NodeJS.Platform
 }
 
 export function createBashTool(options: BashToolOptions = {}) {
   const offline = options.networkPolicy === 'offline'
+  const sandbox = options.sandbox === true
+  const platform = options.platform ?? process.platform
   const childEnv = offline ? offlineEnv() : undefined
-  const description = offline
-    ? `${BASH_DESCRIPTION}\nNetwork access is off (networkPolicy "offline"): internet commands such as curl, wget, git fetch/push/clone, package installs (npm, pip, ...), gh, and docker pull are blocked.`
-    : BASH_DESCRIPTION
+  const description = `${offline ? `${BASH_DESCRIPTION}\nNetwork access is off (networkPolicy "offline"): internet commands such as curl, wget, git fetch/push/clone, package installs (npm, pip, ...), gh, and docker pull are blocked.` : BASH_DESCRIPTION}${sandbox ? '\nCommands run inside an OS sandbox: file writes are limited to the working directory and temp areas.' : ''}`
   return defineTool({
     name: 'bash',
     description,
@@ -310,9 +310,20 @@ export function createBashTool(options: BashToolOptions = {}) {
           isError: true,
         }
       }
+      let exec: string | string[] = input.command ?? ''
+      if (input.command && sandbox) {
+        const argv = sandboxArgv(input.command, { platform, cwd: ctx.cwd, network: !offline })
+        if (!argv) {
+          return {
+            output: `The bash sandbox is not supported on ${platform}; disable "sandbox" in ~/.bccli/config.json or run on macOS (sandbox-exec) / Linux (bwrap).`,
+            isError: true,
+          }
+        }
+        exec = argv
+      }
       if (input.background) {
         if (!input.command) return { output: 'The "command" argument is required to start a background task.', isError: true }
-        const task = startBackground(input.command, ctx.cwd, childEnv)
+        const task = startBackground(exec, ctx.cwd, childEnv)
         return {
           output: `Background task #${task.id} started: ${input.command}\nPoll it with {task_id: ${task.id}}; stop it with {task_id: ${task.id}, kill: true}.`,
         }
@@ -320,7 +331,7 @@ export function createBashTool(options: BashToolOptions = {}) {
       if (!input.command) {
         return { output: 'The "command" argument is required (or set task_id to poll a background task).', isError: true }
       }
-      const r = await runCommand(input.command, {
+      const r = await runCommand(exec, {
         cwd: ctx.cwd,
         timeoutMs: input.timeout_ms ?? 120_000,
         signal: ctx.signal,

@@ -48,6 +48,8 @@ export interface Config {
   theme: string
   /** Prompt editing style. Only the global config is read; default "emacs". */
   editor: 'emacs' | 'vim'
+  /** Run bash commands inside the OS sandbox (macOS sandbox-exec / Linux bwrap). Only the global config is read; default "off". */
+  sandbox: 'off' | 'on'
   providers: Record<string, ProviderConfig>
   allow: string[]
   /** Provider ids that came from the (untrusted) project config. */
@@ -83,6 +85,7 @@ const DEFAULT_CONFIG: Config = {
   repoMap: false,
   theme: 'default',
   editor: 'emacs',
+  sandbox: 'off',
   providers: Object.fromEntries(PRESETS.map((p) => [p.id, { baseURL: p.baseURL, apiKeyEnv: p.apiKeyEnv }])),
   allow: [],
 }
@@ -162,6 +165,12 @@ function resolvedUsageCap(global: Partial<Config>): UsageCap | undefined {
   }
   if (tokens === undefined && usd === undefined) throw new ConfigError(t('usageCap needs at least one of: tokens, usd.'))
   return { ...(tokens !== undefined ? { tokens } : {}), ...(usd !== undefined ? { usd } : {}), ...(prices !== undefined ? { prices } : {}) }
+}
+
+function resolvedSandbox(global: Partial<Config>): 'off' | 'on' {
+  const value = global.sandbox ?? 'off'
+  if (value !== 'off' && value !== 'on') throw new ConfigError(t('sandbox must be "off" or "on".'))
+  return value
 }
 
 function resolvedEditor(global: Partial<Config>): 'emacs' | 'vim' {
@@ -247,6 +256,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     repoMap: resolvedRepoMap(global),
     theme: resolvedTheme(global),
     editor: resolvedEditor(global),
+    sandbox: resolvedSandbox(global),
     usageCap: resolvedUsageCap(global),
     updateCheck: resolvedUpdateCheck(global),
     providers: { ...known, ...fromProject },
