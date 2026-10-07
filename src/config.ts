@@ -5,6 +5,7 @@ import { PRESETS } from './presets'
 import type { ReasoningLevel } from './reasoning'
 import type { HooksConfig } from './hooks'
 import { DEFAULT_KEYBINDS, KEYBIND_ACTIONS, defaultKeybinds, type Keybind, type KeybindAction, parseKeybind } from './keybinds'
+import { THEMES } from './ui/theme'
 import type { UsageCap } from './budget'
 import { t } from './i18n'
 import type { Lang } from './i18n'
@@ -43,6 +44,8 @@ export interface Config {
   updateCheck?: 'on' | 'off'
   /** Include a repo map (files + top-level symbols) in the system prompt. Only the global config is read; default false. */
   repoMap: boolean
+  /** Color theme name. Only the global config is read; default "default". */
+  theme: string
   providers: Record<string, ProviderConfig>
   allow: string[]
   /** Provider ids that came from the (untrusted) project config. */
@@ -76,6 +79,7 @@ const DEFAULT_CONFIG: Config = {
   keybinds: defaultKeybinds(),
   verifyCommands: [],
   repoMap: false,
+  theme: 'default',
   providers: Object.fromEntries(PRESETS.map((p) => [p.id, { baseURL: p.baseURL, apiKeyEnv: p.apiKeyEnv }])),
   allow: [],
 }
@@ -157,6 +161,14 @@ function resolvedUsageCap(global: Partial<Config>): UsageCap | undefined {
   return { ...(tokens !== undefined ? { tokens } : {}), ...(usd !== undefined ? { usd } : {}), ...(prices !== undefined ? { prices } : {}) }
 }
 
+function resolvedTheme(global: Partial<Config>): string {
+  const value = global.theme ?? 'default'
+  if (typeof value !== 'string' || !(THEMES as readonly string[]).includes(value)) {
+    throw new ConfigError(t('theme must be one of: {themes}.', { themes: THEMES.join(', ') }))
+  }
+  return value
+}
+
 function resolvedRepoMap(global: Partial<Config>): boolean {
   const value = global.repoMap ?? false
   if (typeof value !== 'boolean') throw new ConfigError(t('repoMap must be true or false.'))
@@ -224,6 +236,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     keybinds: resolvedKeybinds(global),
     verifyCommands: resolvedVerifyCommands(global),
     repoMap: resolvedRepoMap(global),
+    theme: resolvedTheme(global),
     usageCap: resolvedUsageCap(global),
     updateCheck: resolvedUpdateCheck(global),
     providers: { ...known, ...fromProject },
