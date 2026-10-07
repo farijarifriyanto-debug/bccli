@@ -9,6 +9,23 @@ interface Session {
   controller: AbortController | null
 }
 
+interface AcpPromptBlock {
+  type?: string
+  text?: string
+}
+
+interface AcpParams {
+  sessionId?: string
+  cwd?: string
+  prompt?: AcpPromptBlock[]
+}
+
+interface JsonRpcRequest {
+  id?: unknown
+  method?: string
+  params?: AcpParams
+}
+
 /**
  * Agent Client Protocol over newline-delimited JSON-RPC (the transport editors like Zed use).
  * Implements the subset: initialize, session/new, session/prompt (streaming session/update
@@ -27,7 +44,7 @@ export function runAcp(
   const reply = (id: unknown, result: unknown) => write({ jsonrpc: '2.0', id, result })
   const replyError = (id: unknown, code: number, message: string) => write({ jsonrpc: '2.0', id, error: { code, message } })
 
-  const handle = async (msg: any): Promise<void> => {
+  const handle = async (msg: JsonRpcRequest): Promise<void> => {
     const { id, method, params } = msg ?? {}
     if (method === 'initialize') {
       return reply(id, {
@@ -44,15 +61,16 @@ export function runAcp(
       return reply(id, { sessionId })
     }
     if (method === 'session/cancel') {
-      sessions.get(params?.sessionId)?.controller?.abort()
+      sessions.get(params?.sessionId ?? '')?.controller?.abort()
       return
     }
     if (method === 'session/prompt') {
-      const session = sessions.get(params?.sessionId)
+      const sid = params?.sessionId ?? ''
+      const session = sessions.get(sid)
       if (!session) return replyError(id, -32602, 'Unknown session')
       const text = (params?.prompt ?? [])
-        .filter((p: any) => p?.type === 'text')
-        .map((p: any) => String(p.text ?? ''))
+        .filter((p) => p?.type === 'text')
+        .map((p) => String(p.text ?? ''))
         .join('\n')
       const controller = new AbortController()
       session.controller = controller
@@ -69,7 +87,7 @@ export function runAcp(
               jsonrpc: '2.0',
               method: 'session/update',
               params: {
-                sessionId: params.sessionId,
+                sessionId: sid,
                 update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: chunk } },
               },
             })
@@ -90,14 +108,15 @@ export function runAcp(
     let buf = ''
     const onData = (chunk: Buffer | string) => {
       buf += chunk.toString()
-      let idx: number
-      while ((idx = buf.indexOf('\n')) >= 0) {
+      let idx = buf.indexOf('\n')
+      while (idx >= 0) {
         const line = buf.slice(0, idx)
         buf = buf.slice(idx + 1)
+        idx = buf.indexOf('\n')
         if (!line.trim()) continue
-        let msg: unknown
+        let msg: JsonRpcRequest
         try {
-          msg = JSON.parse(line)
+          msg = JSON.parse(line) as JsonRpcRequest
         } catch {
           continue // a corrupt line must not kill the connection
         }

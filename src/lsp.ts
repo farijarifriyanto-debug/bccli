@@ -15,13 +15,27 @@ export interface LspDiagnostic {
   message: string
 }
 
+interface LspRawDiagnostic {
+  range?: { start?: { line?: number; character?: number } }
+  severity?: number
+  message?: string
+}
+
+/** The JSON-RPC messages this one-shot client cares about. */
+export interface LspMessage {
+  id?: number
+  method?: string
+  result?: unknown
+  params?: { uri?: string; diagnostics?: LspRawDiagnostic[] }
+}
+
 export function encodeLsp(msg: unknown): Buffer {
   const body = Buffer.from(JSON.stringify(msg), 'utf8')
   return Buffer.concat([Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, 'ascii'), body])
 }
 
 /** Content-Length framed JSON-RPC reader; survives messages split across chunks. */
-export function createLspParser(onMessage: (msg: any) => void): { push(chunk: Buffer): void } {
+export function createLspParser(onMessage: (msg: LspMessage) => void): { push(chunk: Buffer): void } {
   let buf = Buffer.alloc(0)
   return {
     push(chunk: Buffer) {
@@ -39,7 +53,7 @@ export function createLspParser(onMessage: (msg: any) => void): { push(chunk: Bu
         const body = buf.subarray(idx + 4, idx + 4 + len)
         buf = buf.subarray(idx + 4 + len)
         try {
-          onMessage(JSON.parse(body.toString('utf8')))
+          onMessage(JSON.parse(body.toString('utf8')) as LspMessage)
         } catch {
           // a corrupt frame must not kill the stream
         }
@@ -99,7 +113,7 @@ export function getDiagnostics(opts: { server: LspServer; cwd: string; file: str
       }
       if (msg.method === 'textDocument/publishDiagnostics' && msg.params?.uri === uri) {
         finish(
-          (msg.params.diagnostics ?? []).map((d: any) => ({
+          (msg.params.diagnostics ?? []).map((d) => ({
             line: d.range?.start?.line ?? 0,
             character: d.range?.start?.character ?? 0,
             severity: d.severity ?? 1,
