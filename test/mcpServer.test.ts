@@ -1,6 +1,8 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { expect, test } from 'vitest'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { afterAll, beforeAll, expect, test } from 'vitest'
 import { createMcpServer, type McpServerDeps } from '../src/mcpServer/server'
 
 async function connected(deps: Partial<McpServerDeps> = {}) {
@@ -36,7 +38,7 @@ test('bc_models lists catalog models with context and price, cached for an hour'
   let clock = 0
   const client = await connected({ fetchFn: catalogFetch(counter), now: () => clock })
   const { tools } = await client.listTools()
-  expect(tools.map((t) => t.name)).toEqual(['bc_models'])
+  expect(tools.map((t) => t.name)).toContain('bc_models')
   expect(tools[0].inputSchema).toMatchObject({ type: 'object' })
 
   const out = (await client.callTool({ name: 'bc_models', arguments: {} })) as {
@@ -55,4 +57,74 @@ test('bc_models lists catalog models with context and price, cached for an hour'
   clock += 60 * 60_000 + 1
   await client.callTool({ name: 'bc_models', arguments: {} })
   expect(counter.calls, 'cache expires after an hour').toBe(4)
+})
+
+const calls: { path: string; auth?: string }[] = []
+let searchStatus = 200
+const stub = createServer((req, res) => {
+  calls.push({ path: req.url ?? '', auth: req.headers.authorization as string | undefined })
+  res.setHeader('content-type', 'application/json')
+  if (req.url === '/v1/web/search') {
+    res.statusCode = searchStatus
+    res.end(JSON.stringify({ provider: 'bc', results: [{ title: 'Hasil BC', url: 'https://a.id/1', snippet: 'snippet satu' }] }))
+  } else if (req.url === '/page') {
+    res.setHeader('content-type', 'text/html')
+    res.end('<html><body><h1>Judul</h1><p>Isi halaman.</p></body></html>')
+  } else {
+    res.end(JSON.stringify({ results: [] }))
+  }
+})
+let stubBase = ''
+beforeAll(async () => {
+  await new Promise<void>((r) => stub.listen(0, '127.0.0.1', r))
+  stubBase = `http://127.0.0.1:${(stub.address() as AddressInfo).port}`
+})
+afterAll(() => stub.close())
+
+test('bc_search goes through BotConnector first, then reports failures as tool errors', async () => {
+  calls.length = 0
+  searchStatus = 200
+  const client = await connected({ baseUrl: `${stubBase}/v1`, keenableURL: `${stubBase}/keenable` })
+  const ok = (await client.callTool({ name: 'bc_search', arguments: { query: 'harga rtx', max_results: 3 } })) as {
+    content: { type: string; text: string }[]
+    isError?: boolean
+  }
+  expect(ok.isError).toBeFalsy()
+  expect(ok.content[0].text).toContain('1. Hasil BC')
+  expect(calls[0]).toMatchObject({ path: '/v1/web/search', auth: 'Bearer k-test' })
+
+  calls.length = 0
+  searchStatus = 500
+  const dead = await connected({ baseUrl: `${stubBase}/v1`, keenableURL: 'http://127.0.0.1:1/none' })
+  const bad = (await dead.callTool({ name: 'bc_search', arguments: { query: 'x' } })) as {
+    content: { type: string; text: string }[]
+    isError?: boolean
+  }
+  expect(bad.isError).toBe(true)
+  expect(bad.content[0].text).toMatch(/failed/i)
+})
+
+test('bc_fetch returns clean text and rejects private hosts', async () => {
+  const client = await connected({
+    fetchTool: {
+      lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+      fetchPage: async () =>
+        new Response('<html><body><h1>Judul</h1><p>Isi halaman.</p></body></html>', {
+          headers: { 'content-type': 'text/html' },
+        }),
+    },
+  })
+  const out = (await client.callTool({ name: 'bc_fetch', arguments: { url: 'https://example.com/page' } })) as {
+    content: { type: string; text: string }[]
+    isError?: boolean
+  }
+  expect(out.isError).toBeFalsy()
+  expect(out.content[0].text).toContain('Judul')
+  expect(out.content[0].text).toContain('Isi halaman.')
+
+  const blocked = (await client.callTool({ name: 'bc_fetch', arguments: { url: 'http://localhost/admin' } })) as {
+    content: { type: string; text: string }[]
+    isError?: boolean
+  }
+  expect(blocked.isError).toBe(true)
 })
