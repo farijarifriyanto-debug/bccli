@@ -63,3 +63,12 @@ test('serve: port bukan angka / di luar rentang ditolak', () => {
   expect(() => parseCliArgs(['serve', '--port', 'abc'])).toThrow(/--port/)
   expect(() => parseCliArgs(['serve', '--port', '70000'])).toThrow(/--port/)
 })
+
+test('mcp serve parses --base-url', () => {
+  expect(parseCliArgs(['mcp', 'serve', '--base-url', 'https://api.example/v1'])).toMatchObject({
+    command: 'mcp',
+    subArgs: ['serve'],
+    baseUrl: 'https://api.example/v1',
+  })
+  expect(parseCliArgs(['mcp', 'serve']).baseUrl).toBeUndefined()
+})
