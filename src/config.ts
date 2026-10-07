@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { PRESETS } from './presets'
 import type { ReasoningLevel } from './reasoning'
+import type { HooksConfig } from './hooks'
 import { t } from './i18n'
 import type { Lang } from './i18n'
 
@@ -18,10 +19,18 @@ export interface Config {
   model: string
   permissionMode: PermissionMode
   reasoning: ReasoningLevel
-  /** Optional tool-call step cap per turn. Omitted, null, or 0 means unlimited. */
+  /** Tool-call step cap per turn. Omitted (unset) uses DEFAULT_MAX_STEPS; null or 0 means unlimited. */
   maxSteps?: number | null
   /** Interface language; only the global config is read for it. */
   language?: Lang
+  /** Tool/session hooks; only the global config is read — the project file is untrusted and must never execute code. */
+  hooks?: HooksConfig
+  /** Attach images read from disk as vision parts. Only the global config is read; default true. */
+  vision?: boolean
+  /** Bash network gate: "offline" blocks known internet commands. Only the global config is read. */
+  networkPolicy?: 'allow' | 'offline'
+  /** JS plugin specs, loaded at boot. Only the global config is read — the project file must never execute code. */
+  plugins?: string[]
   providers: Record<string, ProviderConfig>
   allow: string[]
   /** Provider ids that came from the (untrusted) project config. */
@@ -37,10 +46,21 @@ export interface ResolvedModel {
 
 export class ConfigError extends Error {}
 
+/**
+ * Default cap on tool-call steps per turn for the main agent. Interactive CLIs
+ * (Claude Code, Codex) leave the main loop unbounded by default, but an uncapped
+ * loop can run away on a bad prompt; a generous safety net with the existing
+ * "type continue" notice keeps long tasks possible and cost bounded. Set
+ * maxSteps to 0/null in the config to restore unlimited.
+ */
+export const DEFAULT_MAX_STEPS = 100
+
 const DEFAULT_CONFIG: Config = {
   model: 'bc-cloud/glm-5.3-flash',
   permissionMode: 'default',
   reasoning: 'auto',
+  vision: true,
+  networkPolicy: 'allow',
   providers: Object.fromEntries(PRESETS.map((p) => [p.id, { baseURL: p.baseURL, apiKeyEnv: p.apiKeyEnv }])),
   allow: [],
 }
@@ -59,17 +79,35 @@ export function readJsonConfig(path: string): Partial<Config> {
 }
 
 /**
- * The project file comes from whatever repo the user cloned, so it is untrusted: it may pick the model and
- * add providers without a key, but it cannot grant permissions, override known providers, or bind an env key.
+ * The project file comes from whatever repo the user cloned, so it is untrusted: it may pick the
+ * model and add providers without a key, but it cannot grant permissions, override known providers,
+ * bind an env key, or touch the cost guard — so maxSteps is read from the global config only.
  */
-function resolvedMaxSteps(project: Partial<Config>, global: Partial<Config>): number | undefined {
-  const hasProjectValue = Object.hasOwn(project, 'maxSteps')
-  const value = hasProjectValue ? project.maxSteps : global.maxSteps
-  if (value == null || value === 0) return undefined
+function resolvedMaxSteps(global: Partial<Config>): number | null {
+  const value = global.maxSteps
+  if (value === undefined) return DEFAULT_MAX_STEPS
+  if (value === null || value === 0) return null
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     throw new ConfigError(t('maxSteps must be a positive number, or 0/null to disable the limit.'))
   }
   return Math.max(1, Math.floor(value))
+}
+
+function resolvedNetworkPolicy(global: Partial<Config>): 'allow' | 'offline' {
+  const value = global.networkPolicy ?? 'allow'
+  if (value !== 'allow' && value !== 'offline') {
+    throw new ConfigError(t('networkPolicy must be "allow" or "offline".'))
+  }
+  return value
+}
+
+function resolvedPlugins(global: Partial<Config>): string[] {
+  const value = global.plugins
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw new ConfigError(t('plugins must be an array of strings.'))
+  }
+  return [...(value as string[])]
 }
 
 function untrustedProviders(project: Partial<Config>, known: Record<string, ProviderConfig>): Record<string, ProviderConfig> {
@@ -90,7 +128,11 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     model: project.model ?? global.model ?? DEFAULT_CONFIG.model,
     permissionMode: global.permissionMode ?? DEFAULT_CONFIG.permissionMode,
     reasoning: global.reasoning ?? DEFAULT_CONFIG.reasoning,
-    maxSteps: resolvedMaxSteps(project, global),
+    maxSteps: resolvedMaxSteps(global),
+    hooks: global.hooks,
+    vision: global.vision ?? DEFAULT_CONFIG.vision,
+    networkPolicy: resolvedNetworkPolicy(global),
+    plugins: resolvedPlugins(global),
     providers: { ...known, ...fromProject },
     projectProviders: Object.keys(fromProject),
     allow: [...(global.allow ?? [])],

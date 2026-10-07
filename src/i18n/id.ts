@@ -53,6 +53,17 @@ export const ID: Record<string, string> = {
   'File: {file}': 'File: {file}',
   'git is not installed or not on PATH, so /diff cannot be used.': 'git tidak terpasang atau tidak ada di PATH, jadi /diff tidak bisa dipakai.',
   'This folder is not a git repository, so there is no diff.': 'Folder ini bukan repository git, jadi tidak ada diff.',
+  'git is not installed or not on PATH, so /worktree cannot be used.': 'git tidak terpasang atau tidak ada di PATH, jadi /worktree tidak bisa dipakai.',
+  'git is not installed or not on PATH, so -w cannot be used.': 'git tidak terpasang atau tidak ada di PATH, jadi -w tidak bisa dipakai.',
+  'This folder is not a git repository, so -w cannot create a worktree.': 'Folder ini bukan repository git, jadi -w tidak bisa membuat worktree.',
+  'Invalid worktree name "{name}": use letters, digits, dot, dash, or underscore (no slashes).':
+    'Nama worktree "{name}" tidak valid: pakai huruf, angka, titik, strip, atau garis bawah (tanpa slash).',
+  'Worktree path {path} already exists but is not a registered worktree; remove or rename it first.':
+    'Path worktree {path} sudah ada tapi bukan worktree terdaftar; hapus atau ganti nama dulu.',
+  'Git worktrees:': 'Git worktree:',
+  'Create one with: bccli -w <name>': 'Buat dengan: bccli -w <nama>',
+  'Remove with: git worktree remove <path>': 'Hapus dengan: git worktree remove <path>',
+  'list git worktrees; create one with bccli -w <name>': 'daftar git worktree; buat dengan bccli -w <nama>',
   'No uncommitted changes.': 'Tidak ada perubahan yang belum di-commit.',
   '… {n} more lines': '… {n} baris lagi',
   'New files (untracked): {files}': 'File baru (belum di-track): {files}',
@@ -94,7 +105,7 @@ Usage:
   bccli login [provider]        save an API key (default: bc-cloud)
   bccli models                  list models from the active provider
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
-  bccli mcp list|add <name>|remove <name>    manage MCP servers (catalog, or --url <url>)
+  bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>    manage MCP servers (catalog, --url <url>, OAuth)
   bccli integrations             show the status of external agent integrations
   bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible, openclaw, hermes
   bccli disconnect <agent>       remove an integration and restore the previous config
@@ -106,6 +117,8 @@ Options:
   -r, --resume                  pick a session to continue
       --allow-all               run all tools without asking for permission
       --allowed-tools <a,b>     tools allowed without asking: bash, edit, fetch
+  -w, --worktree <name>        run in git worktree ../<repo>.worktrees/<name> (created, or reused if it exists)
+      --output-format <fmt>     text | json | stream-json for -p (machine-readable output)
       --permission-mode <mode>  default | acceptEdits | plan | allowAll
       --lang <en|id>            interface language (default: en; or BCCLI_LANG, or "language" in config)
   -v, --version                 version
@@ -117,7 +130,7 @@ Pemakaian:
   bccli login [provider]        simpan API key (default: bc-cloud)
   bccli models                  daftar model dari provider aktif
   bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
-  bccli mcp list|add <nama>|remove <nama>    kelola server MCP (katalog, atau --url <url>)
+  bccli mcp list|add <nama>|remove <nama>|auth <nama>|logout <nama>    kelola server MCP (katalog, --url <url>, OAuth)
   bccli integrations             lihat status integrasi agent eksternal
   bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible, openclaw, hermes
   bccli disconnect <agent>       lepas integrasi dan pulihkan config sebelumnya
@@ -129,18 +142,33 @@ Opsi:
   -r, --resume                  pilih sesi untuk dilanjutkan
       --allow-all               jalankan semua alat tanpa minta izin
       --allowed-tools <a,b>     alat yang boleh tanpa izin: bash, edit, fetch
+  -w, --worktree <name>        jalankan di git worktree ../<repo>.worktrees/<name> (dibuat, atau dipakai ulang jika ada)
+      --output-format <fmt>     text | json | stream-json untuk -p (output mesin)
       --permission-mode <mode>  default | acceptEdits | plan | allowAll
       --lang <en|id>            bahasa tampilan (default: en; atau BCCLI_LANG, atau "language" di config)
   -v, --version                 versi
   -h, --help                    bantuan ini`,
   '--reasoning must be one of: {levels}': '--reasoning harus salah satu dari: {levels}',
+  'networkPolicy must be "allow" or "offline".': 'networkPolicy harus "allow" atau "offline".',
+  'plugins must be an array of strings.': 'plugins harus berupa array of string.',
+  'Plugin not found: {spec}': 'Plugin tidak ditemukan: {spec}',
+  'Plugin failed to load: {spec}: {reason}': 'Plugin gagal dimuat: {spec}: {reason}',
+  'Plugin {spec} registered a tool name that is already in use: {name}':
+    'Plugin {spec} mendaftarkan nama tool yang sudah terpakai: {name}',
   '--permission-mode must be one of: {modes}': '--permission-mode harus salah satu dari: {modes}',
   'Plan needs approval; run with --allow-all.': 'Rencana butuh persetujuan; jalankan dengan --allow-all.',
   'Step limit reached.': 'Batas langkah tercapai.',
   'Needs permission for {tool}. Run with --allow-all or --allowed-tools {kind}.': 'Butuh izin untuk {tool}. Jalankan dengan --allow-all atau --allowed-tools {kind}.',
   '--lang must be one of: en, id': '--lang harus salah satu dari: en, id',
+  '--output-format must be one of: {formats}': '--output-format harus salah satu dari: {formats}',
   'Invalid config: {path} ({error})': 'Config tidak valid: {path} ({error})',
   'maxSteps must be a positive number, or 0/null to disable the limit.': 'maxSteps harus berupa angka positif, atau 0/null untuk menonaktifkan batas.',
+  'Hook {event} failed: {reason}': 'Hook {event} gagal: {reason}',
+  'list background tasks': 'daftar tugas latar belakang',
+  'Nothing to rewind.': 'Tidak ada yang bisa di-rewind.',
+  'Rewound {n} turn(s): the conversation continues from before them.': '{n} giliran di-rewind: percakapan dilanjutkan dari sebelum giliran itu.',
+  'step back turns: conversation and file edits (/rewind 2)': 'mundur beberapa giliran: percakapan + edit file (/rewind 2)',
+  'review a pull request (/pr <n|url|branch>)': 'review pull request (/pr <n|url|branch>)',
   'Model must be in provider/model format, e.g. bc-cloud/glm-5.3-flash (got: {ref})': 'Model harus berformat provider/model, contoh bc-cloud/glm-5.3-flash (dapat: {ref})',
   'Provider "{id}" is not in the config. Available: {list}': 'Provider "{id}" tidak ada di config. Tersedia: {list}',
   'No API key for {id} yet. Run `bccli login` or set the env var {env}.': 'API key untuk {id} belum ada. Jalankan `bccli login` atau set env {env}.',
@@ -157,6 +185,15 @@ Opsi:
   'Usage: bccli provider {action} <id>': 'Pemakaian: bccli provider {action} <id>',
   '{id} removed.': '{id} dihapus.',
   'Unknown action: {action}. Use list, add, or remove.': 'Aksi tidak dikenal: {action}. Pakai list, add, atau remove.',
+  'Unknown action: {action}. Use list, add, remove, auth, or logout.':
+    'Aksi tidak dikenal: {action}. Pakai list, add, remove, auth, atau logout.',
+  'OAuth required for {name}: run bccli mcp auth {name}': 'OAuth diperlukan untuk {name}: jalankan bccli mcp auth {name}',
+  '{name} is not an installed HTTP MCP server. Add it first with: bccli mcp add {name} --url <url>':
+    '{name} bukan server MCP HTTP yang terpasang. Tambahkan dulu: bccli mcp add {name} --url <url>',
+  '{name} authorized. Active in the next bccli session.': '{name} terautorisasi. Aktif di sesi bccli berikutnya.',
+  'OAuth login failed for {name}: {reason}': 'Login OAuth gagal untuk {name}: {reason}',
+  '{name} logged out.': '{name} telah logout.',
+  '{name} has no stored OAuth tokens.': '{name} tidak menyimpan token OAuth.',
   '{id} is not a preset. For a custom provider add --url <OpenAI-compatible base URL>.': '{id} bukan preset. Untuk provider custom tambahkan --url <base URL OpenAI-compatible>.',
   'API key for {id} (leave empty if not needed): ': 'API key untuk {id} (kosongkan bila tidak perlu): ',
   '{id} is ready. {n} models available.': '{id} siap. {n} model tersedia.',
@@ -302,4 +339,6 @@ Opsi:
   '{input} tokens in · {output} tokens out': '{input} token masuk · {output} token keluar',
   'Run: dsh web': 'Jalankan: dsh web',
   'timeout after {n} seconds': 'timeout {n} detik',
+  'Could not start MCP servers: {error}': 'Tidak bisa menjalankan server MCP: {error}',
+  'Blocked: {host} resolves to a private address ({addr}). Fetching an internal host through a public DNS name is not allowed.': 'Diblokir: {host} mengarah ke alamat privat ({addr}). Mengambil host internal lewat nama DNS publik tidak diizinkan.',
 }

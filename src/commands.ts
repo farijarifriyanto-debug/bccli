@@ -13,7 +13,10 @@ export const SLASH_COMMANDS = [
   { name: 'status', description: 'version, model, permission mode, MCP, context' },
   { name: 'permissions', description: 'view/revoke permissions' },
   { name: 'undo', description: 'undo the file edits of the last turn' },
+  { name: 'rewind', description: 'step back turns: conversation and file edits (/rewind 2)' },
   { name: 'diff', description: 'git diff of the project' },
+  { name: 'worktree', description: 'list git worktrees; create one with bccli -w <name>' },
+  { name: 'pr', description: 'review a pull request (/pr <n|url|branch>)' },
   { name: 'copy', description: 'copy the last answer' },
   { name: 'export', description: 'save the conversation as markdown' },
   { name: 'memory', description: 'project instructions (/memory <text>, /memory global <text>)' },
@@ -27,6 +30,7 @@ export const SLASH_COMMANDS = [
   { name: 'clear', description: 'start a new conversation' },
   { name: 'compact', description: 'summarize the conversation' },
   { name: 'cost', description: 'token usage of this session' },
+  { name: 'tasks', description: 'list background tasks' },
   { name: 'exit', description: 'quit' },
 ]
 
@@ -39,4 +43,19 @@ export function parseSlash(text: string): { name: string; args: string } | undef
 export function expandCommand(def: CommandDef, args: string): string {
   if (def.body.includes('$ARGUMENTS')) return def.body.replaceAll('$ARGUMENTS', args)
   return args ? `${def.body}\n\n${args}` : def.body
+}
+
+/**
+ * /pr: the model runs gh itself (installed on PATH), so this is a prompt, not a fetch.
+ * Empty selector = the PR of the current branch, falling back to a branch diff.
+ */
+export function prReviewPrompt(selector: string): string {
+  const target = selector.trim()
+  const refs = target
+    ? `Use "${target}" as the PR selector: run gh pr view ${target} --json url,title,body,baseRefName,headRefName,files,additions,deletions and gh pr diff ${target}.`
+    : "Start with `gh pr view --json url,title,baseRefName,headRefName` for the PR of the current branch, then fetch the change with `gh pr diff`. If the branch has no open PR, review its changes against the default branch instead: find the default branch (`gh repo view --json defaultBranchRef` or `git remote show origin`), then `git diff origin/<default-branch>...HEAD`."
+  return `Review this pull request like a senior reviewer.
+${refs}
+Read the changed files in the repository when the diff alone is not enough to judge the change.
+Write the review as: a 2-3 sentence summary; concrete problems (bugs, security, race conditions, error handling), each with file:line and why it matters; missing or weak tests; smaller style/nit issues; then a final verdict — approve, request changes, or comment — with the single most important reason.`
 }

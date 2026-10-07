@@ -1,12 +1,61 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { z } from 'zod'
 import type { Tool } from '../tools/types'
 import type { McpServerSpec } from './config'
+import { expandEnvVars } from './config'
+import { FileOAuthProvider, hasStoredTokens } from './oauth'
 import { t } from '../i18n'
 
 const MCP_OUTPUT_MAX_CHARS = 32_000
+
+/**
+ * Env vars a stdio MCP child may inherit from the parent CLI. The parent can hold
+ * provider API keys and tokens in process.env; those must not leak to every spawned
+ * server (the stdio transport receives a full env object, so the MCP SDK's own safe
+ * defaults get overwritten by whatever we pass here).
+ */
+const CHILD_ENV_KEYS = [
+  // portable
+  'PATH',
+  'HOME',
+  'USERPROFILE',
+  'LANG',
+  'LC_ALL',
+  'TZ',
+  'TMP',
+  'TEMP',
+  'TMPDIR',
+  // windows
+  'SYSTEMROOT',
+  'SYSTEMDRIVE',
+  'COMSPEC',
+  'PATHEXT',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'USERNAME',
+  'PROGRAMFILES',
+  'PROCESSOR_ARCHITECTURE',
+  // posix
+  'LOGNAME',
+  'SHELL',
+  'TERM',
+  'USER',
+] as const
+
+/** Safe env for spawned MCP servers: whitelist from the parent + the server's own config.env. */
+export function mcpChildEnv(extra?: Record<string, string>): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const key of CHILD_ENV_KEYS) {
+    const value = process.env[key]
+    if (value !== undefined) env[key] = value
+  }
+  return { ...env, ...extra }
+}
 
 export interface McpServerState {
   name: string
@@ -45,7 +94,17 @@ export class McpManager {
   private readonly servers = new Map<string, Connected>()
   private readonly taken = new Set<string>()
 
-  constructor(private readonly opts: { connectTimeoutMs?: number; onChange?: () => void; onToolsRemoved?: (names: string[]) => void } = {}) {}
+  constructor(
+    private readonly opts: {
+      connectTimeoutMs?: number
+      onChange?: () => void
+      onToolsRemoved?: (names: string[]) => void
+      /** Config home for the OAuth token store; enables authProvider on http servers. */
+      home?: string
+      /** Overrides how the OAuth consent page is opened (tests inject a fake browser). */
+      open?: (url: URL) => void | Promise<void>
+    } = {},
+  ) {}
 
   async start(specs: McpServerSpec[]): Promise<void> {
     await Promise.all(specs.map((spec) => this.add(spec)))
@@ -60,16 +119,25 @@ export class McpManager {
     entry.client = client // so remove() during connect can close it
     const timeoutMs = this.opts.connectTimeoutMs ?? 30_000
     try {
-      const config = spec.config
-      const transport =
-        config.type === 'http'
-          ? new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers ?? {} } })
-          : new StdioClientTransport({
-              command: config.command,
-              args: config.args ?? [],
-              env: { ...(process.env as Record<string, string>), ...config.env },
-              stderr: 'ignore',
-            })
+      const config = expandEnvVars(spec.config, process.env)
+      let transport: StdioClientTransport | StreamableHTTPClientTransport
+      if (config.type === 'http') {
+        const oauth =
+          this.opts.home && (config.auth === 'oauth' || hasStoredTokens(this.opts.home, config.url))
+            ? new FileOAuthProvider({ home: this.opts.home, serverUrl: config.url, open: this.opts.open })
+            : undefined
+        transport = new StreamableHTTPClientTransport(new URL(config.url), {
+          requestInit: { headers: config.headers ?? {} },
+          ...(oauth ? { authProvider: oauth } : {}),
+        })
+      } else {
+        transport = new StdioClientTransport({
+          command: config.command,
+          args: config.args ?? [],
+          env: mcpChildEnv(config.env),
+          stderr: 'ignore',
+        })
+      }
       await withTimeout(client.connect(transport), timeoutMs)
       const { tools } = await withTimeout(client.listTools(), timeoutMs)
       if (this.servers.get(spec.name) !== entry) {
@@ -79,7 +147,15 @@ export class McpManager {
       entry.tools = tools.map((t) => this.wrap(spec.name, client, t))
       entry.state = { ...entry.state, status: 'ready', tools: entry.tools.length }
     } catch (error) {
-      entry.state = { ...entry.state, status: 'error', error: (error as Error).message }
+      if (error instanceof UnauthorizedError) {
+        entry.state = {
+          ...entry.state,
+          status: 'error',
+          error: t('OAuth required for {name}: run bccli mcp auth {name}', { name: spec.name }),
+        }
+      } else {
+        entry.state = { ...entry.state, status: 'error', error: (error as Error).message }
+      }
       await client.close().catch(() => {})
       if (this.servers.get(spec.name) !== entry) return
     }

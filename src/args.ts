@@ -20,6 +20,8 @@ export interface CliArgs {
   resume: boolean
   allowAll: boolean
   allowedTools: string[]
+  worktree?: string
+  outputFormat?: 'text' | 'json' | 'stream-json'
   permissionMode?: PermissionMode
   help: boolean
   version: boolean
@@ -34,7 +36,7 @@ Usage:
   bccli login [provider]        save an API key (default: bc-cloud)
   bccli models                  list models from the active provider
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
-  bccli mcp list|add <name>|remove <name>    manage MCP servers (catalog, or --url <url>)
+  bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>    manage MCP servers (catalog, --url <url>, OAuth)
   bccli integrations             show the status of external agent integrations
   bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible, openclaw, hermes
   bccli disconnect <agent>       remove an integration and restore the previous config
@@ -46,6 +48,8 @@ Options:
   -r, --resume                  pick a session to continue
       --allow-all               run all tools without asking for permission
       --allowed-tools <a,b>     tools allowed without asking: bash, edit, fetch
+  -w, --worktree <name>        run in git worktree ../<repo>.worktrees/<name> (created, or reused if it exists)
+      --output-format <fmt>     text | json | stream-json for -p (machine-readable output)
       --permission-mode <mode>  default | acceptEdits | plan | allowAll
       --lang <en|id>            interface language (default: en; or BCCLI_LANG, or "language" in config)
   -v, --version                 version
@@ -67,6 +71,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
       resume: { type: 'boolean', short: 'r' },
       'allow-all': { type: 'boolean' },
       'allowed-tools': { type: 'string' },
+      worktree: { type: 'string', short: 'w' },
+      'output-format': { type: 'string' },
       'permission-mode': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
@@ -85,6 +91,10 @@ export function parseCliArgs(argv: string[]): CliArgs {
     throw new ConfigError(t('--permission-mode must be one of: {modes}', { modes: MODE_ORDER.join(', ') }))
   }
   if (values.lang !== undefined && !parseLang(values.lang)) throw new ConfigError(t('--lang must be one of: en, id'))
+  const outputFormat = values['output-format']
+  if (outputFormat !== undefined && !['text', 'json', 'stream-json'].includes(outputFormat)) {
+    throw new ConfigError(t('--output-format must be one of: {formats}', { formats: 'text, json, stream-json' }))
+  }
   const [first, ...rest] = positionals
   const SUBCOMMANDS = ['login', 'models', 'provider', 'mcp', 'connect', 'disconnect', 'integrations']
   const command = SUBCOMMANDS.includes(first) ? (first as CliArgs['command']) : 'run'
@@ -103,6 +113,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+    worktree: values.worktree,
+    outputFormat: outputFormat as CliArgs['outputFormat'],
     permissionMode: mode as PermissionMode | undefined,
     help: !!values.help,
     version: !!values.version,

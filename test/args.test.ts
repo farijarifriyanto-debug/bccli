@@ -39,3 +39,9 @@ test('provider and mcp subcommands keep their sub-arguments', () => {
     values: ['dir=/tmp', 'x=y'],
   })
 })
+
+test('the worktree flag takes an explicit name', () => {
+  expect(parseCliArgs(['-w', 'feat-x']).worktree).toBe('feat-x')
+  expect(parseCliArgs(['--worktree', 'feat-y']).worktree).toBe('feat-y')
+  expect(parseCliArgs(['hello']).worktree).toBeUndefined()
+})

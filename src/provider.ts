@@ -5,6 +5,7 @@ import type { ResponseOutputItem, ResponsesClientEvent, ResponsesServerEvent } f
 import { splitThinking, ThinkSplitter } from './thinking'
 import { reasoningPayload, type ReasoningLevel } from './reasoning'
 import type { ToolDefinition } from './tools/index'
+import type { ImageAttachment } from './tools/types'
 import { t } from './i18n'
 
 // BotConnector policy (not an OpenAI-mandated value): compact before the 272k Luna request cap.
@@ -22,9 +23,11 @@ export interface ToolCall {
   caller?: ResponsesProgramCaller
 }
 
+export type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+
 export type ChatMessage =
   | { role: 'system'; content: string }
-  | { role: 'user'; content: string }
+  | { role: 'user'; content: string | ContentPart[] }
   | {
       role: 'assistant'
       content: string | null
@@ -171,15 +174,16 @@ export function detectRepetition(text: string): number {
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms)
-    signal?.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer)
-        reject(signal.reason)
-      },
-      { once: true },
-    )
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason)
+    }
+    const timer = setTimeout(() => {
+      // Resolving must release the listener too, or retries pile them up on one turn's signal.
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
   })
 }
 
@@ -305,11 +309,48 @@ async function readJson(res: Response): Promise<Completion> {
   return { text: split.text, toolCalls, thinking: thinking || undefined, usage: toUsage(body.usage), finishReason: choice?.finish_reason }
 }
 
+/** Plain-text rendering of message content for previews, exports, and the chat UI. */
+export function contentText(content: string | ContentPart[]): string {
+  if (typeof content === 'string') return content
+  const text = content
+    .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
+    .map((part) => part.text)
+    .join(' ')
+    .trim()
+  const hasImage = content.some((part) => part.type === 'image_url')
+  if (!hasImage) return text
+  return text ? `${text} [image]` : '[image]'
+}
+
+/** The user message that carries read images to a vision-capable model. */
+export function imageUserMessage(images: ImageAttachment[]): ChatMessage {
+  const paths = images.map((image) => image.path)
+  const caption = paths.length === 1 ? `Image read from ${paths[0]}.` : `Images read from ${paths.join(', ')}.`
+  return {
+    role: 'user',
+    content: [
+      { type: 'text', text: caption },
+      ...images.map((image) => ({ type: 'image_url' as const, image_url: { url: `data:${image.mediaType};base64,${image.data}` } })),
+    ],
+  }
+}
+
 export function responseInputFromMessages(messages: ChatMessage[]): Record<string, unknown>[] {
   const input: Record<string, unknown>[] = []
   for (const message of messages) {
     if (message.role === 'system' || message.role === 'user') {
-      input.push({ role: message.role, content: message.content })
+      if (Array.isArray(message.content)) {
+        input.push({
+          role: message.role,
+          content: message.content.map((part) =>
+            part.type === 'image_url'
+              ? { type: 'input_image', image_url: part.image_url.url }
+              : { type: 'input_text', text: part.text },
+          ),
+        })
+      } else {
+        input.push({ role: message.role, content: message.content })
+      }
       continue
     }
     if (message.role === 'assistant') {
@@ -356,7 +397,7 @@ export function shouldForceLunaPtc(messages: ChatMessage[], enabled: boolean): b
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]
     if (message.role === 'assistant' && message.responses_output_items?.some((item) => item.type === 'program')) return true
-    if (message.role === 'user') return LUNA_PTC_FORCE_CUE.test(message.content)
+    if (message.role === 'user') return LUNA_PTC_FORCE_CUE.test(contentText(message.content))
   }
   return false
 }
@@ -380,7 +421,7 @@ export function shouldEnableLunaPtc(messages: ChatMessage[], enabled: boolean, p
   const turn = messages.slice(Math.max(0, lastUser))
 
   const latestUser = lastUser >= 0 ? messages[lastUser] : undefined
-  const prompt = latestUser?.role === 'user' ? latestUser.content : ''
+  const prompt = latestUser?.role === 'user' ? contentText(latestUser.content) : ''
   if (LUNA_PTC_MULTI_WORK_CUE.test(prompt)) return true
 
   const safeToolNames = new Set([...LUNA_PTC_SAFE_FUNCTIONS, ...programmaticToolNames])

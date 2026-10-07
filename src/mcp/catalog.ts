@@ -22,6 +22,7 @@ export const CATALOG: CatalogEntry[] = [
   {
     name: 'filesystem',
     description: 'access folders outside the project',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: ${dir} is filled by fillTemplate, not a template literal
     config: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '${dir}'] },
     inputs: [{ key: 'dir', label: 'Folder the server may access' }],
   },
@@ -29,6 +30,7 @@ export const CATALOG: CatalogEntry[] = [
   {
     name: 'github',
     description: 'GitHub issues, PRs, and repos',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: ${token} is filled by fillTemplate, not a template literal
     config: { type: 'http', url: 'https://api.githubcopilot.com/mcp/', headers: { Authorization: 'Bearer ${token}' } },
     inputs: [{ key: 'token', label: 'GitHub Personal Access Token', secret: true }],
   },

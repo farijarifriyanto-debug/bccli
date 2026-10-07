@@ -6,17 +6,21 @@ import { Box, Static, Text, useApp, useInput } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentEvent, PermissionAnswer, PermissionAsk } from '../agent'
 import { BUILTIN_AGENTS } from '../agents'
-import { expandCommand, parseSlash, SLASH_COMMANDS } from '../commands'
+import { expandCommand, parseSlash, prReviewPrompt, SLASH_COMMANDS } from '../commands'
 import { removeCredential } from '../config'
+import { runHooks } from '../hooks'
+import { renderBackgroundTasks } from '../tools/bash'
 import { assertReasoningSupported, parseReasoningLevel, REASONING_LEVELS, supportedReasoningLevels, type ReasoningLevel } from '../reasoning'
 import { Session } from '../session'
 import { osc52 } from '../slash/copy'
 import { gitDiff } from '../slash/diff'
+import { worktreeListText } from '../worktree'
 import { doctorText } from '../slash/doctor'
 import { exportMarkdown } from '../slash/export'
 import { agentsText, sessionText, skillsText, statusText } from '../slash/info'
 import { appendMemory, instructionFiles, parseMemoryArgs } from '../slash/memory'
 import { parseFrontmatter } from '../extensions'
+import { contentText } from '../provider'
 import type { PermissionMode } from '../config'
 import { nextMode } from '../permissions'
 import type { PlanDecision } from '../tools/plan'
@@ -121,7 +125,14 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     runtime.agent.askPermission = (request) =>
       new Promise((resolve) => setAsks((q) => [...q, { id: askId.current++, request, resolve }]))
     runtime.interaction.approvePlan = (plan) => new Promise((resolve) => setPlanAsk({ plan, resolve }))
-  }, [runtime, onEvent])
+    // Session hooks are fire-and-forget: a failing hook must never break the UI.
+    runHooks(runtime.config.hooks, 'SessionStart', {}, { env: runtime.env, cwd: runtime.cwd })
+      .then((outcome) => {
+        for (const w of outcome.warnings) notice(w, 'warn')
+      })
+      .catch(() => {})
+    runtime.emitPlugins('SessionStart').catch(() => {})
+  }, [runtime, onEvent, notice])
 
   const runTurn = useCallback(
     async (text: string) => {
@@ -131,11 +142,17 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       controller.current = new AbortController()
       await runtime.agent.run(text, controller.current.signal)
       controller.current = null
+      runHooks(runtime.config.hooks, 'Stop', {}, { env: runtime.env, cwd: runtime.cwd })
+        .then((outcome) => {
+          for (const w of outcome.warnings) notice(w, 'warn')
+        })
+        .catch(() => {})
+      runtime.emitPlugins('Stop').catch(() => {})
       setTranscript(endTurn)
       setBusy(false)
       setCancelling(false)
     },
-    [runtime],
+    [runtime, notice],
   )
 
   const runSlashCommand = useCallback(
@@ -157,6 +174,9 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           notice(t('{input} tokens in · {output} tokens out', { input: u.inputTokens.toLocaleString(locale()), output: u.outputTokens.toLocaleString(locale()) }))
           return
         }
+        case 'tasks':
+          notice(renderBackgroundTasks())
+          return
         case 'compact': {
           setBusy(true)
           setStartedAt(Date.now())
@@ -275,10 +295,12 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
               if (!chosen) return
               runtime.resume(chosen.session)
               setTokens(0)
-              const chat = runtime.agent.messages.filter(
-                (m): m is typeof m & { role: 'user' | 'assistant'; content: string } =>
-                  (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && !!m.content.trim(),
-              )
+              const chat = runtime.agent.messages
+                .map((m) => (m.role === 'user' && Array.isArray(m.content) ? { ...m, content: contentText(m.content) } : m))
+                .filter(
+                  (m): m is typeof m & { role: 'user' | 'assistant'; content: string } =>
+                    (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && !!m.content.trim(),
+                )
               setTranscript({
                 done: [
                   entry({ kind: 'header' }),
@@ -451,6 +473,12 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'diff':
           notice(await gitDiff(runtime.cwd))
           return
+        case 'worktree':
+          notice(await worktreeListText(runtime.cwd))
+          return
+        case 'pr':
+          void runTurn(prReviewPrompt(args))
+          return
         case 'undo': {
           const result = await runtime.checkpoints.undo()
           if (!result) {
@@ -465,6 +493,27 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
               result.deleted.length ? t('Deleted (new files): {files}', { files: result.deleted.map(rel).join(', ') }) : '',
               result.skipped.length ? t('Too large to back up, left unchanged: {files}', { files: result.skipped.map(rel).join(', ') }) : '',
               t('Note: changes made through bash commands cannot be undone.'),
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          )
+          return
+        }
+        case 'rewind': {
+          const parsed = Number.parseInt(args.trim(), 10)
+          const result = await runtime.rewindTurns(Number.isFinite(parsed) && parsed > 0 ? parsed : 1)
+          if (!result) {
+            notice(t('Nothing to rewind.'))
+            return
+          }
+          const rel = (p: string) => relative(runtime.cwd, p) || p
+          notice(
+            [
+              result.failed.length ? t('Could not restore: {files}', { files: result.failed.map(rel).join(', ') }) : '',
+              result.restored.length ? t('Restored: {files}', { files: result.restored.map(rel).join(', ') }) : '',
+              result.deleted.length ? t('Deleted (new files): {files}', { files: result.deleted.map(rel).join(', ') }) : '',
+              result.skipped.length ? t('Too large to back up, left unchanged: {files}', { files: result.skipped.map(rel).join(', ') }) : '',
+              t('Rewound {n} turn(s): the conversation continues from before them.', { n: result.turns }),
             ]
               .filter(Boolean)
               .join('\n'),

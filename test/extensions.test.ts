@@ -55,3 +55,12 @@ test('skill tool returns the skill body with its folder; system prompt lists ski
   expect((await tool.run({ name: 'nope' }, ctx)).isError).toBe(true)
   expect(buildSystemPrompt({ cwd: r.cwd, home: r.home, model: 'm', skills })).toContain('- tdd: test first')
 })
+
+test('an agent can opt in to parallel execution from the frontmatter', () => {
+  const r = roots()
+  put(join(r.home, 'agents/fast.md'), '---\ndescription: works alone\nparallel: true\n---\nDo the task.')
+  put(join(r.home, 'agents/slow.md'), '---\ndescription: sequential\nparallel: no\n---\nDo the task.')
+  const defs = loadAgentDefs(r)
+  expect(defs.find((d) => d.name === 'fast')?.parallel).toBe(true)
+  expect(defs.find((d) => d.name === 'slow')?.parallel).toBeUndefined()
+})
