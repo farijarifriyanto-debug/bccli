@@ -2,10 +2,11 @@ import { parseArgs } from 'node:util'
 import { ConfigError, type PermissionMode } from './config'
 import { MODE_ORDER } from './permissions'
 import { isReasoningLevel, REASONING_LEVELS, type ReasoningLevel } from './reasoning'
+import { LOOPBACK_BIND } from './serveProtocol'
 import { type Lang, parseLang, t } from './i18n'
 
 export interface CliArgs {
-  command: 'run' | 'login' | 'models' | 'update' | 'acp' | 'provider' | 'mcp' | 'connect' | 'disconnect' | 'integrations'
+  command: 'run' | 'login' | 'models' | 'update' | 'acp' | 'serve' | 'provider' | 'mcp' | 'connect' | 'disconnect' | 'integrations'
   subArgs: string[]
   url?: string
   name?: string
@@ -26,6 +27,12 @@ export interface CliArgs {
   help: boolean
   version: boolean
   loginProvider?: string
+  /** `bccli serve` listener port (0 = ephemeral). */
+  port?: number
+  /** `bccli serve` bind address — loopback only. */
+  host?: string
+  /** `bccli serve` bearer token override. */
+  token?: string
 }
 
 const HELP = `BCCLI — BotConnector's AI coding agent for the terminal
@@ -37,6 +44,7 @@ Usage:
   bccli models [provider]       list models (default: the active provider)
   bccli update                  install the newest bccli from npm
   bccli acp                     run as an ACP agent for editors (Zed, ...)
+  bccli serve [--port N]        serve sessions over HTTP+WS for IDEs/bots
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>    manage MCP servers (catalog, --url <url>, OAuth)
   bccli integrations             show the status of external agent integrations
@@ -82,6 +90,9 @@ export function parseCliArgs(argv: string[]): CliArgs {
       name: { type: 'string' },
       'key-env': { type: 'string' },
       value: { type: 'string', multiple: true },
+      port: { type: 'string' },
+      host: { type: 'string' },
+      token: { type: 'string' },
     },
   })
   const reasoning = values.reasoning
@@ -98,9 +109,16 @@ export function parseCliArgs(argv: string[]): CliArgs {
     throw new ConfigError(t('--output-format must be one of: {formats}', { formats: 'text, json, stream-json' }))
   }
   const [first, ...rest] = positionals
-  const SUBCOMMANDS = ['login', 'models', 'update', 'acp', 'provider', 'mcp', 'connect', 'disconnect', 'integrations']
+  const SUBCOMMANDS = ['login', 'models', 'update', 'acp', 'serve', 'provider', 'mcp', 'connect', 'disconnect', 'integrations']
   const command = SUBCOMMANDS.includes(first) ? (first as CliArgs['command']) : 'run'
   const words = command === 'run' ? positionals : rest
+  const port = values.port !== undefined ? Number(values.port) : undefined
+  if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535)) {
+    throw new ConfigError(t('--port must be a number between 0 and 65535'))
+  }
+  if (values.host !== undefined && !LOOPBACK_BIND.has(values.host)) {
+    throw new ConfigError(t('serve only accepts loopback --host (127.0.0.1, localhost, ::1)'))
+  }
   return {
     command,
     prompt: command === 'run' && words.length ? words.join(' ') : undefined,
@@ -126,5 +144,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
     name: values.name,
     keyEnv: values['key-env'],
     values: values.value ?? [],
+    port,
+    host: values.host,
+    token: values.token,
   }
 }

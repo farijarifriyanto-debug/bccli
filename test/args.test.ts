@@ -45,3 +45,21 @@ test('the worktree flag takes an explicit name', () => {
   expect(parseCliArgs(['--worktree', 'feat-y']).worktree).toBe('feat-y')
   expect(parseCliArgs(['hello']).worktree).toBeUndefined()
 })
+
+test('serve: parsing subcommand + flags', () => {
+  const a = parseCliArgs(['serve', '--port', '9001', '--token', 'tk', '--host', '127.0.0.1'])
+  expect(a.command).toBe('serve')
+  expect(a.port).toBe(9001)
+  expect(a.token).toBe('tk')
+  expect(a.host).toBe('127.0.0.1')
+  expect(parseCliArgs(['serve']).port).toBeUndefined()
+})
+
+test('serve: host non-loopback ditolak fail-loud saat parse', () => {
+  expect(() => parseCliArgs(['serve', '--host', '0.0.0.0'])).toThrow(/loopback/)
+})
+
+test('serve: port bukan angka / di luar rentang ditolak', () => {
+  expect(() => parseCliArgs(['serve', '--port', 'abc'])).toThrow(/--port/)
+  expect(() => parseCliArgs(['serve', '--port', '70000'])).toThrow(/--port/)
+})

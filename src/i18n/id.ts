@@ -107,6 +107,7 @@ Usage:
   bccli models [provider]       list models (default: the active provider)
   bccli update                  install the newest bccli from npm
   bccli acp                     run as an ACP agent for editors (Zed, ...)
+  bccli serve [--port N]        serve sessions over HTTP+WS for IDEs/bots
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>    manage MCP servers (catalog, --url <url>, OAuth)
   bccli integrations             show the status of external agent integrations
@@ -134,6 +135,7 @@ Pemakaian:
   bccli models [provider]       daftar model (default: provider aktif)
   bccli update                  pasang bccli terbaru dari npm
   bccli acp                     jalankan sebagai agen ACP untuk editor (Zed, ...)
+  bccli serve [--port N]        sajikan sesi lewat HTTP+WS untuk IDE/bot
   bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <nama>|remove <nama>|auth <nama>|logout <nama>    kelola server MCP (katalog, --url <url>, OAuth)
   bccli integrations             lihat status integrasi agent eksternal
@@ -154,6 +156,9 @@ Opsi:
   -v, --version                 versi
   -h, --help                    bantuan ini`,
   '--reasoning must be one of: {levels}': '--reasoning harus salah satu dari: {levels}',
+  '--port must be a number between 0 and 65535': '--port harus angka antara 0 dan 65535',
+  'serve only accepts loopback --host (127.0.0.1, localhost, ::1)':
+    'serve hanya menerima --host loopback (127.0.0.1, localhost, ::1)',
   'networkPolicy must be "allow" or "offline".': 'networkPolicy harus "allow" atau "offline".',
   'plugins must be an array of strings.': 'plugins harus berupa array of string.',
   'verifyCommands must be an array of non-empty strings.': 'verifyCommands harus berupa array of string tidak kosong.',
