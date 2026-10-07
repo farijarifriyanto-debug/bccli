@@ -307,6 +307,44 @@ test('listModels returns sorted ids', async () => {
   expect(await createProvider({ baseURL: 'http://x', model: 'm', fetch: f }).listModels()).toEqual(['a', 'b'])
 })
 
+test('listModels deduplicates repeated ids from the provider catalog', async () => {
+  const f = vi.fn(async () =>
+    new Response(
+      JSON.stringify({
+        data: [
+          { id: 'Qwen/Qwen3.8-Flash' },
+          { id: 'Qwen/Qwen3.8-Max' },
+          { id: 'Qwen/Qwen3.8-Flash' },
+          { id: 'Qwen/Qwen3.8-Max' },
+          { id: 'Qwen/Qwen3.8-Flash' },
+        ],
+      }),
+    ),
+  )
+  expect(await createProvider({ baseURL: 'http://x', model: 'm', fetch: f }).listModels()).toEqual(['Qwen/Qwen3.8-Flash', 'Qwen/Qwen3.8-Max'])
+})
+
+test('listModels keeps unique ids untouched, preserves exact casing, and stays sorted', async () => {
+  const f = vi.fn(async () =>
+    new Response(JSON.stringify({ data: [{ id: 'zeta' }, { id: 'Model-A' }, { id: 'model-a' }, { id: 'alpha' }] })),
+  )
+  expect(await createProvider({ baseURL: 'http://x', model: 'm', fetch: f }).listModels()).toEqual(['Model-A', 'alpha', 'model-a', 'zeta'])
+})
+
+test('listModels returns [] for an empty or missing data array', async () => {
+  const empty = vi.fn(async () => new Response(JSON.stringify({ data: [] })))
+  expect(await createProvider({ baseURL: 'http://x', model: 'm', fetch: empty }).listModels()).toEqual([])
+  const missing = vi.fn(async () => new Response(JSON.stringify({})))
+  expect(await createProvider({ baseURL: 'http://x', model: 'm', fetch: missing }).listModels()).toEqual([])
+})
+
+test('listModels drops empty and non-string ids from a malformed catalog', async () => {
+  const f = vi.fn(async () =>
+    new Response(JSON.stringify({ data: [{ id: '' }, { id: 42 }, { id: null }, {}, null, { id: 'real' }] })),
+  )
+  expect(await createProvider({ baseURL: 'http://x', model: 'm', fetch: f }).listModels()).toEqual(['real'])
+})
+
 test('parallel tool calls without index stay separate when their ids differ', async () => {
   const f = vi.fn(async () =>
     sse([
