@@ -18,7 +18,8 @@ export async function runVerify(
   const failures: VerifyFailure[] = []
   for (const cmd of commands) {
     const r = await run(cmd, { cwd: opts.cwd, timeoutMs: opts.timeoutMs ?? 300_000, signal: opts.signal, env: opts.env })
-    if (r.exitCode !== 0) failures.push({ cmd, exitCode: r.exitCode, output: r.output })
+    const exitCode = r.exitCode ?? -1
+    if (exitCode !== 0) failures.push({ cmd, exitCode, output: r.output })
   }
   return failures
 }
