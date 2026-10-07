@@ -372,6 +372,98 @@ test('the compaction request still declares the tools', async () => {
   expect(provider.requests[1].tools?.length).toBe(7)
 })
 
+test('a resumed history bigger than the window compacts before the first real request', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-resume-'))
+  const provider = scripted([reply('RINGKASAN-RESUME'), reply('done')])
+  const agent = new Agent({
+    provider,
+    tools: ALL_TOOLS,
+    permissions: new Permissions('default', [], cwd),
+    systemPrompt: 'SYS',
+    cwd,
+    contextWindow: 500,
+  })
+  agent.load([
+    { role: 'user', content: 'x'.repeat(4000) },
+    { role: 'assistant', content: 'ok' },
+  ])
+  await agent.run('continue the work', new AbortController().signal)
+  expect(provider.requests).toHaveLength(2)
+  const compactRequest = provider.requests[0]
+  expect(compactRequest.messages.at(-1)).toEqual({ role: 'user', content: expect.stringContaining('Summarize the conversation') })
+  const realRequest = provider.requests[1]
+  expect(realRequest.messages.some((m) => m.role === 'user' && String(m.content).includes('Summary of the previous conversation'))).toBe(true)
+  expect(realRequest.messages.at(-1)).toEqual({ role: 'user', content: 'continue the work' })
+})
+
+test('compaction trims history that would overflow even the summary request, at turn boundaries only', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-trim-'))
+  const provider = scripted([reply('RINGKASAN-PENDEK'), reply('done')])
+  const agent = new Agent({
+    provider,
+    tools: ALL_TOOLS,
+    permissions: new Permissions('default', [], cwd),
+    systemPrompt: 'SYS',
+    cwd,
+    contextWindow: 2000,
+  })
+  // Five complete turns, each with a tool exchange, well past the 1600-token compaction budget.
+  const turn = (i: number) =>
+    [
+      { role: 'user', content: `tugas ${i} ${'u'.repeat(2000)}` },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{ id: `c${i}`, type: 'function' as const, function: { name: 'read', arguments: '{}' } }],
+      },
+      { role: 'tool', tool_call_id: `c${i}`, content: 'r'.repeat(1000) },
+      { role: 'assistant', content: `selesai ${i}` },
+    ] as const
+  agent.load([turn(0), turn(1), turn(2), turn(3), turn(4)].flat() as never)
+  await agent.run('lanjut', new AbortController().signal)
+  const compactMessages = provider.requests[0].messages
+  const withoutSystemAndPrompt = compactMessages.slice(1, -1)
+  expect(JSON.stringify(withoutSystemAndPrompt).length / 4).toBeLessThan(1600)
+  // Trimmed at a user boundary: the first message is a user turn, no orphan tool reply.
+  expect(withoutSystemAndPrompt[0].role).toBe('user')
+  const answered = new Set(
+    withoutSystemAndPrompt.flatMap((m) => (m.role === 'assistant' ? (m.tool_calls ?? []).map((c) => c.id) : [])),
+  )
+  for (const m of withoutSystemAndPrompt) {
+    if (m.role === 'tool') expect(answered.has((m as { tool_call_id: string }).tool_call_id)).toBe(true)
+  }
+  // Oldest turns were dropped, recent ones kept.
+  expect(withoutSystemAndPrompt.some((m) => m.role === 'user' && String(m.content).startsWith('tugas 0'))).toBe(false)
+  expect(withoutSystemAndPrompt.some((m) => m.role === 'user' && String(m.content).startsWith('tugas 4'))).toBe(true)
+})
+
+test('a tool that throws outside run() still gets an answer; the turn survives', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-throw-'))
+  const provider = scripted([{ text: '', toolCalls: [call('boom', {}, 'b1')] }, reply('recovered')])
+  const boom = {
+    name: 'boom',
+    description: 'always explodes',
+    schema: z.object({}),
+    kind: 'read' as const,
+    target: () => {
+      throw new Error('target exploded')
+    },
+    async run() {
+      return { output: 'never reached' }
+    },
+  }
+  const events: AgentEvent[] = []
+  const agent = new Agent({ provider, tools: [boom], permissions: new Permissions('default', [], cwd), systemPrompt: 'SYS', cwd })
+  agent.onEvent = (e) => events.push(e)
+  await agent.run('go', new AbortController().signal)
+  expect(provider.requests).toHaveLength(2)
+  const toolMsg = provider.requests[1].messages.find((m) => m.role === 'tool' && m.tool_call_id === 'b1') as
+    | { content: string }
+    | undefined
+  expect(toolMsg?.content).toContain('target exploded')
+  expect(events.at(-1)?.type).toBe('done')
+})
+
 test('a tool list change during a turn applies from the next turn', async () => {
   const { cwd, provider, agent } = setup([{ text: '', toolCalls: [call('read', { path: 'a.txt' })] }, reply('ok'), reply('second')])
   writeFileSync(join(cwd, 'a.txt'), 'hello')
@@ -412,4 +504,27 @@ test('a repetition cut-off is reported and only the clean text is kept', async (
   expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('mengulang') })
   expect(events).toContainEqual({ type: 'textReplace', text: 'Halo' })
   expect(agent.messages.at(-1)).toEqual({ role: 'assistant', content: 'Halo' })
+})
+
+test('images from a tool result are injected as a user parts message', async () => {
+  const { cwd, provider, agent } = setup([
+    { text: '', toolCalls: [call('read', { path: 'logo.png' })] },
+    reply('done'),
+  ])
+  writeFileSync(
+    join(cwd, 'logo.png'),
+    Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 3)]),
+  )
+  await agent.run('lihat logo', new AbortController().signal)
+  const messages = provider.requests[1].messages
+  const toolIndex = messages.findIndex((m) => m.role === 'tool')
+  expect((messages[toolIndex] as unknown as { content: string }).content).toContain('[image attached]')
+  const next = messages[toolIndex + 1] as unknown as {
+    role: string
+    content: { type: string; text?: string; image_url?: { url: string } }[]
+  }
+  expect(next.role).toBe('user')
+  expect(next.content[0]).toEqual({ type: 'text', text: 'Image read from logo.png.' })
+  expect(next.content[1].type).toBe('image_url')
+  expect(next.content[1].image_url?.url).toMatch(/^data:image\/png;base64,/)
 })

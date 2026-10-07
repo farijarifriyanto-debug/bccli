@@ -15,6 +15,7 @@ cd project-kamu && bccli
 |---|---|
 | `bccli` | mode interaktif |
 | `bccli -p "tugas"` | satu tugas tanpa interaksi (skrip/CI) |
+| `bccli -p "tugas" --output-format json` | hasil akhir sebagai satu objek JSON; `stream-json` = event JSONL per tahap (tool_use/tool_result/message/result) untuk CI |
 | `bccli -c` / `bccli -r` | lanjutkan sesi terakhir / pilih sesi |
 | `bccli -m provider/model` | pilih model |
 | `bccli --reasoning <auto|off|low|medium|high|max>` | pilih level reasoning untuk invocation ini |

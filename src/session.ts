@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ChatMessage } from './provider'
+import { contentText, type ChatMessage } from './provider'
 
 type SessionRecord = { t: 'msg'; m: ChatMessage } | { t: 'reset' }
 
@@ -44,7 +44,7 @@ export class Session {
       .map((f) => {
         const session = new Session(join(dir, f))
         const first = session.load().find((m) => m.role === 'user')
-        return { session, mtime: statSync(session.file).mtime, preview: first ? String(first.content).slice(0, 80) : '' }
+        return { session, mtime: statSync(session.file).mtime, preview: first ? contentText(first.content).slice(0, 80) : '' }
       })
       .sort((a, b) => b.mtime.getTime() - a.mtime.getTime() || b.session.file.localeCompare(a.session.file))
   }

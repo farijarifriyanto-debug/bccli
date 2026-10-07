@@ -16,11 +16,30 @@ export function nextMode(mode: PermissionMode): PermissionMode {
   return MODE_ORDER[(MODE_ORDER.indexOf(mode) + 1) % MODE_ORDER.length]
 }
 
-const TWO_WORD = new Set(['npm', 'npx', 'pnpm', 'yarn', 'bun', 'git', 'cargo', 'go', 'docker', 'python', 'python3', 'uv', 'make'])
+// First word that must never be granted for a session, whatever the arguments.
+const ALWAYS_ASK_COMMANDS = new Set(['sudo', 'sh', 'bash', 'zsh', 'su'])
+
+/**
+ * A segment that may hide destructive effects behind an otherwise harmless name;
+ * `rulesFor` returns undefined for requests containing one, so they are always asked.
+ */
+function isAlwaysAsk(segment: string): boolean {
+  const words = segment.trim().split(/\s+/)
+  const first = words[0] ?? ''
+  if (ALWAYS_ASK_COMMANDS.has(first)) return true
+  const flags = words.slice(1).filter((w) => w.startsWith('-'))
+  if (first === 'rm' && flags.some((w) => w.includes('r'))) return true // -r, -rf, -fr, --recursive
+  if (first === 'chmod' && flags.some((w) => w.includes('R'))) return true // -R, -Rf
+  if (first === 'kill' && words.slice(1).includes('-9')) return true
+  if (first === 'git' && words[1] === 'push') {
+    return words.slice(2).some((w) => w === '-f' || w === '--force' || w.startsWith('--force='))
+  }
+  return false
+}
 
 function commandKey(segment: string): string {
   const words = segment.trim().split(/\s+/)
-  return TWO_WORD.has(words[0]) && words[1] ? `${words[0]} ${words[1]}` : words[0]
+  return words[1] ? `${words[0]} ${words[1]}` : words[0]
 }
 
 export class Permissions {
@@ -61,6 +80,7 @@ export class Permissions {
         .map((s) => s.trim())
         .filter(Boolean)
       if (!segments.length) return undefined
+      if (segments.some(isAlwaysAsk)) return undefined
       return [...new Set(segments.map((s) => `bash(${commandKey(s)})`))]
     }
     if (req.kind === 'mcp') return [`mcp(${req.tool})`]

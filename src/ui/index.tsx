@@ -33,7 +33,9 @@ export async function startInteractive(rt: Runtime, opts: { initialPrompt?: stri
     }
     rl.close()
   }
-  void rt.startMcp(plan.start)
+  void rt.startMcp(plan.start).catch((error: unknown) => {
+    console.error(t('Could not start MCP servers: {error}', { error: error instanceof Error ? error.message : String(error) }))
+  })
   const instance = render(<App runtime={rt} initialPrompt={opts.initialPrompt} version={opts.version} />, { exitOnCtrlC: true })
   await instance.waitUntilExit()
   await rt.mcp.stop()

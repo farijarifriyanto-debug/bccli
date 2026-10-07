@@ -50,3 +50,26 @@ test('add --url for any remote server; remove', async () => {
   expect(await run(['remove', 'mine'], d)).toBe(0)
   expect(readMcpFile(join(d.home, 'mcp.json')).mine).toBeUndefined()
 })
+
+test('auth and logout dispatch with usage errors for missing or non-http servers', async () => {
+  const d = deps()
+  expect(await run(['auth'], d)).toBe(1)
+  expect(d.errors.join('\n')).toContain('auth')
+  expect(await run(['auth', 'context7'], d)).toBe(1)
+  expect(d.errors.join('\n')).toContain('context7')
+  await run(['add', 'context7'], d)
+  expect(await run(['logout', 'context7'], d)).toBe(0)
+  expect(d.lines.join('\n')).toMatch(/context7.*OAuth/)
+  await run(['add', 'filesystem', '--value', 'dir=/data'], d)
+  expect(await run(['auth', 'filesystem'], d)).toBe(1)
+  expect(d.errors.join('\n')).toContain('filesystem')
+  expect(await run(['logout', 'filesystem'], d)).toBe(1)
+  expect(d.errors.join('\n')).toContain('filesystem')
+})
+
+test('unknown mcp action mentions auth and logout', async () => {
+  const d = deps()
+  expect(await run(['frobnicate', 'x'], d)).toBe(1)
+  expect(d.errors.join('\n')).toContain('auth')
+  expect(d.errors.join('\n')).toContain('logout')
+})

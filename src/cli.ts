@@ -8,6 +8,7 @@ import { pruneSessions } from './session'
 import { createRuntime } from './setup'
 import { VERSION } from './version'
 import { resolveLanguage, setLanguage, t } from './i18n'
+import { resolveWorktree } from './worktree'
 
 function chooseLanguage(argv: string[]): void {
   let fromConfig: string | undefined
@@ -30,7 +31,8 @@ async function main(): Promise<number> {
     console.log(helpText())
     return 0
   }
-  const cwd = process.cwd()
+  let cwd = process.cwd()
+  if (args.worktree) cwd = (await resolveWorktree(cwd, args.worktree)).path
   if (args.command === 'login') return runLogin(args.loginProvider ?? 'bc-cloud', cwd)
   if (args.command === 'mcp') {
     const { runMcpCommand } = await import('./mcpCli')
@@ -74,7 +76,7 @@ async function main(): Promise<number> {
     }
     await rt.startMcp(plan.start)
     try {
-      return await runPrint(rt, args.prompt, undefined, { allowAll: args.allowAll })
+      return await runPrint(rt, args.prompt, undefined, { allowAll: args.allowAll, outputFormat: args.outputFormat })
     } finally {
       await rt.mcp.stop()
     }

@@ -19,12 +19,21 @@ export interface ToolContext {
   checkpoint?: (absPath: string) => Promise<void>
 }
 
+export interface ImageAttachment {
+  mediaType: string
+  /** Base64 (no data: prefix). */
+  data: string
+  path: string
+}
+
 export interface ToolResult {
   /** Sent back to the model. */
   output: string
   isError?: boolean
   /** Optional richer text for the UI (e.g. a diff). */
   display?: string
+  /** Image files read this call; the agent injects them as a user message with image parts. */
+  images?: ImageAttachment[]
 }
 
 export interface Tool<S extends z.ZodType = z.ZodType> {

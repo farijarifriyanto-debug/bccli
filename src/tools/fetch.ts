@@ -1,3 +1,7 @@
+import { lookup as dnsCbLookup } from 'node:dns'
+import { lookup as dnsLookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
+import { Agent, fetch as undiciFetch } from 'undici'
 import { z } from 'zod'
 import { defineTool } from './types'
 import { t } from '../i18n'
@@ -77,6 +81,35 @@ export function isPrivateHost(host: string): boolean {
 
 const words = (s: string): string[] => s.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) ?? []
 
+export interface PinnedAddress {
+  address: string
+  family: number
+}
+
+type LookupCallback = (err: NodeJS.ErrnoException | null, address: string | PinnedAddress[], family?: number) => void
+
+/**
+ * A DNS lookup that answers with the address the rebinding guard already validated,
+ * so the socket connects to exactly the IP that was checked (closes the
+ * resolve-then-fetch gap). An empty pin falls back to the real resolver; a family
+ * mismatch refuses instead of re-resolving, and unknown hostnames use real DNS.
+ */
+export function pinLookup(pinned: PinnedAddress[]): (hostname: string, options: unknown, callback: LookupCallback) => void {
+  return (hostname, options, callback) => {
+    const opts = (typeof options === 'object' && options !== null ? options : {}) as { all?: boolean; family?: number }
+    const family = typeof options === 'number' ? options : opts.family
+    const realDns = () => dnsCbLookup(hostname, (typeof options === 'number' ? { family: options } : opts) as never, callback as never)
+    if (!pinned.length) return realDns()
+    const list = family ? pinned.filter((a) => a.family === family) : pinned
+    if (!list.length) {
+      callback(Object.assign(new Error(`no pinned address for family ${family}`), { code: 'ENOTFOUND' }), '')
+      return
+    }
+    if (opts.all) callback(null, list)
+    else callback(null, list[0].address, list[0].family)
+  }
+}
+
 /** Best BM25 chunks for `query`, in page order; null when no chunk shares a word with it. */
 export function pickRelevant(text: string, query: string, count = FOCUS_CHUNKS, size = FOCUS_SIZE): string | null {
   const chunks: string[] = []
@@ -139,6 +172,10 @@ export interface FetchToolOptions {
   /** Keenable fetch endpoint used when `prompt` is given; null disables it. */
   keenableURL?: string | null
   isPrivate?: (host: string) => boolean
+  /** DNS resolver for the rebinding guard; injectable for tests. */
+  lookup?: (hostname: string) => Promise<Array<{ address: string; family: number }>>
+  /** Page fetch override for tests; receives the same init (including `dispatcher`). */
+  fetchPage?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 }
 
 const ACCEPT = 'text/markdown, text/html;q=0.9, text/plain;q=0.8, */*;q=0.5'
@@ -147,6 +184,7 @@ const withCost = (text: string, what: string) => `${what} · ${t('~{n} tokens', 
 export function createFetchTool(opts: FetchToolOptions = {}) {
   const keenableURL = opts.keenableURL === undefined ? 'https://api.keenable.ai/v1/fetch/public' : opts.keenableURL
   const isPrivate = opts.isPrivate ?? isPrivateHost
+  const lookup = opts.lookup ?? ((hostname: string) => dnsLookup(hostname, { all: true }))
   return defineTool({
     name: 'fetch',
     description: `Fetch a URL (http/https) as text/markdown. Costs the user tokens, so ask for as little as you need:
@@ -163,6 +201,25 @@ export function createFetchTool(opts: FetchToolOptions = {}) {
     async run(input, ctx) {
       if (!/^https?:\/\//i.test(input.url)) return { output: 'URL must start with http:// or https://', isError: true }
       const target = new URL(input.url)
+      // DNS rebinding guard: a public hostname may resolve to an internal address.
+      // Literal IPs are never looked up (the user sees exactly what they typed), and a
+      // DNS failure falls through so the fetch below reports the real error (ENOTFOUND).
+      let pinned: PinnedAddress[] | undefined
+      if (!isPrivate(target.hostname) && isIP(target.hostname) === 0) {
+        try {
+          const addresses = await lookup(target.hostname)
+          const internal = addresses.find((a) => isPrivate(a.address))
+          if (internal) {
+            return {
+              output: t('Blocked: {host} resolves to a private address ({addr}). Fetching an internal host through a public DNS name is not allowed.', { host: target.hostname, addr: internal.address }),
+              isError: true,
+            }
+          }
+          pinned = addresses
+        } catch {
+          // DNS error: let the fetch below surface it.
+        }
+      }
       const prompt = input.prompt?.trim()
       const askKeenable = !!prompt && !input.offset && !!keenableURL && !target.username && !target.password && !isPrivate(target.hostname)
 
@@ -185,7 +242,7 @@ export function createFetchTool(opts: FetchToolOptions = {}) {
       const cached = !!page
       if (cached) ctx.refundFetch?.()
       if (!page) {
-        const loaded = await loadPage(input.url, ctx.signal)
+        const loaded = await loadPage(input.url, ctx.signal, pinned, opts.fetchPage)
         if ('error' in loaded) return { output: loaded.error, isError: true }
         page = loaded
         remember(`p\n${input.url}`, page, page.text.length)
@@ -233,13 +290,32 @@ async function extractWithKeenable(endpoint: string, url: string, prompt: string
   }
 }
 
-async function loadPage(inputUrl: string, signal: AbortSignal): Promise<{ text: string; truncated: boolean; at: number } | { error: string }> {
+async function loadPage(
+  inputUrl: string,
+  signal: AbortSignal,
+  pinned?: PinnedAddress[],
+  fetchPage?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+): Promise<{ text: string; truncated: boolean; at: number } | { error: string }> {
   // Follow redirects by hand: permission was granted for this host only.
   let url = new URL(inputUrl)
-  let res: Response | undefined
+  // Pin the connection to the address the guard validated, so a second DNS answer
+  // between check and fetch (rebinding) cannot move the socket. The pinned path uses
+  // undici's own fetch: Node's built-in fetch embeds a different undici copy, and a
+  // dispatcher built by the package only works when both sides are the same version.
+  const dispatcher = pinned?.length ? new Agent({ connect: { lookup: pinLookup(pinned) } }) : undefined
+  // Cast: undici's fetch Response type is structurally identical to the built-in one
+  // but their Headers iterator types are nominally incompatible.
+  const doFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> =
+    fetchPage ?? (dispatcher ? (undiciFetch as unknown as typeof fetch) : fetch)
   try {
+    let res: Response | undefined
     for (let hop = 0; hop < 5; hop++) {
-      res = await fetch(url, { headers: { accept: ACCEPT }, signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]), redirect: 'manual' })
+      res = await doFetch(url, {
+        headers: { accept: ACCEPT },
+        signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+        redirect: 'manual',
+        ...(dispatcher ? { dispatcher } : {}),
+      })
       const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null
       if (!location) break
       const next = new URL(location, url)
@@ -250,15 +326,17 @@ async function loadPage(inputUrl: string, signal: AbortSignal): Promise<{ text: 
       await res.body?.cancel()
       url = next
     }
+    if (!res) return { error: `Failed to fetch ${inputUrl}` }
+    const { text: body, truncated } = await readCapped(res)
+    const type = res.headers.get('content-type') ?? ''
+    const text = type.includes('html') ? htmlToText(body) : body
+    if (!res.ok) return { error: `HTTP ${res.status} from ${inputUrl}: ${text.slice(0, 500)}` }
+    return { text, truncated, at: Date.now() }
   } catch (error) {
     return { error: `Failed to fetch ${inputUrl}: ${describeFetchError(error)}` }
+  } finally {
+    await dispatcher?.close().catch(() => {})
   }
-  if (!res) return { error: `Failed to fetch ${inputUrl}` }
-  const { text: body, truncated } = await readCapped(res)
-  const type = res.headers.get('content-type') ?? ''
-  const text = type.includes('html') ? htmlToText(body) : body
-  if (!res.ok) return { error: `HTTP ${res.status} from ${inputUrl}: ${text.slice(0, 500)}` }
-  return { text, truncated, at: Date.now() }
 }
 
 export const fetchTool = createFetchTool()

@@ -2,6 +2,7 @@ import type { CliArgs } from './args'
 import { bccliHome } from './config'
 import { CATALOG, fillTemplate } from './mcp/catalog'
 import { addGlobalServer, globalMcpPath, readMcpFile, removeGlobalServer } from './mcp/config'
+import { authorizeMcpServer, clearTokens } from './mcp/oauth'
 import type { CliDeps } from './providerCli'
 import { t } from './i18n'
 
@@ -23,8 +24,30 @@ export async function runMcpCommand(args: CliArgs, deps: CliDeps): Promise<numbe
     deps.out(t('{name} removed.', { name }))
     return 0
   }
+  if (action === 'auth' || action === 'logout') {
+    const config = installed[name]
+    if (config?.type !== 'http') {
+      deps.err(
+        t('{name} is not an installed HTTP MCP server. Add it first with: bccli mcp add {name} --url <url>', { name }),
+      )
+      return 1
+    }
+    if (action === 'logout') {
+      const removed = clearTokens(home, config.url)
+      deps.out(removed ? t('{name} logged out.', { name }) : t('{name} has no stored OAuth tokens.', { name }))
+      return 0
+    }
+    try {
+      await authorizeMcpServer({ name, config }, { home })
+      deps.out(t('{name} authorized. Active in the next bccli session.', { name }))
+      return 0
+    } catch (error) {
+      deps.err(t('OAuth login failed for {name}: {reason}', { name, reason: (error as Error).message }))
+      return 1
+    }
+  }
   if (action !== 'add') {
-    deps.err(t('Unknown action: {action}. Use list, add, or remove.', { action }))
+    deps.err(t('Unknown action: {action}. Use list, add, remove, auth, or logout.', { action }))
     return 1
   }
   if (args.url) {

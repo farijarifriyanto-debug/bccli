@@ -1,4 +1,7 @@
 {
+  "files": {
+    "includes": ["**", "!test/fixtures/**"]
+  },
   "linter": {
     "enabled": true,
     "rules": {

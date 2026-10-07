@@ -1,4 +1,5 @@
 import type { Runtime } from './setup'
+import { runHooks } from './hooks'
 import { t } from './i18n'
 
 interface Writer {
@@ -10,12 +11,18 @@ export function toolLabel(tool: string): string {
   return tool.charAt(0).toUpperCase() + tool.slice(1)
 }
 
+export type OutputFormat = 'text' | 'json' | 'stream-json'
+
 export async function runPrint(
   rt: Runtime,
   prompt: string,
   io: { out: Writer; err: Writer } = { out: process.stdout, err: process.stderr },
-  opts: { allowAll?: boolean } = {},
+  opts: { allowAll?: boolean; outputFormat?: OutputFormat } = {},
 ): Promise<number> {
+  const format: OutputFormat = opts.outputFormat ?? 'text'
+  const emit = (line: Record<string, unknown>) => io.out.write(`${JSON.stringify(line)}\n`)
+  let result = ''
+  const toolNames = new Map<string, string>()
   rt.interaction.approvePlan = async () => {
     if (opts.allowAll) return 'allowAll'
     io.err.write(`${t('Plan needs approval; run with --allow-all.')}\n`)
@@ -26,14 +33,21 @@ export async function runPrint(
   rt.agent.onEvent = (event) => {
     switch (event.type) {
       case 'text':
-        io.out.write(event.delta)
-        wroteText = true
+        if (format === 'text') {
+          io.out.write(event.delta)
+          wroteText = true
+        } else {
+          result += event.delta
+        }
         break
       case 'toolStart':
+        toolNames.set(event.id, event.tool)
         io.err.write(`⎿ ${toolLabel(event.tool)}  ${event.target}\n`)
+        if (format === 'stream-json') emit({ type: 'tool_use', tool: event.tool, target: event.target })
         break
       case 'toolEnd':
         if (event.isError) io.err.write(`  ✗ ${event.output.split('\n')[0]}\n`)
+        if (format === 'stream-json') emit({ type: 'tool_result', tool: toolNames.get(event.id), isError: !!event.isError, output: event.output })
         break
       case 'stepLimit':
         io.err.write(`${t('Step limit reached.')}\n`)
@@ -45,6 +59,7 @@ export async function runPrint(
         break
       case 'error':
         io.err.write(`Error: ${event.message}\n`)
+        if (format === 'stream-json') emit({ type: 'error', message: event.message })
         failed = true
         break
     }
@@ -56,11 +71,24 @@ export async function runPrint(
   const controller = new AbortController()
   const onSigint = () => controller.abort()
   process.once('SIGINT', onSigint)
+  const start = await runHooks(rt.config.hooks, 'SessionStart', {}, { env: rt.env, cwd: rt.cwd })
+  for (const warning of start.warnings) io.err.write(`${warning}\n`)
+  await rt.emitPlugins('SessionStart')
   try {
     await rt.agent.run(prompt, controller.signal)
   } finally {
     process.off('SIGINT', onSigint)
   }
-  if (wroteText) io.out.write('\n')
+  const stop = await runHooks(rt.config.hooks, 'Stop', {}, { env: rt.env, cwd: rt.cwd })
+  for (const warning of stop.warnings) io.err.write(`${warning}\n`)
+  await rt.emitPlugins('Stop')
+  if (format === 'json') {
+    io.out.write(`${JSON.stringify({ status: failed ? 'failed' : 'ok', model: rt.modelRef, result })}\n`)
+  } else if (format === 'stream-json') {
+    if (result) emit({ type: 'message', text: result })
+    emit({ type: 'result', status: failed ? 'failed' : 'ok', model: rt.modelRef })
+  } else if (wroteText) {
+    io.out.write('\n')
+  }
   return failed ? 1 : 0
 }

@@ -110,7 +110,6 @@ test('once arguments are typed, Enter sends the text as is', async () => {
 })
 
 const LEFT = '\x1b[D'
-const RIGHT = '\x1b[C'
 const HOME = '\x1b[H'
 const END = '\x1b[F'
 const DEL = '\x1b[3~'

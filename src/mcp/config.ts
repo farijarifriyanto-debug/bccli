@@ -6,12 +6,40 @@ import { t } from '../i18n'
 
 export type McpServerConfig =
   | { type?: 'stdio'; command: string; args?: string[]; env?: Record<string, string> }
-  | { type: 'http'; url: string; headers?: Record<string, string> }
+  | { type: 'http'; url: string; headers?: Record<string, string>; auth?: 'oauth' }
 
 export interface McpServerSpec {
   name: string
   config: McpServerConfig
   source: 'global' | 'project'
+}
+
+const ENV_REF = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g
+
+/**
+ * Claude Code-style environment expansion at connect time: ${VAR} reads from the
+ * parent environment, ${VAR:-default} falls back when unset, and an unset variable
+ * without a default stays literal. This lets a server pull a secret from the parent
+ * env ("API_KEY": "${MY_KEY}") without pasting the value into mcp.json, while the
+ * stdio child still only receives the whitelist plus the resolved config env.
+ */
+export function expandEnvVars(config: McpServerConfig, env: NodeJS.ProcessEnv): McpServerConfig {
+  const expand = (value: string) =>
+    value.replace(ENV_REF, (match, name: string, fallback?: string) => {
+      const resolved = env[name]
+      if (resolved !== undefined) return resolved
+      return fallback !== undefined ? fallback : match
+    })
+  const expandMap = (map: Record<string, string>) => Object.fromEntries(Object.entries(map).map(([k, v]) => [k, expand(v)]))
+  if (config.type === 'http') {
+    return { ...config, url: expand(config.url), ...(config.headers ? { headers: expandMap(config.headers) } : {}) }
+  }
+  return {
+    ...config,
+    command: expand(config.command),
+    ...(config.args ? { args: config.args.map(expand) } : {}),
+    ...(config.env ? { env: expandMap(config.env) } : {}),
+  }
 }
 
 export const globalMcpPath = (home: string) => join(home, 'mcp.json')
