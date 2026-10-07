@@ -96,11 +96,11 @@ export function applyVim(s: LineState, mode: VimMode, input: string, key: VimKey
       return { state: { ...s, cursor: lineEnd(s.value, s.cursor) }, mode: 'insert', handled: true }
     case 'o': {
       const end = lineEnd(s.value, s.cursor)
-      return { state: { value: s.value.slice(0, end) + '\n' + s.value.slice(end), cursor: end + 1 }, mode: 'insert', handled: true }
+      return { state: { value: `${s.value.slice(0, end)}\n${s.value.slice(end)}`, cursor: end + 1 }, mode: 'insert', handled: true }
     }
     case 'O': {
       const start = lineStart(s.value, s.cursor)
-      return { state: { value: s.value.slice(0, start) + '\n' + s.value.slice(start), cursor: start }, mode: 'insert', handled: true }
+      return { state: { value: `${s.value.slice(0, start)}\n${s.value.slice(start)}`, cursor: start }, mode: 'insert', handled: true }
     }
     case 'd':
       return { state: s, mode, pending: 'd', handled: true }
