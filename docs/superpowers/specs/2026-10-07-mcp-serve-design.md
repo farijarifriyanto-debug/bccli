@@ -32,10 +32,8 @@ sumber kebenaran sebelum implementation plan.
 | Endpoint | Method | Keterangan |
 |---|---|---|
 | `/v1/web/search` | POST | Live; auth Bearer; query 1-500 char; `max_results` di-server di-clamp 1..8; free 100/hari/akun lalu PAYG (kode 402) |
-| `/v1/web/fetch` | POST | Live; auth Bearer |
-| `/v1/models` | GET | Daftar model; auth Bearer |
 | `/v1/chat/completions` | POST | OpenAI-compatible; auth Bearer; non-streaming untuk tool ini |
-| `https://botconnector.id/data/cloud-models.json` | GET | Katalog otoritatif (id, context, pricing) untuk enrich `bc_models` |
+| `https://botconnector.id/data/cloud-models.json` | GET | Katalog otoritatif (id, context, access, capabilities) untuk `bc_models`; harga dari `payg-pricing.json` (`tokenRates`, USD/1M) |
 
 Base URL default: `https://api.botconnector.id/v1` (preset `bc-cloud` di
 `src/presets.ts`).
@@ -59,11 +57,12 @@ src/mcpServer/
   memakai dependency `@modelcontextprotocol/sdk` ^1.30.1 yang sudah ada
   (dipakai client `src/mcp/manager.ts`). Test memakai `InMemoryTransport`.
 
-**Refactor minimal berbagi inti:** fungsi `searchWeb()` (native BotConnector →
-fallback Keenable) dan `fetchPage()` (ambils + strip HTML) dijadikan fungsi
-bersama yang dipakai tool agent (`src/tools/websearch.ts`, `src/tools/fetch.ts`)
-**dan** handler MCP. Kontrak wajib: perilaku tool agent TIDAK berubah —
-test vitest untuk tool agent yang sudah ada tetap patokan (regression guard).
+**Refactor minimal berbagi inti:** handler MCP **membungkus ulang pabrik tool
+agent yang sudah ada** (`createWebSearchTool`, `createFetchTool`) — bukan
+menyalin logic dan bukan memindahkan fungsi. Kontrak wajib: perilaku tool agent
+TIDAK berubah sama sekali (tidak ada kode tool agent yang disentuh); test
+vitest `test/tools/websearch.test.ts` & `test/tools/fetch.test.ts` tetap
+patokan (regression guard).
 
 ## 4. Tools rilis pertama
 
@@ -74,8 +73,8 @@ dapat prefix `mcp__<server>__`, tapi nama tetap dibedakan untuk kejelasan).
 | Tool | Params | Respons | Annotations |
 |---|---|---|---|
 | `bc_search` | `query` (string, 1-500), `max_results` (int 1-8, default 6) | Numbered list `title/url/snippet` | readOnly |
-| `bc_fetch` | `url` (string, http/https) | Teks halaman bersih (HTML di-strip), cap 20.000 char | readOnly |
-| `bc_models` | — | Daftar model dari `GET /v1/models` + context/harga dari `cloud-models.json` (cache 1 jam/proses) | readOnly |
+| `bc_fetch` | `url` (string, http/https) | Teks halaman bersih (HTML di-strip), cap mengikuti tool `fetch` yang ada (12.000 char) | readOnly |
+| `bc_models` | — | Daftar model: `context`/`access`/`capabilities` dari `cloud-models.json` + harga `tokenRates` (USD/1M token) dari `payg-pricing.json` (keduanya cache 1 jam/proses) | readOnly |
 | `bc_chat` | `prompt` (string, wajib), `model` (string, opsional), `max_tokens` (int, default 1024, cap 4096) | Teks hasil + blok `usage` (prompt/completion tokens) | baca-tulis ringan: `readOnlyHint:false`, `destructiveHint:false` |
 
 Kontrak respons:
@@ -108,10 +107,13 @@ Aturan keamanan:
 
 ## 6. Error & limit
 
-- Timeout HTTP 30s per tool call (AbortSignal), timeout `bc_fetch` 20s.
+- Timeout 30s per tool call (AbortSignal) — berlaku untuk `bc_search`,
+  `bc_fetch`, dan `bc_chat`.
 - `bc_fetch`: hanya `http:`/`https:`; tolak host private/loopback
-  (localhost, 127.x, 10.x, 172.16-31.x, 192.168.x, 169.254.x, [::1]) —
-  cegah SSRF karena URL datang dari agent/host eksternal.
+  (localhost, 127.x, 10.x, 172.16-31.x, 192.168.x, 169.254.x, [::1]) di
+  handler MCP sebelum tool agent dipanggil — cegah SSRF karena URL datang
+  dari agent/host eksternal. (Tool agent sendiri mengizinkan host lokal
+  untuk pemakaian agent; guard ini khusus jalur MCP.)
 - `bc_chat`: `max_tokens` di-cap 4096; error upstream (402 billing, 429, 5xx)
   diteruskan apa adanya sebagai pesan tool error.
 - `bc_search`: gagal di kedua provider → pesan gabungan
@@ -123,13 +125,15 @@ Aturan keamanan:
 ## 7. CLI
 
 ```
-bccli mcp serve [--base-url <url>] [-v]
+bccli mcp serve [--base-url <url>]
 ```
 
 - Help line baru di `src/args.ts` (HELP) **dan** terjemahannya di
   `src/i18n/id.ts` — `test/i18n.test.ts` menuntut keduanya (key EN + key ID).
-- `-v`: log info ke stderr (contoh: `mcp serve: 4 tools, base=https://...`
-  tanpa key).
+- Saat start, tulis SATU baris info ke stderr (contoh:
+  `mcp serve: 4 tools, base=https://api.botconnector.id/v1` tanpa key) —
+  stderr bebas untuk protocol MCP. Tidak ada flag verbose baru (`-v` sudah
+  dipakai `--version`).
 
 ## 8. Testing (TDD, vitest)
 
