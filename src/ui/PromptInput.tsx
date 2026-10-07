@@ -1,5 +1,5 @@
 import { Box, Text, useInput } from 'ink'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { SLASH_COMMANDS } from '../commands'
 import { completeFile } from './complete'
 import { EditableText } from './EditableText'
@@ -14,13 +14,23 @@ export interface PromptInputProps {
   cwd: string
   onSubmit(text: string): void
   extraCommands?: { name: string; description: string }[]
+  /** Text inserted at the cursor from outside (e.g. a pasted clipboard image path); `n` triggers each insert. */
+  injected?: { text: string; n: number }
 }
 
-export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }: PromptInputProps) {
+export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, injected }: PromptInputProps) {
   const [line, setLine] = useState<LineState>({ value: '', cursor: 0 })
   const { value } = line
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
   const [selected, setSelected] = useState(0)
+  const injectedSeen = useState(0)
+  useEffect(() => {
+    if (injected && injected.n !== injectedSeen[0]) {
+      injectedSeen[1](injected.n)
+      setLine((current) => insert(current, injected.text))
+      setSelected(0)
+    }
+  }, [injected, injectedSeen])
 
   const all = [...SLASH_COMMANDS, ...(extraCommands ?? []).filter((c) => !SLASH_COMMANDS.some((b) => b.name === c.name))]
   const suggestions = value.startsWith('/') && !/\s/.test(value) ? all.filter((c) => c.name.startsWith(value.slice(1))).slice(0, 8) : []
