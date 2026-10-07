@@ -1124,8 +1124,12 @@ export function createProvider(options: ProviderOptions): Provider {
     async listModels() {
       const res = await doFetch(`${baseURL}/models`, { headers })
       if (!res.ok) throw new ProviderError(t('{status} while fetching the model list', { status: res.status }), res.status)
-      const body = (await res.json()) as { data?: { id: string }[] }
-      return (body.data ?? []).map((m) => m.id).sort()
+      const body = (await res.json()) as { data?: { id?: unknown }[] }
+      const ids = (body.data ?? [])
+        .map((m) => m?.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      // Some OpenAI-compatible catalogs list the same id twice; dedupe so UI keys stay unique without renaming models.
+      return [...new Set(ids)].sort()
     },
   }
 }
