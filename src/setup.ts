@@ -24,6 +24,8 @@ import { createTaskTool } from './tools/task'
 import type { Tool } from './tools/types'
 import { createTodoTool, TodoStore } from './tools/todo'
 import { createSaveMemoryTool } from './tools/memory'
+import { createRepoMapTool } from './tools/repomap'
+import { buildRepoMapSync } from './repomap'
 import { createReadTool } from './tools/read'
 import { createBashTool } from './tools/bash'
 import { loadPlugins, type LoadedPlugins, type PluginPayload } from './plugins'
@@ -136,7 +138,9 @@ export function createRuntime(opts: {
     }
   }
 
-  const systemPrompt = buildSystemPrompt({ cwd: opts.cwd, home, model: modelRef, skills })
+  const repoMap = config.repoMap ? buildRepoMapSync(opts.cwd) : undefined
+  const systemFor = (model: string) => buildSystemPrompt({ cwd: opts.cwd, home, model, skills, repoMap })
+  const systemPrompt = systemFor(modelRef)
   const webSearch = createWebSearchTool({
     botconnector: () => {
       try {
@@ -147,7 +151,7 @@ export function createRuntime(opts: {
       }
     },
   })
-  const rebuildPrompt = () => agent.setSystemPrompt(buildSystemPrompt({ cwd: opts.cwd, home, model: modelRef, skills }))
+  const rebuildPrompt = () => agent.setSystemPrompt(systemFor(modelRef))
   const saveMemory = createSaveMemoryTool({ home, onSaved: rebuildPrompt })
   const baseTools: Tool[] = [
     createReadTool({ vision: config.vision }),
@@ -158,6 +162,7 @@ export function createRuntime(opts: {
     createTodoTool(todos),
     createExitPlanTool({ permissions, interaction }),
     saveMemory,
+    createRepoMapTool(),
   ]
   // Plugins are global-config only (project config never executes code); loaded at boot,
   // so a broken plugin fails fast and a fix needs a restart.
@@ -177,7 +182,7 @@ export function createRuntime(opts: {
     permissions,
     provider: () => agent.provider,
     providerFor: makeProvider,
-    systemPrompt: (childModelRef) => buildSystemPrompt({ cwd: opts.cwd, home, model: childModelRef ?? modelRef, skills }),
+    systemPrompt: (childModelRef) => systemFor(childModelRef ?? modelRef),
     cwd: opts.cwd,
     reasoning: () => reasoning,
     hooks: config.hooks,
@@ -312,7 +317,7 @@ export function createRuntime(opts: {
       modelRef = ref
       agent.provider = nextProvider
       agent.setContextWindow(contextWindowFor(ref, env))
-      agent.setSystemPrompt(buildSystemPrompt({ cwd: opts.cwd, home, model: modelRef, skills }))
+      agent.setSystemPrompt(systemFor(modelRef))
     },
     setReasoning(level: ReasoningLevel) {
       reasoning = level

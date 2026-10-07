@@ -38,12 +38,13 @@ function isGitRepo(cwd: string): boolean {
   }
 }
 
-export function buildSystemPrompt(opts: { cwd: string; home: string; model: string; date?: string; platform?: string; skills?: SkillDef[] }): string {
+export function buildSystemPrompt(opts: { cwd: string; home: string; model: string; date?: string; platform?: string; skills?: SkillDef[]; repoMap?: string }): string {
   const instructions = loadInstructions(opts.cwd, opts.home)
   const skills = (opts.skills ?? []).slice(0, 50)
   const skillText = skills.length
     ? `\n\nSkills (load one with the skill tool when it matches the task):\n${skills.map((s) => `- ${s.name}: ${s.description.slice(0, 200)}`).join('\n')}`
     : ''
+  const mapText = opts.repoMap ? `\n\nRepository map (files and top-level symbols):\n${opts.repoMap}` : ''
   return `You are a coding agent running in the user's terminal, inside BCCLI (BotConnector's terminal app). You help with software engineering tasks by reading code, editing files, and running commands with the tools provided.
 
 How to work:
@@ -65,5 +66,5 @@ Environment:
 - Git repository: ${isGitRepo(opts.cwd) ? 'yes' : 'no'}
 - Platform: ${opts.platform ?? process.platform}
 - Date: ${opts.date ?? new Date().toISOString().slice(0, 10)}
-- Model: ${opts.model}${skillText}${instructions ? `\n\nProject and user instructions (follow them):\n\n${instructions}` : ''}`
+- Model: ${opts.model}${skillText}${mapText}${instructions ? `\n\nProject and user instructions (follow them):\n\n${instructions}` : ''}`
 }
