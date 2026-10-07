@@ -166,6 +166,10 @@ Opsi:
   'theme must be one of: {themes}.': 'theme harus salah satu dari: {themes}.',
   'editor must be "emacs" or "vim".': 'editor harus "emacs" atau "vim".',
   'sandbox must be "off" or "on".': 'sandbox harus "off" atau "on".',
+  'lsp must be an object with a "servers" array.': 'lsp harus berupa objek dengan array "servers".',
+  'Each lsp server needs { "extensions": [".ts"], "command": "...", "args": ["..."] }.':
+    'Setiap server lsp butuh { "extensions": [".ts"], "command": "...", "args": ["..."] }.',
+  'No LSP server is configured for {ext} files.': 'Tidak ada server LSP yang dikonfigurasi untuk file {ext}.',
   NORMAL: '-- NORMAL --',
   'A new bccli is available: {latest} (you have {current}). Run: bccli update': 'bccli versi baru tersedia: {latest} (kamu punya {current}). Jalankan: bccli update',
   'Clipboard image saved to {path} — the path is inserted in the input; the model sees it when you send.':
