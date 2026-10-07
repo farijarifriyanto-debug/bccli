@@ -145,3 +145,40 @@ test('resume switches the session file so new messages extend the resumed histor
   expect(second.session.file).toBe(first.session.file)
   expect(first.session.load().map((m) => m.content)).toEqual(['pertama', 'satu', 'kedua', 'dua'])
 })
+
+test('print mode runs verifyCommands after edits, feeds failures back, and exits 1 when they keep failing', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-pv-'))
+  const home = mkdtempSync(join(tmpdir(), 'bccli-pvh-'))
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ verifyCommands: ['node -e "process.exit(3)"'] }))
+  const steps: Completion[] = [
+    { text: '', toolCalls: [{ id: '1', name: 'write', arguments: '{"path":"a.txt","content":"NEW"}' }] },
+    { text: 'BERES', toolCalls: [] },
+  ]
+  const rt = createRuntime({
+    cwd,
+    args: parseCliArgs(['-p', 'go', '--allow-all']),
+    env: { BCCLI_HOME: home, BOTCONNECTOR_API_KEY: 'k' },
+    provider: provider(steps),
+  })
+  const o = io()
+  expect(await runPrint(rt, 'go', o.io, { allowAll: true })).toBe(1)
+  expect(steps.length).toBe(0) // follow-up terkirim ke model
+  expect(o.err.join('')).toContain('Memverifikasi')
+  expect(o.err.join('')).toContain('process.exit(3)')
+  expect(o.out.join('')).toContain('BERES')
+})
+
+test('print mode skips verifyCommands when nothing was edited', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-pv2-'))
+  const home = mkdtempSync(join(tmpdir(), 'bccli-pv2h-'))
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ verifyCommands: ['node -e "process.exit(3)"'] }))
+  const rt = createRuntime({
+    cwd,
+    args: parseCliArgs(['-p', 'go']),
+    env: { BCCLI_HOME: home, BOTCONNECTOR_API_KEY: 'k' },
+    provider: provider([{ text: 'TEKS_SAJA', toolCalls: [] }]),
+  })
+  const o = io()
+  expect(await runPrint(rt, 'go', o.io)).toBe(0)
+  expect(o.err.join('')).not.toContain('Memverifikasi')
+})

@@ -1,6 +1,7 @@
 import type { Runtime } from './setup'
 import { runHooks } from './hooks'
 import { t } from './i18n'
+import { MAX_VERIFY_ROUNDS, runVerify, verifyFollowup } from './verify'
 
 interface Writer {
   write(s: string): unknown
@@ -30,6 +31,7 @@ export async function runPrint(
   }
   let failed = false
   let wroteText = false
+  let edited = false
   rt.agent.onEvent = (event) => {
     switch (event.type) {
       case 'text':
@@ -47,6 +49,7 @@ export async function runPrint(
         break
       case 'toolEnd':
         if (event.isError) io.err.write(`  ✗ ${event.output.split('\n')[0]}\n`)
+        if ((event.tool === 'edit' || event.tool === 'write') && !event.isError) edited = true
         if (format === 'stream-json') emit({ type: 'tool_result', tool: toolNames.get(event.id), isError: !!event.isError, output: event.output })
         break
       case 'stepLimit':
@@ -76,6 +79,23 @@ export async function runPrint(
   await rt.emitPlugins('SessionStart')
   try {
     await rt.agent.run(prompt, controller.signal)
+    const commands = rt.config.verifyCommands
+    if (edited && commands.length && !controller.signal.aborted) {
+      for (let round = 0; round < MAX_VERIFY_ROUNDS; round++) {
+        io.err.write(`${t('Verifying edits: {cmds}', { cmds: commands.join(', ') })}\n`)
+        const failures = await runVerify(commands, { cwd: rt.cwd, env: rt.env, signal: controller.signal })
+        if (!failures.length) {
+          io.err.write(`${t('Verification passed.')}\n`)
+          break
+        }
+        if (round === MAX_VERIFY_ROUNDS - 1 || controller.signal.aborted) {
+          io.err.write(`${t('Verification still failing after {n} fix round(s). Run the commands manually to see why.', { n: MAX_VERIFY_ROUNDS })}\n`)
+          failed = true
+          break
+        }
+        await rt.agent.run(verifyFollowup(failures), controller.signal)
+      }
+    }
   } finally {
     process.off('SIGINT', onSigint)
   }

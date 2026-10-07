@@ -47,6 +47,7 @@ import { ToolBlock } from './ToolBlock'
 import { applyEvent, type Entry, endTurn, entry, type Transcript } from './transcript'
 import { getLanguage, locale, parseLang, setLanguage, t } from '../i18n'
 import { matchKeybind } from '../keybinds'
+import { MAX_VERIFY_ROUNDS, runVerify, verifyFollowup } from '../verify'
 
 
 function helpText(runtime: Runtime): string {
@@ -108,6 +109,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   ]
   const lastTool = useRef<{ tool: string; target: string; output: string } | null>(null)
   const toolTargets = useRef(new Map<string, string>())
+  const editedInTurn = useRef(false)
 
   const notice = useCallback((text: string, tone: 'info' | 'warn' | 'error' = 'info') => {
     setTranscript((t) => ({ ...t, done: [...t.done, entry({ kind: 'notice', text, tone })] }))
@@ -117,6 +119,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     if (event.type === 'toolStart') toolTargets.current.set(event.id, event.target)
     if (event.type === 'toolEnd') {
       lastTool.current = { tool: event.tool, target: toolTargets.current.get(event.id) ?? '', output: event.output }
+      if ((event.tool === 'edit' || event.tool === 'write') && !event.isError) editedInTurn.current = true
     }
     if (event.type === 'usage') setTokens(event.inputTokens + event.outputTokens)
     setTranscript((t) => applyEvent(t, event))
@@ -141,8 +144,26 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       setTranscript((t) => ({ ...t, done: [...t.done, entry({ kind: 'user', text })] }))
       setBusy(true)
       setStartedAt(Date.now())
+      editedInTurn.current = false
       controller.current = new AbortController()
-      await runtime.agent.run(text, controller.current.signal)
+      const signal = controller.current.signal
+      await runtime.agent.run(text, signal)
+      const commands = runtime.config.verifyCommands
+      if (editedInTurn.current && commands.length && !signal.aborted) {
+        for (let round = 0; round < MAX_VERIFY_ROUNDS; round++) {
+          notice(t('Verifying edits: {cmds}', { cmds: commands.join(', ') }))
+          const failures = await runVerify(commands, { cwd: runtime.cwd, env: runtime.env, signal })
+          if (!failures.length) {
+            notice(t('Verification passed.'))
+            break
+          }
+          if (round === MAX_VERIFY_ROUNDS - 1 || signal.aborted) {
+            notice(t('Verification still failing after {n} fix round(s). Run the commands manually to see why.', { n: MAX_VERIFY_ROUNDS }), 'warn')
+            break
+          }
+          await runtime.agent.run(verifyFollowup(failures), signal)
+        }
+      }
       controller.current = null
       runHooks(runtime.config.hooks, 'Stop', {}, { env: runtime.env, cwd: runtime.cwd })
         .then((outcome) => {

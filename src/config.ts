@@ -34,6 +34,8 @@ export interface Config {
   plugins?: string[]
   /** Resolved TUI key bindings; only the global config is read (a cloned project must not rebind your keys). */
   keybinds: Record<KeybindAction, Keybind>
+  /** Commands run after a turn that edited files (aider --test-cmd style). Only the global config is read. */
+  verifyCommands: string[]
   providers: Record<string, ProviderConfig>
   allow: string[]
   /** Provider ids that came from the (untrusted) project config. */
@@ -65,6 +67,7 @@ const DEFAULT_CONFIG: Config = {
   vision: true,
   networkPolicy: 'allow',
   keybinds: defaultKeybinds(),
+  verifyCommands: [],
   providers: Object.fromEntries(PRESETS.map((p) => [p.id, { baseURL: p.baseURL, apiKeyEnv: p.apiKeyEnv }])),
   allow: [],
 }
@@ -112,6 +115,15 @@ function resolvedPlugins(global: Partial<Config>): string[] {
     throw new ConfigError(t('plugins must be an array of strings.'))
   }
   return [...(value as string[])]
+}
+
+function resolvedVerifyCommands(global: Partial<Config>): string[] {
+  const value = global.verifyCommands
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.some((c) => typeof c !== 'string' || !c.trim())) {
+    throw new ConfigError(t('verifyCommands must be an array of non-empty strings.'))
+  }
+  return (value as string[]).map((c) => c.trim())
 }
 
 function resolvedKeybinds(global: Partial<Config>): Record<KeybindAction, Keybind> {
@@ -164,6 +176,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     networkPolicy: resolvedNetworkPolicy(global),
     plugins: resolvedPlugins(global),
     keybinds: resolvedKeybinds(global),
+    verifyCommands: resolvedVerifyCommands(global),
     providers: { ...known, ...fromProject },
     projectProviders: Object.keys(fromProject),
     allow: [...(global.allow ?? [])],
