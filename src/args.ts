@@ -33,6 +33,8 @@ export interface CliArgs {
   host?: string
   /** `bccli serve` bearer token override. */
   token?: string
+  /** Base URL override for `bccli mcp serve`. */
+  baseUrl?: string
 }
 
 const HELP = `BCCLI — BotConnector's AI coding agent for the terminal
@@ -46,7 +48,7 @@ Usage:
   bccli acp                     run as an ACP agent for editors (Zed, ...)
   bccli serve [--port N]        serve sessions over HTTP+WS for IDEs/bots
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
-  bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>    manage MCP servers (catalog, --url <url>, OAuth)
+  bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>|serve [--base-url <url>]    manage MCP servers, or serve this account's tools over stdio
   bccli integrations             show the status of external agent integrations
   bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible, openclaw, hermes
   bccli disconnect <agent>       remove an integration and restore the previous config
@@ -93,6 +95,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
       port: { type: 'string' },
       host: { type: 'string' },
       token: { type: 'string' },
+      'base-url': { type: 'string' },
     },
   })
   const reasoning = values.reasoning
@@ -147,5 +150,6 @@ export function parseCliArgs(argv: string[]): CliArgs {
     port,
     host: values.host,
     token: values.token,
+    baseUrl: values['base-url'],
   }
 }

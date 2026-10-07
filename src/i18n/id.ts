@@ -109,7 +109,7 @@ Usage:
   bccli acp                     run as an ACP agent for editors (Zed, ...)
   bccli serve [--port N]        serve sessions over HTTP+WS for IDEs/bots
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
-  bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>    manage MCP servers (catalog, --url <url>, OAuth)
+  bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>|serve [--base-url <url>]    manage MCP servers, or serve this account's tools over stdio
   bccli integrations             show the status of external agent integrations
   bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible, openclaw, hermes
   bccli disconnect <agent>       remove an integration and restore the previous config
@@ -137,7 +137,7 @@ Pemakaian:
   bccli acp                     jalankan sebagai agen ACP untuk editor (Zed, ...)
   bccli serve [--port N]        sajikan sesi lewat HTTP+WS untuk IDE/bot
   bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
-  bccli mcp list|add <nama>|remove <nama>|auth <nama>|logout <nama>    kelola server MCP (katalog, --url <url>, OAuth)
+  bccli mcp list|add <nama>|remove <nama>|auth <nama>|logout <nama>|serve [--base-url <url>]    kelola server MCP, atau layani tools akun ini lewat stdio
   bccli integrations             lihat status integrasi agent eksternal
   bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible, openclaw, hermes
   bccli disconnect <agent>       lepas integrasi dan pulihkan config sebelumnya
