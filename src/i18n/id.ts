@@ -164,6 +164,8 @@ Opsi:
   'updateCheck must be "on" or "off".': 'updateCheck harus "on" atau "off".',
   'repoMap must be true or false.': 'repoMap harus true atau false.',
   'theme must be one of: {themes}.': 'theme harus salah satu dari: {themes}.',
+  'editor must be "emacs" or "vim".': 'editor harus "emacs" atau "vim".',
+  NORMAL: '-- NORMAL --',
   'A new bccli is available: {latest} (you have {current}). Run: bccli update': 'bccli versi baru tersedia: {latest} (kamu punya {current}). Jalankan: bccli update',
   'Clipboard image saved to {path} — the path is inserted in the input; the model sees it when you send.':
     'Gambar clipboard disimpan ke {path} — path disisipkan ke input; model melihatnya saat kamu kirim.',
