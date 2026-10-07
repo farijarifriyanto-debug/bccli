@@ -57,6 +57,10 @@ async function main(): Promise<number> {
     const { runModelsCommand } = await import('./modelsCli')
     return runModelsCommand(args, { env: process.env, cwd, out: (s) => console.log(s), err: (s) => console.error(s), fetch: globalThis.fetch })
   }
+  if (args.command === 'update') {
+    const { runUpdateCommand } = await import('./update')
+    return runUpdateCommand({ env: process.env })
+  }
   const rt = createRuntime({ cwd, args })
   try {
     pruneSessions(rt.home)
@@ -78,6 +82,15 @@ async function main(): Promise<number> {
     }
   }
   if (!process.stdin.isTTY) throw new ConfigError(t('Interactive mode needs a terminal. For scripts/CI use: bccli -p "task"'))
+  if (rt.config.updateCheck !== 'off' && !process.env.BCCLI_NO_UPDATE_CHECK) {
+    try {
+      const { checkForUpdate } = await import('./update')
+      const update = await checkForUpdate({ home: rt.home, fetch: globalThis.fetch, now: new Date() })
+      if (update) console.error(update)
+    } catch {
+      // update checks are best effort and must never block startup
+    }
+  }
   const { startInteractive } = await import('./ui/index')
   return startInteractive(rt, { initialPrompt: args.prompt, resume: args.resume, version: VERSION })
 }
