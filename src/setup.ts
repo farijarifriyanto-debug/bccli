@@ -155,7 +155,7 @@ export function createRuntime(opts: {
   const saveMemory = createSaveMemoryTool({ home, onSaved: rebuildPrompt })
   const baseTools: Tool[] = [
     createReadTool({ vision: config.vision }),
-    createBashTool({ networkPolicy: config.networkPolicy }),
+    createBashTool({ networkPolicy: config.networkPolicy, sandbox: config.sandbox === 'on' }),
     ...ALL_TOOLS.filter((tool) => tool.name !== 'read' && tool.name !== 'bash'),
     webSearch,
     createSkillTool(skills),
