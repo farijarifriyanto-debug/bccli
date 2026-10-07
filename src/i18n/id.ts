@@ -153,6 +153,14 @@ Opsi:
   'networkPolicy must be "allow" or "offline".': 'networkPolicy harus "allow" atau "offline".',
   'plugins must be an array of strings.': 'plugins harus berupa array of string.',
   'verifyCommands must be an array of non-empty strings.': 'verifyCommands harus berupa array of string tidak kosong.',
+  'usageCap must be an object, e.g. { "tokens": 2000000 }.': 'usageCap harus berupa objek, mis. { "tokens": 2000000 }.',
+  'usageCap.tokens must be a number greater than 0.': 'usageCap.tokens harus angka lebih dari 0.',
+  'usageCap.usd must be a number greater than 0.': 'usageCap.usd harus angka lebih dari 0.',
+  'usageCap.usd requires usageCap.prices (USD per 1M tokens).': 'usageCap.usd memerlukan usageCap.prices (USD per 1 juta token).',
+  'usageCap.prices["{key}"] must have numeric input and output (USD per 1M tokens).': 'usageCap.prices["{key}"] harus punya input dan output numerik (USD per 1 juta token).',
+  'usageCap needs at least one of: tokens, usd.': 'usageCap memerlukan setidaknya salah satu dari: tokens, usd.',
+  'Budget exceeded ({kind}): {used} of {limit}. Further model calls are blocked; raise usageCap in ~/.bccli/config.json.':
+    'Anggaran terlampaui ({kind}): {used} dari {limit}. Panggilan model selanjutnya diblokir; naikkan usageCap di ~/.bccli/config.json.',
   'Verifying edits: {cmds}': 'Memverifikasi edit: {cmds}',
   'Verification passed.': 'Verifikasi lulus.',
   'Verification still failing after {n} fix round(s). Run the commands manually to see why.':

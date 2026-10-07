@@ -196,6 +196,8 @@ export function createRuntime(opts: {
     hooks: config.hooks,
     pluginEmit,
     env,
+    usageCap: config.usageCap,
+    budgetModel: modelRef,
     contextWindow: contextWindowFor(modelRef, env),
     onMessage: (m) => session.append(m),
     onReset: () => session.reset(),

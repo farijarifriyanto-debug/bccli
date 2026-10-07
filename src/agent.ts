@@ -8,6 +8,7 @@ import type { ImageAttachment, Tool, ToolContext, ToolResult } from './tools/typ
 import { pruneOldFetches, WebBudget } from './webBudget'
 import { ABORTED, raceAbort } from './abort'
 import { t } from './i18n'
+import { budgetStatus, type UsageCap } from './budget'
 import { estimateMessages, estimateTokens, trimToFit } from './tokenBudget'
 
 export type AgentEvent =
@@ -19,6 +20,7 @@ export type AgentEvent =
   | { type: 'usage'; inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheWriteTokens?: number }
   | { type: 'compacted' }
   | { type: 'stepLimit'; maxSteps: number }
+  | { type: 'budgetExceeded'; kind: 'tokens' | 'usd'; used: number; limit: number }
   | { type: 'aborted' }
   | { type: 'error'; message: string }
   | { type: 'done' }
@@ -57,6 +59,10 @@ export interface AgentOptions {
   pluginEmit?: (event: HookEvent, payload?: { tool?: string; input?: unknown; output?: string }) => Promise<void>
   /** Base environment handed to hook processes (defaults to the process env at spawn). */
   env?: NodeJS.ProcessEnv
+  /** Per-session token/USD budget (global config usageCap); blocks model calls once exceeded. */
+  usageCap?: UsageCap
+  /** Model ref used to match usageCap.prices keys. */
+  budgetModel?: string
 }
 
 interface Ticket {
@@ -189,6 +195,12 @@ export class Agent {
     this.opts.onTurnStart?.()
     this.webBudget.startTurn()
     try {
+      // Budget first: an exhausted cap must block even the auto-compact call.
+      const over0 = this.overBudget()
+      if (over0) {
+        this.onEvent({ type: 'budgetExceeded', ...over0 })
+        return
+      }
       if (this.lastInputTokens > this.contextWindow * 0.8 && !hasPendingProgrammaticReplay(this.messages)) await this.compact(signal)
       this.push({ role: 'user', content: text })
       for (let step = 0; this.maxSteps === undefined || step < this.maxSteps; step++) {
@@ -198,6 +210,11 @@ export class Agent {
           this.push({ role: 'user', content: `Continue this task using the summary above: ${text}` })
         }
         pruneOldFetches(this.messages)
+        const over = this.overBudget()
+        if (over) {
+          this.onEvent({ type: 'budgetExceeded', ...over })
+          return
+        }
         let completion = await this.provider.chat({
           messages: [{ role: 'system', content: this.systemPrompt }, ...this.messages],
           tools: this.turnDefinitions,
@@ -300,6 +317,11 @@ export class Agent {
         message: noTools ? `${message}\n${t('This model may not support tool calling. Try another model with /model.')}` : message,
       })
     }
+  }
+
+  /** Current cap status; undefined means the budget is not exhausted. */
+  private overBudget(): { kind: 'tokens' | 'usd'; used: number; limit: number } | undefined {
+    return budgetStatus(this.totalUsage, this.opts.usageCap, this.opts.budgetModel ?? '')
   }
 
   /** Every tool call needs an answer in the history, or the next request to the model is rejected. */
