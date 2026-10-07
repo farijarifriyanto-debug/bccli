@@ -73,3 +73,15 @@ test('unknown mcp action mentions auth and logout', async () => {
   expect(d.errors.join('\n')).toContain('auth')
   expect(d.errors.join('\n')).toContain('logout')
 })
+
+test('serve fails fast without an API key', async () => {
+  const d = deps()
+  expect(await run(['serve'], d)).toBe(1)
+  expect(d.errors.join('\n')).toContain('bccli login bc-cloud')
+})
+
+test('unknown action mentions serve', async () => {
+  const d = deps()
+  expect(await run(['bogus', 'x'], d)).toBe(1)
+  expect(d.errors.join('\n')).toContain('serve')
+})
