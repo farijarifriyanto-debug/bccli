@@ -133,7 +133,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       )
     }
     setTranscript((t) => applyEvent(t, event))
-  }, [])
+  }, [notice])
 
   useEffect(() => {
     runtime.agent.onEvent = onEvent
