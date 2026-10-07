@@ -9,7 +9,7 @@ import { bccliHome, loadConfig } from './config'
 import { listAllModels } from './models'
 import type { Provider } from './provider'
 import { Session } from './session'
-import { MAX_FRAME_BYTES, bearerOk, parseClientFrame, randomToken, type ServerFrame, trustFence } from './serveProtocol'
+import { MAX_FRAME_BYTES, bearerOk, LOOPBACK_BIND, parseClientFrame, randomToken, type ServerFrame, trustFence } from './serveProtocol'
 import { createRuntime, type Runtime } from './setup'
 import { createHeartbeat } from './serveHeartbeat'
 import { VERSION } from './version'
@@ -60,7 +60,6 @@ interface WireToolCall {
 }
 
 const MAX_BODY_BYTES = 1024 * 1024
-const LOOPBACK_BIND = new Set(['127.0.0.1', 'localhost', '::1'])
 
 function json(res: ServerResponse, status: number, value: unknown): void {
   const body = JSON.stringify(value)

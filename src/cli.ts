@@ -67,6 +67,19 @@ async function main(): Promise<number> {
     await runAcp(process.stdin, process.stdout, { cwd, newAgent: (c) => runtimeAgent(c) })
     return 0
   }
+  if (args.command === 'serve') {
+    const { startServe } = await import('./serve')
+    const handle = await startServe({ port: args.port, host: args.host, token: args.token, cwd, env: process.env })
+    process.stderr.write(`bccli serve ${handle.url} — Authorization: Bearer ${handle.token}\n`)
+    await new Promise<void>((resolve) => {
+      const stop = (): void => {
+        void handle.close().finally(resolve)
+      }
+      process.once('SIGINT', stop)
+      process.once('SIGTERM', stop)
+    })
+    return 0
+  }
   const rt = createRuntime({ cwd, args })
   setTheme(rt.config.theme)
   try {

@@ -33,6 +33,9 @@ export function parseClientFrame(raw: string): ClientFrame | { error: string } {
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
 
+/** Addresses `bccli serve` is allowed to bind (loopback only; 0.0.0.0 is refused). */
+export const LOOPBACK_BIND = new Set(['127.0.0.1', 'localhost', '::1'])
+
 /**
  * DSH-style trust fence: loopback Host with a port matching the listener, a
  * same-machine Origin when attached, and no cross-site sec-fetch-site. Returns
