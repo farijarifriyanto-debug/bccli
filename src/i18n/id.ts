@@ -105,6 +105,7 @@ Usage:
   bccli -p "task"               run one task without interaction (scripts/CI)
   bccli login [provider]        save an API key (default: bc-cloud)
   bccli models [provider]       list models (default: the active provider)
+  bccli update                    install the newest bccli from npm
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>    manage MCP servers (catalog, --url <url>, OAuth)
   bccli integrations             show the status of external agent integrations
@@ -130,6 +131,7 @@ Pemakaian:
   bccli -p "tugas"              jalankan satu tugas tanpa interaksi (skrip/CI)
   bccli login [provider]        simpan API key (default: bc-cloud)
   bccli models [provider]       daftar model (default: provider aktif)
+  bccli update                    pasang bccli terbaru dari npm
   bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <nama>|remove <nama>|auth <nama>|logout <nama>    kelola server MCP (katalog, --url <url>, OAuth)
   bccli integrations             lihat status integrasi agent eksternal
@@ -159,6 +161,8 @@ Opsi:
   'usageCap.usd requires usageCap.prices (USD per 1M tokens).': 'usageCap.usd memerlukan usageCap.prices (USD per 1 juta token).',
   'usageCap.prices["{key}"] must have numeric input and output (USD per 1M tokens).': 'usageCap.prices["{key}"] harus punya input dan output numerik (USD per 1 juta token).',
   'usageCap needs at least one of: tokens, usd.': 'usageCap memerlukan setidaknya salah satu dari: tokens, usd.',
+  'updateCheck must be "on" or "off".': 'updateCheck harus "on" atau "off".',
+  'A new bccli is available: {latest} (you have {current}). Run: bccli update': 'bccli versi baru tersedia: {latest} (kamu punya {current}). Jalankan: bccli update',
   'Budget exceeded ({kind}): {used} of {limit}. Further model calls are blocked; raise usageCap in ~/.bccli/config.json.':
     'Anggaran terlampaui ({kind}): {used} dari {limit}. Panggilan model selanjutnya diblokir; naikkan usageCap di ~/.bccli/config.json.',
   'Verifying edits: {cmds}': 'Memverifikasi edit: {cmds}',

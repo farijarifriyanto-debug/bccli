@@ -5,7 +5,7 @@ import { isReasoningLevel, REASONING_LEVELS, type ReasoningLevel } from './reaso
 import { type Lang, parseLang, t } from './i18n'
 
 export interface CliArgs {
-  command: 'run' | 'login' | 'models' | 'provider' | 'mcp' | 'connect' | 'disconnect' | 'integrations'
+  command: 'run' | 'login' | 'models' | 'update' | 'provider' | 'mcp' | 'connect' | 'disconnect' | 'integrations'
   subArgs: string[]
   url?: string
   name?: string
@@ -35,6 +35,7 @@ Usage:
   bccli -p "task"               run one task without interaction (scripts/CI)
   bccli login [provider]        save an API key (default: bc-cloud)
   bccli models [provider]       list models (default: the active provider)
+  bccli update                    install the newest bccli from npm
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>    manage MCP servers (catalog, --url <url>, OAuth)
   bccli integrations             show the status of external agent integrations
@@ -96,7 +97,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     throw new ConfigError(t('--output-format must be one of: {formats}', { formats: 'text, json, stream-json' }))
   }
   const [first, ...rest] = positionals
-  const SUBCOMMANDS = ['login', 'models', 'provider', 'mcp', 'connect', 'disconnect', 'integrations']
+  const SUBCOMMANDS = ['login', 'models', 'update', 'provider', 'mcp', 'connect', 'disconnect', 'integrations']
   const command = SUBCOMMANDS.includes(first) ? (first as CliArgs['command']) : 'run'
   const words = command === 'run' ? positionals : rest
   return {

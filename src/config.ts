@@ -39,6 +39,8 @@ export interface Config {
   verifyCommands: string[]
   /** Per-session token/USD budget; the agent stops calling the model once it is exceeded. Only the global config is read. */
   usageCap?: UsageCap
+  /** Daily npm registry check with a notice when a newer bccli exists. Only the global config is read; default "on". */
+  updateCheck?: 'on' | 'off'
   providers: Record<string, ProviderConfig>
   allow: string[]
   /** Provider ids that came from the (untrusted) project config. */
@@ -118,6 +120,13 @@ function resolvedPlugins(global: Partial<Config>): string[] {
     throw new ConfigError(t('plugins must be an array of strings.'))
   }
   return [...(value as string[])]
+}
+
+function resolvedUpdateCheck(global: Partial<Config>): 'on' | 'off' | undefined {
+  const value = global.updateCheck
+  if (value === undefined) return undefined
+  if (value !== 'on' && value !== 'off') throw new ConfigError(t('updateCheck must be "on" or "off".'))
+  return value
 }
 
 function resolvedUsageCap(global: Partial<Config>): UsageCap | undefined {
@@ -206,6 +215,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     keybinds: resolvedKeybinds(global),
     verifyCommands: resolvedVerifyCommands(global),
     usageCap: resolvedUsageCap(global),
+    updateCheck: resolvedUpdateCheck(global),
     providers: { ...known, ...fromProject },
     projectProviders: Object.keys(fromProject),
     allow: [...(global.allow ?? [])],
