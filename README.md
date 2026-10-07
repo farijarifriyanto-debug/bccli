@@ -160,6 +160,14 @@ seperti Claude Code). Semua alat MCP selalu minta izin.
 
 `.bccli/mcp.json` di dalam repo tidak dijalankan sebelum kamu setujui (ditanya sekali per folder).
 
+`bccli mcp serve` menjalankan MCP server stdio dengan tools BotConnector milikmu
+(`bc_search`, `bc_fetch`, `bc_models`, `bc_chat`) untuk dipakai Claude Code, Cursor,
+opencode, dan host MCP lain. Butuh `bccli login` (atau `BOTCONNECTOR_API_KEY`):
+
+```bash
+claude mcp add botconnector -- npx -y @botconnector/bccli mcp serve
+```
+
 ## Subagent
 
 Agent bisa mendelegasikan pekerjaan lewat alat `task`:
