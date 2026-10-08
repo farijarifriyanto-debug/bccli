@@ -27,6 +27,10 @@ export interface CliArgs {
   help: boolean
   version: boolean
   loginProvider?: string
+  /** `bccli login` — pakai prompt API key lama, bukan OAuth. */
+  key: boolean
+  /** `bccli login` — hapus credential tersimpan (hanya openrouter via OAuth path). */
+  logout: boolean
   /** `bccli serve` listener port (0 = ephemeral). */
   port?: number
   /** `bccli serve` bind address — loopback only. */
@@ -42,7 +46,7 @@ const HELP = `BCCLI — BotConnector's AI coding agent for the terminal
 Usage:
   bccli [task]                  interactive mode (optionally start with a task)
   bccli -p "task"               run one task without interaction (scripts/CI)
-  bccli login [provider]        save an API key (default: bc-cloud)
+  bccli login [provider]        OAuth login (or --key paste API key, --logout remove)
   bccli models [provider]       list models (default: the active provider)
   bccli update                  install the newest bccli from npm
   bccli acp                     run as an ACP agent for editors (Zed, ...)
@@ -93,6 +97,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
       name: { type: 'string' },
       'key-env': { type: 'string' },
       value: { type: 'string', multiple: true },
+      key: { type: 'boolean' },
+      logout: { type: 'boolean' },
       port: { type: 'string' },
       host: { type: 'string' },
       token: { type: 'string' },
@@ -143,6 +149,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
     help: !!values.help,
     version: !!values.version,
     loginProvider: command === 'login' ? (rest[0] ?? 'bc-cloud') : undefined,
+    key: !!values.key,
+    logout: !!values.logout,
     subArgs: ['models', 'plugins', 'provider', 'mcp', 'connect', 'disconnect', 'integrations'].includes(command) ? rest : [],
     url: values.url,
     name: values.name,

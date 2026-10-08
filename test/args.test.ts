@@ -72,6 +72,18 @@ test('plugins: subcommand + subArgs', () => {
   expect(parseCliArgs(['plugins']).subArgs).toEqual([])
 })
 
+test('login flags: --key dan --logout', () => {
+  expect(parseCliArgs(['login', 'openrouter', '--key'])).toMatchObject({
+    command: 'login',
+    loginProvider: 'openrouter',
+    key: true,
+    logout: false,
+  })
+  expect(parseCliArgs(['login', 'openrouter', '--logout'])).toMatchObject({ logout: true, key: false })
+  expect(parseCliArgs(['login']).key).toBe(false)
+  expect(parseCliArgs(['login']).logout).toBe(false)
+})
+
 test('mcp serve parses --base-url', () => {
   expect(parseCliArgs(['mcp', 'serve', '--base-url', 'https://api.example/v1'])).toMatchObject({
     command: 'mcp',

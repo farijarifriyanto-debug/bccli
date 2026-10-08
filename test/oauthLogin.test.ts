@@ -3,7 +3,9 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, expect, test } from 'vitest'
+import { type CliArgs, parseCliArgs } from '../src/args'
 import { globalConfigPath, readCredentials, saveCredential } from '../src/config'
+import { type LoginDeps, runLogin } from '../src/login'
 import { setLanguage } from '../src/i18n'
 import {
   ABORT,
@@ -470,4 +472,87 @@ test('celah #2c: JSON malformed TANPA abort → invalid-body (bukan cancelled/ti
   expect(h.all()).not.toContain('Login cancelled')
   expect(readCredentials(h.env).openrouter).toBe('OLD-KEY')
   expect(process.listenerCount('SIGINT')).toBe(baseline)
+})
+
+// ===== Task 3: dispatch runLogin (LoginDeps nyata, tanpa cast liar) =====
+
+function dispatchHarness(over: Partial<LoginDeps> = {}) {
+  const calls = { open: 0, readLine: 0, save: 0, remove: 0, legacy: [] as string[] }
+  const errLines: string[] = []
+  const deps: LoginDeps = {
+    out: () => {},
+    err: (s) => errLines.push(s),
+    env: {},
+    isTTY: true,
+    open: () => {
+      calls.open++
+    },
+    readLine: async () => {
+      calls.readLine++
+      return 'CODE'
+    },
+    saveCredential: () => {
+      calls.save++
+    },
+    removeCredential: () => {
+      calls.remove++
+      return true
+    },
+    fetch: (async () => new Response('{"key":"k"}', { status: 200 })) as typeof fetch,
+    legacyAdd: async (id) => {
+      calls.legacy.push(id)
+      return 0
+    },
+    ...over,
+  }
+  const withArgs = (args: Partial<CliArgs>): CliArgs => ({ ...parseCliArgs(['login', 'openrouter']), ...args })
+  return {
+    calls,
+    errLines,
+    deps,
+    runConflict: () => runLogin('openrouter', '.', withArgs({ key: true, logout: true }), deps),
+    runLogout: () => runLogin('openrouter', '.', withArgs({ logout: true }), deps),
+    runKey: () => runLogin('openrouter', '.', withArgs({ key: true }), deps),
+    runDefault: () => runLogin('openrouter', '.', withArgs({}), deps),
+  }
+}
+
+test('kontrak #6: --key --logout → exit 1, SEMUA spy nol panggilan (urutan guard paling awal)', async () => {
+  const h = dispatchHarness()
+  expect(await h.runConflict()).toBe(1)
+  expect(h.calls).toEqual({ open: 0, readLine: 0, save: 0, remove: 0, legacy: [] })
+  expect(h.errLines.join('\n')).toContain('not both')
+})
+
+test('rev #5: logout provider LAIN ditolak — removeCredential TIDAK dipanggil, pesan arahan provider remove', async () => {
+  const h = dispatchHarness()
+  const r = await runLogin('groq', '.', { ...parseCliArgs(['login', 'groq']), logout: true, key: false }, h.deps)
+  expect(r).toBe(1)
+  expect(h.calls.remove).toBe(0) // tidak pernah diam-diam menghapus credential yang salah
+  expect(h.calls.legacy).toEqual([])
+  expect(h.errLines.join('\n')).toContain('Logout is not supported for groq')
+  expect(h.errLines.join('\n')).toContain('bccli provider remove groq')
+})
+
+test('dispatch: openrouter --logout → removeCredential; --key → legacy (jalur lama); default openrouter → OAuth; groq default → legacy', async () => {
+  const a = dispatchHarness()
+  expect(await a.runLogout()).toBe(0)
+  expect(a.calls.remove).toBe(1)
+  expect(a.calls.open).toBe(0)
+
+  const b = dispatchHarness()
+  expect(await b.runKey()).toBe(0)
+  expect(b.calls.legacy).toEqual(['openrouter'])
+  expect(b.calls.open).toBe(0)
+
+  const c = dispatchHarness() // default openrouter → jalur OAuth (open terpanggil, save terpanggil)
+  expect(await c.runDefault()).toBe(0)
+  expect(c.calls.open).toBe(1)
+  expect(c.calls.save).toBe(1)
+
+  const d = dispatchHarness()
+  const r = await runLogin('groq', '.', parseCliArgs(['login', 'groq']), d.deps)
+  expect(r).toBe(0)
+  expect(d.calls.legacy).toEqual(['groq'])
+  expect(d.calls.open).toBe(0)
 })

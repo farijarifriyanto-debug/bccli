@@ -103,7 +103,7 @@ export const ID: Record<string, string> = {
 Usage:
   bccli [task]                  interactive mode (optionally start with a task)
   bccli -p "task"               run one task without interaction (scripts/CI)
-  bccli login [provider]        save an API key (default: bc-cloud)
+  bccli login [provider]        OAuth login (or --key paste API key, --logout remove)
   bccli models [provider]       list models (default: the active provider)
   bccli update                  install the newest bccli from npm
   bccli acp                     run as an ACP agent for editors (Zed, ...)
@@ -132,7 +132,7 @@ Options:
 Pemakaian:
   bccli [tugas]                 mode interaktif (opsional langsung dengan tugas)
   bccli -p "tugas"              jalankan satu tugas tanpa interaksi (skrip/CI)
-  bccli login [provider]        simpan API key (default: bc-cloud)
+  bccli login [provider]        login OAuth (atau --key tempel API key, --logout hapus)
   bccli models [provider]       daftar model (default: provider aktif)
   bccli update                  pasang bccli terbaru dari npm
   bccli acp                     jalankan sebagai agen ACP untuk editor (Zed, ...)
@@ -219,6 +219,44 @@ Opsi:
   'update requires a plugin name or no argument: bccli plugins update [name]':
     'update butuh nama plugin atau tanpa argumen: bccli plugins update [nama]',
   '{name} updated to latest.': '{name} diperbarui ke versi terbaru.',
+  'Use either --key or --logout, not both.': 'Pakai --key atau --logout, jangan keduanya.',
+  'Logout is not supported for {id}; use bccli provider remove {id} to delete its stored key and config.':
+    'Logout tidak didukung untuk {id}; pakai bccli provider remove {id} untuk menghapus key dan config tersimpan.',
+  'bccli login openrouter needs a terminal. Use --key to paste an API key instead.':
+    'bccli login openrouter butuh terminal. Pakai --key untuk menempel API key.',
+  'Could not open the browser automatically — open this URL manually: {url}':
+    'Tidak bisa membuka browser otomatis — buka URL ini manual: {url}',
+  'Paste the authorization code from the browser: ': 'Tempel kode otorisasi dari browser: ',
+  'Failed to read the authorization code: {reason}. Your stored credential was not changed.':
+    'Gagal membaca kode otorisasi: {reason}. Credential tersimpan tidak berubah.',
+  'Authorization code is empty. Run bccli login openrouter again.':
+    'Kode otorisasi kosong. Jalankan bccli login openrouter lagi.',
+  'Login cancelled.': 'Login dibatalkan.',
+  'The exchange with OpenRouter timed out after {seconds}s. Your stored credential was not changed.':
+    'Pertukaran dengan OpenRouter habis waktu setelah {seconds} dtk. Credential tersimpan tidak berubah.',
+  'Could not reach OpenRouter: {reason}. Your stored credential was not changed.':
+    'Tidak bisa menghubungi OpenRouter: {reason}. Credential tersimpan tidak berubah.',
+  'Authorization code expired — codes are valid for 10 minutes. Run bccli login openrouter again.':
+    'Kode otorisasi kedaluwarsa — kode berlaku 10 menit. Jalankan bccli login openrouter lagi.',
+  'OpenRouter rejected the authorization code (403): {detail}. Run bccli login openrouter again.':
+    'OpenRouter menolak kode otorisasi (403): {detail}. Jalankan bccli login openrouter lagi.',
+  'OpenRouter did not return an API key in the expected format. Your stored credential was not changed.':
+    'OpenRouter tidak mengembalikan API key dengan format yang diharapkan. Credential tersimpan tidak berubah.',
+  'OpenRouter exchange failed ({status}): {detail}. Your stored credential was not changed.':
+    'Pertukaran OpenRouter gagal ({status}): {detail}. Credential tersimpan tidak berubah.',
+  'The key was created on your OpenRouter account but could not be saved locally ({reason}). Manage it (copy or revoke) at {dashboard}, then run bccli login openrouter again.':
+    'Key sudah dibuat di akun OpenRouter kamu tetapi gagal disimpan lokal ({reason}). Kelola (salin atau cabut) di {dashboard}, lalu jalankan bccli login openrouter lagi.',
+  'Logged in: openrouter credential saved.': 'Login berhasil: credential openrouter tersimpan.',
+  'Note: {env} is set in the environment and takes priority over the stored credential.':
+    'Catatan: {env} ter-set di environment dan lebih diutamakan daripada credential tersimpan.',
+  'Verify with: bccli models openrouter (your key is never printed).':
+    'Verifikasi dengan: bccli models openrouter (key kamu tidak pernah dicetak).',
+  'openrouter credential removed.': 'credential openrouter dihapus.',
+  'openrouter credential was not stored.': 'credential openrouter tidak tersimpan.',
+  'Note: {env} is still set in the environment and will keep being used.':
+    'Catatan: {env} masih ter-set di environment dan akan terus dipakai.',
+  'To revoke keys on your account, open {dashboard}.':
+    'Untuk mencabut key akun kamu, buka {dashboard}.',
   'Budget exceeded ({kind}): {used} of {limit}. Further model calls are blocked; raise usageCap in ~/.bccli/config.json.':
     'Anggaran terlampaui ({kind}): {used} dari {limit}. Panggilan model selanjutnya diblokir; naikkan usageCap di ~/.bccli/config.json.',
   'Verifying edits: {cmds}': 'Memverifikasi edit: {cmds}',
