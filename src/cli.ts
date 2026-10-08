@@ -86,11 +86,13 @@ async function main(): Promise<number> {
     const runNpm = async (prefix: string, argv: string[]) => {
       const { spawnSync } = await import('node:child_process')
       const opts = { encoding: 'utf8' } as const
-      // win32: .cmd tanpa shell = EINVAL di Node modern; shell:true + token di-quote
-      // aman karena semua argumen npm tervalidasi regex pluginSpec (tanpa metachar).
+      // win32: .cmd tanpa shell = EINVAL di Node modern (CVE-2024-27980) → shell:true.
+      // Quote HANYA argumen ber-spasi: mem-quote SEMUA token membuat cmd /s membuang
+      // quote eksternal pertama-terakhir → argumen kacau (terbukti canary, probe).
+      const q = (a: string): string => (/\s/.test(a) ? `"${a}"` : a)
       const r =
         process.platform === 'win32'
-          ? spawnSync(['npm.cmd', '--prefix', prefix, ...argv].map((a) => `"${a}"`).join(' '), { ...opts, shell: true })
+          ? spawnSync(['npm.cmd', '--prefix', prefix, ...argv].map(q).join(' '), { ...opts, shell: true })
           : spawnSync('npm', ['--prefix', prefix, ...argv], opts)
       return { code: r.status ?? 1, stderr: r.stderr || (r.error ? r.error.message : '') }
     }
