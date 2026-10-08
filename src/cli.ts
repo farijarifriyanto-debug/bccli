@@ -96,6 +96,10 @@ async function main(): Promise<number> {
         }),
     })
   }
+  if (args.command === 'gh-bot') {
+    const { runGhBotCommand } = await import('./ghBotCli')
+    return runGhBotCommand(args, { env: process.env, cwd, out: (s) => console.log(s), err: (s) => console.error(s) })
+  }
   const rt = createRuntime({ cwd, args })
   setTheme(rt.config.theme)
   try {

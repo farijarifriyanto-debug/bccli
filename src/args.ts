@@ -6,7 +6,7 @@ import { LOOPBACK_BIND } from './serveProtocol'
 import { type Lang, parseLang, t } from './i18n'
 
 export interface CliArgs {
-  command: 'run' | 'login' | 'models' | 'update' | 'acp' | 'serve' | 'plugins' | 'provider' | 'mcp' | 'connect' | 'disconnect' | 'integrations'
+  command: 'run' | 'login' | 'models' | 'update' | 'acp' | 'serve' | 'plugins' | 'gh-bot' | 'provider' | 'mcp' | 'connect' | 'disconnect' | 'integrations'
   subArgs: string[]
   url?: string
   name?: string
@@ -52,6 +52,7 @@ Usage:
   bccli acp                     run as an ACP agent for editors (Zed, ...)
   bccli serve [--port N]        serve sessions over HTTP+WS for IDEs/bots
   bccli plugins               list, install, remove, or update plugins
+  bccli gh-bot [serve]         GitHub comment bot (off-by-default; needs config)
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>|serve [--base-url <url>]    manage MCP servers, or serve this account's tools over stdio
   bccli integrations             show the status of external agent integrations
@@ -119,7 +120,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     throw new ConfigError(t('--output-format must be one of: {formats}', { formats: 'text, json, stream-json' }))
   }
   const [first, ...rest] = positionals
-  const SUBCOMMANDS = ['login', 'models', 'update', 'acp', 'serve', 'plugins', 'provider', 'mcp', 'connect', 'disconnect', 'integrations']
+  const SUBCOMMANDS = ['login', 'models', 'update', 'acp', 'serve', 'plugins', 'gh-bot', 'provider', 'mcp', 'connect', 'disconnect', 'integrations']
   const command = SUBCOMMANDS.includes(first) ? (first as CliArgs['command']) : 'run'
   const words = command === 'run' ? positionals : rest
   const port = values.port !== undefined ? Number(values.port) : undefined
@@ -151,7 +152,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     loginProvider: command === 'login' ? (rest[0] ?? 'bc-cloud') : undefined,
     key: !!values.key,
     logout: !!values.logout,
-    subArgs: ['models', 'plugins', 'provider', 'mcp', 'connect', 'disconnect', 'integrations'].includes(command) ? rest : [],
+    subArgs: ['models', 'plugins', 'gh-bot', 'provider', 'mcp', 'connect', 'disconnect', 'integrations'].includes(command) ? rest : [],
     url: values.url,
     name: values.name,
     keyEnv: values['key-env'],

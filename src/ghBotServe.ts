@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { parseCliArgs } from './args'
+import { ConfigError } from './config'
 import { type GhBotConfig, GhBotHub, type CloseSummary } from './ghBotDispatch'
 import { t } from './i18n'
 import type { Provider } from './provider'
@@ -124,8 +125,8 @@ export async function startGhBot(opts: GhBotServeOptions): Promise<GhBotHandle> 
   const host = opts.host ?? '127.0.0.1'
   if (!LOOPBACK_BIND.has(host)) throw new Error(`gh-bot refuses non-loopback --host ${host} (loopback only)`)
   if (opts.config.enabled && !opts.getSecret()) {
-    // Fail-loud: nama env TANPA nilai secret (spec §2).
-    throw new Error(t('githubBot secret env {env} is empty — set it before enabling the bot.', { env: opts.config.secretEnv }))
+    // Fail-loud: nama env TANPA nilai secret (spec §2) — ConfigError → output bersih tanpa stack.
+    throw new ConfigError(t('githubBot secret env {env} is empty — set it before enabling the bot.', { env: opts.config.secretEnv }))
   }
   const out = opts.out ?? ((s?: string) => console.log(s ?? ''))
   const err = opts.err ?? ((s?: string) => console.error(s ?? ''))
