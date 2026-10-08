@@ -6,7 +6,7 @@ import { LOOPBACK_BIND } from './serveProtocol'
 import { type Lang, parseLang, t } from './i18n'
 
 export interface CliArgs {
-  command: 'run' | 'login' | 'models' | 'update' | 'acp' | 'serve' | 'provider' | 'mcp' | 'connect' | 'disconnect' | 'integrations'
+  command: 'run' | 'login' | 'models' | 'update' | 'acp' | 'serve' | 'plugins' | 'provider' | 'mcp' | 'connect' | 'disconnect' | 'integrations'
   subArgs: string[]
   url?: string
   name?: string
@@ -112,7 +112,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     throw new ConfigError(t('--output-format must be one of: {formats}', { formats: 'text, json, stream-json' }))
   }
   const [first, ...rest] = positionals
-  const SUBCOMMANDS = ['login', 'models', 'update', 'acp', 'serve', 'provider', 'mcp', 'connect', 'disconnect', 'integrations']
+  const SUBCOMMANDS = ['login', 'models', 'update', 'acp', 'serve', 'plugins', 'provider', 'mcp', 'connect', 'disconnect', 'integrations']
   const command = SUBCOMMANDS.includes(first) ? (first as CliArgs['command']) : 'run'
   const words = command === 'run' ? positionals : rest
   const port = values.port !== undefined ? Number(values.port) : undefined
@@ -142,7 +142,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     help: !!values.help,
     version: !!values.version,
     loginProvider: command === 'login' ? (rest[0] ?? 'bc-cloud') : undefined,
-    subArgs: ['models', 'provider', 'mcp', 'connect', 'disconnect', 'integrations'].includes(command) ? rest : [],
+    subArgs: ['models', 'plugins', 'provider', 'mcp', 'connect', 'disconnect', 'integrations'].includes(command) ? rest : [],
     url: values.url,
     name: values.name,
     keyEnv: values['key-env'],
