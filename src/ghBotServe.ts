@@ -64,8 +64,8 @@ function readBodyBounded(req: IncomingMessage, maxBytes: number): Promise<{ buf:
 function makeRunJob(
   o: GhBotServeOptions,
   cfg: GhBotConfig,
+  gh: GhDeps,
 ): (d: CommentDelivery, signal: AbortSignal) => Promise<{ ok: boolean; reason?: string }> {
-  const gh: GhDeps = o.gh ?? { spawn: createGhSpawn() } // objek GhDeps (review #1)
   return async (d, signal) => {
     try {
       const ctx = await collectGhContext(d, { gh, signal })
@@ -130,7 +130,15 @@ export async function startGhBot(opts: GhBotServeOptions): Promise<GhBotHandle> 
   }
   const out = opts.out ?? ((s?: string) => console.log(s ?? ''))
   const err = opts.err ?? ((s?: string) => console.error(s ?? ''))
-  const hub = new GhBotHub(opts.config, { out, err, runJob: makeRunJob(opts, opts.config) })
+  const gh: GhDeps = opts.gh ?? { spawn: createGhSpawn() } // SATU instance dipakai probe + jobs
+  if (opts.config.enabled) {
+    // Prasyarat runtime (spec §10): gh harus ada — fail-loud saat start, tanpa body stderr.
+    const probe = await gh.spawn(['--version'])
+    if (probe.code !== 0) {
+      throw new ConfigError(t('gh CLI not found (exit {code}) — install GitHub CLI before enabling gh-bot.', { code: String(probe.code) }))
+    }
+  }
+  const hub = new GhBotHub(opts.config, { out, err, runJob: makeRunJob(opts, opts.config, gh) })
 
   const server: Server = createServer((req, res) => {
     void handle(req, res)

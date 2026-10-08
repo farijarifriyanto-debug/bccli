@@ -248,8 +248,8 @@ test('glue nyata: tools=0 selama run, system=ghSystemPrompt, provider terpakai, 
 
 test('timeout deadline e2e: gh collect tertahan → signal abort → job gagal, post 0×', async () => {
   const { provider } = textProvider()
-  const { gh, calls } = fakeGh((idx, _argv, opts) => {
-    if (idx === 0) {
+  const { gh, calls } = fakeGh((idx, argv, opts) => {
+    if (idx >= 0 && argv[0] === 'issue') {
       // collect: tertahan sampai signal abort (meniru spawn asli yang di-kill)
       return new Promise((resolve) => {
         opts?.signal?.addEventListener('abort', () => resolve({ code: 1, stderr: 'aborted' }))
@@ -399,8 +399,8 @@ test('fetch injectable: spy terpakai ke server HTTP lokal palsu (revisi #3)', as
 test('koreksi #1: post hard-timeout → reason termination-unconfirmed → close UNCONFIRMED=1 + bukan LRU (redelivery jalan)', async () => {
   const marker = '<child did not close after termination>'
   const { provider } = textProvider()
-  const { gh, calls } = fakeGh((idx, argv) => {
-    if (idx === 1 && argv[0] === 'api') return { code: 1, stderr: `boom\n${marker}` } // post hard-timeout
+  const { gh, calls } = fakeGh((_idx, argv) => {
+    if (argv[0] === 'api') return { code: 1, stderr: `boom\n${marker}` } // post hard-timeout
     return undefined
   })
   const errLines: string[] = []

@@ -195,6 +195,8 @@ Opsi:
   'githubBot.secretEnv must be a non-empty string.': 'githubBot.secretEnv harus string tidak kosong.',
   'Ignored empty command in delivery {id}.': 'Mengabaikan perintah kosong di delivery {id}.',
   'Unknown action: {action}. Use serve.': 'Aksi tidak dikenal: {action}. Gunakan serve.',
+  'gh CLI not found (exit {code}) — install GitHub CLI before enabling gh-bot.':
+    'gh CLI tidak ditemukan (exit {code}) — pasang GitHub CLI sebelum mengaktifkan gh-bot.',
   'Unknown action: {action}. Use list, install <spec>, remove <name>, or update [name].':
     'Aksi tidak dikenal: {action}. Gunakan list, install <spec>, remove <nama>, atau update [nama].',
   'Cannot read the plugin config while running {action}: {reason} at {path} — no changes were made; fix the config, then retry.':
