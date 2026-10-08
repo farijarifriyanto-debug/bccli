@@ -80,6 +80,32 @@ async function main(): Promise<number> {
     })
     return 0
   }
+  if (args.command === 'plugins') {
+    const { runPluginsCommand } = await import('./pluginsCli')
+    const { readGlobalPlugins, updateGlobalConfig } = await import('./config')
+    const runNpm = async (prefix: string, argv: string[]) => {
+      const { spawnSync } = await import('node:child_process')
+      const opts = { encoding: 'utf8' } as const
+      // win32: .cmd tanpa shell = EINVAL di Node modern; shell:true + token di-quote
+      // aman karena semua argumen npm tervalidasi regex pluginSpec (tanpa metachar).
+      const r =
+        process.platform === 'win32'
+          ? spawnSync(['npm.cmd', '--prefix', prefix, ...argv].map((a) => `"${a}"`).join(' '), { ...opts, shell: true })
+          : spawnSync('npm', ['--prefix', prefix, ...argv], opts)
+      return { code: r.status ?? 1, stderr: r.stderr || (r.error ? r.error.message : '') }
+    }
+    return runPluginsCommand(args, {
+      out: (s) => console.log(s),
+      err: (s) => console.error(s),
+      env: process.env,
+      runNpm,
+      readPlugins: () => readGlobalPlugins(process.env),
+      savePlugins: (entries) =>
+        updateGlobalConfig(process.env, (cfg) => {
+          cfg.plugins = entries
+        }),
+    })
+  }
   const rt = createRuntime({ cwd, args })
   setTheme(rt.config.theme)
   try {

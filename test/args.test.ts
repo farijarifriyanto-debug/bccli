@@ -64,6 +64,14 @@ test('serve: port bukan angka / di luar rentang ditolak', () => {
   expect(() => parseCliArgs(['serve', '--port', '70000'])).toThrow(/--port/)
 })
 
+test('plugins: subcommand + subArgs', () => {
+  expect(parseCliArgs(['plugins', 'install', 'foo@latest'])).toMatchObject({
+    command: 'plugins',
+    subArgs: ['install', 'foo@latest'],
+  })
+  expect(parseCliArgs(['plugins']).subArgs).toEqual([])
+})
+
 test('mcp serve parses --base-url', () => {
   expect(parseCliArgs(['mcp', 'serve', '--base-url', 'https://api.example/v1'])).toMatchObject({
     command: 'mcp',

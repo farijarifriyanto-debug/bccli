@@ -108,6 +108,7 @@ Usage:
   bccli update                  install the newest bccli from npm
   bccli acp                     run as an ACP agent for editors (Zed, ...)
   bccli serve [--port N]        serve sessions over HTTP+WS for IDEs/bots
+  bccli plugins               list, install, remove, or update plugins
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>|serve [--base-url <url>]    manage MCP servers, or serve this account's tools over stdio
   bccli integrations             show the status of external agent integrations
@@ -136,6 +137,7 @@ Pemakaian:
   bccli update                  pasang bccli terbaru dari npm
   bccli acp                     jalankan sebagai agen ACP untuk editor (Zed, ...)
   bccli serve [--port N]        sajikan sesi lewat HTTP+WS untuk IDE/bot
+  bccli plugins               daftar, install, remove, atau perbarui plugin
   bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <nama>|remove <nama>|auth <nama>|logout <nama>|serve [--base-url <url>]    kelola server MCP, atau layani tools akun ini lewat stdio
   bccli integrations             lihat status integrasi agent eksternal
@@ -182,6 +184,41 @@ Opsi:
   'Clipboard image saved to {path} — the path is inserted in the input; the model sees it when you send.':
     'Gambar clipboard disimpan ke {path} — path disisipkan ke input; model melihatnya saat kamu kirim.',
   'No image on the clipboard.': 'Tidak ada gambar di clipboard.',
+  'Unknown action: {action}. Use list, install <spec>, remove <name>, or update [name].':
+    'Aksi tidak dikenal: {action}. Gunakan list, install <spec>, remove <nama>, atau update [nama].',
+  'Cannot read the plugin config while running {action}: {reason} at {path} — no changes were made; fix the config, then retry.':
+    'Tidak bisa membaca config plugin saat menjalankan {action}: {reason} di {path} — tidak ada perubahan; perbaiki config, lalu coba lagi.',
+  'npm install failed ({code}): {stderr}': 'npm install gagal ({code}): {stderr}',
+  'install requires a package spec: bccli plugins install <spec>':
+    'install butuh spesifikasi paket: bccli plugins install <spec>',
+  'Invalid npm package spec: {spec}. Use a name, @scope/name, name@version, or name@tag — URLs, git, paths, and flags are not accepted.':
+    'Spesifikasi paket npm tidak valid: {spec}. Pakai nama, @scope/nama, nama@versi, atau nama@tag — URL, git, path, dan flag tidak diterima.',
+  'npm finished but the config could not be read: {reason} — the entry list is unchanged; fix {path}, then rerun the same command (safe to repeat).':
+    'npm selesai tetapi config gagal dibaca: {reason} — daftar entry tidak berubah; perbaiki {path}, lalu jalankan ulang perintah yang sama (aman diulang).',
+  'npm finished but the config update failed: {reason}. {name} stays enabled through its existing entry {entry}; the package files may already be new. Fix the config error at {path} — no entry change was required.':
+    'npm selesai tetapi pembaruan config gagal: {reason}. {name} tetap aktif lewat entry lama {entry}; file paket mungkin sudah baru. Perbaiki error config di {path} — tidak ada perubahan entry yang diperlukan.',
+  'npm finished but the config update failed: {reason}. {name} is installed but NOT enabled — fix the config error, then run "bccli plugins install {name}" again (safe to repeat), or add {entry} to {path} manually.':
+    'npm selesai tetapi pembaruan config gagal: {reason}. {name} terpasang tetapi TIDAK aktif — perbaiki error config, lalu jalankan lagi "bccli plugins install {name}" (aman diulang), atau tambahkan {entry} ke {path} secara manual.',
+  '{name} is already enabled.': '{name} sudah aktif.',
+  '{name} installed and enabled.': '{name} terpasang dan aktif.',
+  'Malformed managed entry: {entry} — fix it manually in {path}; bccli will not pass it to npm.':
+    'Entry terelola rusak: {entry} — perbaiki manual di {path}; bccli tidak akan meneruskannya ke npm.',
+  '{entry} is a manual plugin entry — edit the global config.json directly to remove it.':
+    '{entry} adalah entry plugin manual — edit config.json global langsung untuk menghapusnya.',
+  '{name} is not an installed managed plugin.': '{name} bukan plugin terelola yang terpasang.',
+  'Unknown plugin: {arg}.': 'Plugin tidak dikenal: {arg}.',
+  'remove requires a plugin name: bccli plugins remove <name>':
+    'remove butuh nama plugin: bccli plugins remove <nama>',
+  'npm removed the files of {name} but the plugin config could not be read: {reason} — the entry list is unchanged; fix {path}, then run "bccli plugins remove {name}" again (safe to repeat).':
+    'npm sudah menghapus file {name} tetapi config plugin gagal dibaca: {reason} — daftar entry tidak berubah; perbaiki {path}, lalu jalankan lagi "bccli plugins remove {name}" (aman diulang).',
+  'npm removed the files of {name} but the config entry {entry} remains: {reason}. bccli will refuse to start while that entry is listed — fix the config error at {path}, then run "bccli plugins remove {name}" again (safe to repeat), or delete the entry manually.':
+    'npm sudah menghapus file {name} tetapi entry config {entry} tertinggal: {reason}. bccli menolak start selama entry itu terdaftar — perbaiki error config di {path}, lalu jalankan lagi "bccli plugins remove {name}" (aman diulang), atau hapus entry secara manual.',
+  'Skipping malformed entry: {entry} — fix it manually in {path}.':
+    'Melewatkan entry rusak: {entry} — perbaiki manual di {path}.',
+  'No managed plugins to update.': 'Tidak ada plugin terelola untuk diperbarui.',
+  'update requires a plugin name or no argument: bccli plugins update [name]':
+    'update butuh nama plugin atau tanpa argumen: bccli plugins update [nama]',
+  '{name} updated to latest.': '{name} diperbarui ke versi terbaru.',
   'Budget exceeded ({kind}): {used} of {limit}. Further model calls are blocked; raise usageCap in ~/.bccli/config.json.':
     'Anggaran terlampaui ({kind}): {used} dari {limit}. Panggilan model selanjutnya diblokir; naikkan usageCap di ~/.bccli/config.json.',
   'Verifying edits: {cmds}': 'Memverifikasi edit: {cmds}',
