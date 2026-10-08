@@ -47,6 +47,7 @@ Usage:
   bccli update                  install the newest bccli from npm
   bccli acp                     run as an ACP agent for editors (Zed, ...)
   bccli serve [--port N]        serve sessions over HTTP+WS for IDEs/bots
+  bccli plugins               list, install, remove, or update plugins
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>|serve [--base-url <url>]    manage MCP servers, or serve this account's tools over stdio
   bccli integrations             show the status of external agent integrations
