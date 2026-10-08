@@ -94,6 +94,8 @@ export class GhBotHub {
   private readonly closeReasons: string[] = []
   private readonly idleWaiters: Array<() => void> = []
   private readonly dedupCap: number
+  /** Akumulasi SEMUA job (di/di luar close) — §9.19: unconfirmed terhitung walau gagal sebelum close. */
+  private unconfirmedTotal = 0
 
   constructor(
     private readonly cfg: GhBotConfig,
@@ -136,7 +138,10 @@ export class GhBotHub {
         .then(() => this.deps.runJob(delivery, signal))
         .then((res) => {
           if (res.ok) this.pushCompleted(delivery.delivery)
-          else if (this.closing) this.closeReasons.push(res.reason ?? 'aborted')
+          else {
+            if (res.reason === 'termination-unconfirmed') this.unconfirmedTotal++
+            if (this.closing) this.closeReasons.push(res.reason ?? 'aborted')
+          }
         })
         .catch((error: unknown) => {
           const message = String((error as Error)?.message ?? error)
@@ -183,15 +188,15 @@ export class GhBotHub {
     for (const abandoned of this.queue.splice(0)) this.inFlight.delete(abandoned.delivery)
     await this.whenIdle()
     const aborted = this.closeReasons.length
-    const terminationUnconfirmed = this.closeReasons.filter((r) => r === 'termination-unconfirmed').length
+    const unconfirmedDuringClose = this.closeReasons.filter((r) => r === 'termination-unconfirmed').length
     const summary: CloseSummary = {
       aborted,
-      terminationConfirmed: aborted - terminationUnconfirmed,
-      terminationUnconfirmed,
+      terminationConfirmed: aborted - unconfirmedDuringClose,
+      terminationUnconfirmed: this.unconfirmedTotal, // global — termasuk gagal sebelum close
     }
-    if (terminationUnconfirmed > 0) {
+    if (summary.terminationUnconfirmed > 0) {
       this.deps.err(
-        `gh-bot closed — ${aborted} active jobs aborted; termination confirmed ${summary.terminationConfirmed}, UNCONFIRMED ${terminationUnconfirmed} (child may still be running)`,
+        `gh-bot closed — ${aborted} active jobs aborted; termination confirmed ${summary.terminationConfirmed}, UNCONFIRMED ${summary.terminationUnconfirmed} (child may still be running)`,
       )
     }
     return summary

@@ -184,6 +184,8 @@ Opsi:
   'Clipboard image saved to {path} — the path is inserted in the input; the model sees it when you send.':
     'Gambar clipboard disimpan ke {path} — path disisipkan ke input; model melihatnya saat kamu kirim.',
   'No image on the clipboard.': 'Tidak ada gambar di clipboard.',
+  'githubBot secret env {env} is empty — set it before enabling the bot.':
+    'secret env githubBot {env} kosong — setel sebelum mengaktifkan bot.',
   'Unknown action: {action}. Use list, install <spec>, remove <name>, or update [name].':
     'Aksi tidak dikenal: {action}. Gunakan list, install <spec>, remove <nama>, atau update [nama].',
   'Cannot read the plugin config while running {action}: {reason} at {path} — no changes were made; fix the config, then retry.':

@@ -95,6 +95,8 @@ export function createRuntime(opts: {
   history?: ChatMessage[]
   fetch?: typeof fetch
   userHome?: string
+  /** Override langkah agent (mis. githubBot.stepLimit) — menang atas config.maxSteps. */
+  maxSteps?: number | null
 }): Runtime {
   const env = opts.env ?? process.env
   const home = bccliHome(env)
@@ -108,6 +110,7 @@ export function createRuntime(opts: {
       apiKey: resolved.apiKey,
       model: resolved.model,
       providerId: resolved.providerId,
+      fetch: opts.fetch, // diteruskan penuh (spec gh-bot §6.6 — juga memperbaiki sdk fetch-injection)
       enableProgrammaticToolCalling: lunaPtcAutoEnabled(env),
     })
   }
@@ -199,7 +202,7 @@ export function createRuntime(opts: {
     cwd: opts.cwd,
     history,
     reasoning,
-    maxSteps: config.maxSteps,
+    maxSteps: opts.maxSteps ?? config.maxSteps,
     hooks: config.hooks,
     pluginEmit,
     env,
