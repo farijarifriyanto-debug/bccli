@@ -1,6 +1,6 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { PRESETS } from './presets'
 import type { ReasoningLevel } from './reasoning'
 import type { HooksConfig } from './hooks'
@@ -289,6 +289,51 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     projectProviders: Object.keys(fromProject),
     allow: [...(global.allow ?? [])],
   }
+}
+
+export function globalConfigPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(bccliHome(env), 'config.json')
+}
+
+export function readGlobalPlugins(env: NodeJS.ProcessEnv = process.env): string[] {
+  const raw = readJsonConfig(globalConfigPath(env)) as { plugins?: unknown }
+  const value = raw.plugins
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw new ConfigError(t('plugins must be an array of strings.'))
+  }
+  return value as string[]
+}
+
+function writeFileAtomic(path: string, data: string): void {
+  const tmp = `${path}.tmp-${process.pid}-${Date.now()}`
+  try {
+    writeFileSync(tmp, data)
+    renameSync(tmp, path)
+  } catch (error) {
+    try {
+      rmSync(tmp, { force: true })
+    } catch {
+      // best-effort cleanup — the original error is what matters
+    }
+    throw error
+  }
+}
+
+/**
+ * Read-modify-write of the global config.json. `mutate` throwing aborts before
+ * any write; the write itself is atomic (tmp + rename in the same directory),
+ * so a failed run never leaves a truncated or half-updated config.
+ */
+export function updateGlobalConfig(env: NodeJS.ProcessEnv, mutate: (cfg: Record<string, unknown>) => void): void {
+  const path = globalConfigPath(env)
+  let cfg: Record<string, unknown> = {}
+  if (existsSync(path)) {
+    cfg = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+  }
+  mutate(cfg)
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileAtomic(path, `${JSON.stringify(cfg, null, 2)}\n`)
 }
 
 export function readCredentials(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
