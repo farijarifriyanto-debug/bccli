@@ -1,6 +1,6 @@
 import { helpText, parseCliArgs } from './args'
 import { ConfigError } from './config'
-import { runLogin } from './login'
+import { defaultLoginDeps, runLogin } from './login'
 import { runPrint } from './print'
 import { readGlobalConfigFile } from './providers'
 import { pruneSessions } from './session'
@@ -33,7 +33,7 @@ async function main(): Promise<number> {
   }
   let cwd = process.cwd()
   if (args.worktree) cwd = (await resolveWorktree(cwd, args.worktree)).path
-  if (args.command === 'login') return runLogin(args.loginProvider ?? 'bc-cloud', cwd)
+  if (args.command === 'login') return runLogin(args.loginProvider ?? 'bc-cloud', cwd, args, defaultLoginDeps())
   if (args.command === 'mcp') {
     const { runMcpCommand } = await import('./mcpCli')
     const { readSecret } = await import('./login')

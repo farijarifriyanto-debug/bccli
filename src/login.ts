@@ -68,14 +68,83 @@ export function readLine(prompt: string): Promise<string> {
   })
 }
 
-export async function runLogin(providerId: string, cwd: string): Promise<number> {
-  const { runProviderCommand } = await import('./providerCli')
-  const { parseCliArgs } = await import('./args')
-  return runProviderCommand(parseCliArgs(['provider', 'add', providerId]), {
-    env: process.env,
-    cwd,
+import type { CliArgs } from './args'
+import type { ABORT } from './oauthLogin'
+import { removeCredential, saveCredential } from './config'
+import { defaultOpen } from './mcp/oauth'
+import { t } from './i18n'
+
+export interface LoginDeps {
+  out(s: string): void
+  err(s: string): void
+  env: NodeJS.ProcessEnv
+  isTTY: boolean
+  open(url: string): void
+  readLine(prompt: string): Promise<string | typeof ABORT>
+  saveCredential(id: string, key: string): void
+  removeCredential(id: string): boolean
+  fetch: typeof fetch
+  legacyAdd(providerId: string, cwd: string): Promise<number>
+}
+
+export function defaultLoginDeps(): LoginDeps {
+  return {
     out: (s) => console.log(s),
     err: (s) => console.error(s),
-    readSecret,
-  })
+    env: process.env,
+    isTTY: process.stdin.isTTY ?? false,
+    open: (url) => defaultOpen(new URL(url)),
+    readLine,
+    saveCredential: (id, key) => saveCredential(id, key, process.env),
+    removeCredential: (id) => removeCredential(id, process.env),
+    fetch: globalThis.fetch,
+    // Wiring NYATA jalur lama: persis runLogin lama (provider add + prompt key).
+    legacyAdd: async (providerId, targetCwd) => {
+      const { runProviderCommand } = await import('./providerCli')
+      const { parseCliArgs: parse } = await import('./args')
+      return runProviderCommand(parse(['provider', 'add', providerId]), {
+        env: process.env,
+        cwd: targetCwd,
+        out: (s) => console.log(s),
+        err: (s) => console.error(s),
+        readSecret,
+      })
+    },
+  }
+}
+
+export async function runLogin(providerId: string, cwd: string, args: CliArgs, deps: LoginDeps): Promise<number> {
+  // Urutan ketat spec §8 — konflik PALING AWAL (kontrak #6): sebelum open/readLine/save/remove.
+  if (args.key && args.logout) {
+    deps.err(t('Use either --key or --logout, not both.'))
+    return 1
+  }
+  if (args.logout) {
+    if (providerId !== 'openrouter') {
+      // Logout OAuth hanya openrouter — tidak pernah diam-diam menghapus credential lain.
+      deps.err(
+        t('Logout is not supported for {id}; use bccli provider remove {id} to delete its stored key and config.', {
+          id: providerId,
+        }),
+      )
+      return 1
+    }
+    const { runOauthLogout } = await import('./oauthLogin')
+    return runOauthLogout({ out: deps.out, err: deps.err, env: deps.env, removeCredential: deps.removeCredential })
+  }
+  if (args.key) return deps.legacyAdd(providerId, cwd)
+  if (providerId === 'openrouter') {
+    const { runOauthLogin } = await import('./oauthLogin')
+    return runOauthLogin({
+      out: deps.out,
+      err: deps.err,
+      env: deps.env,
+      isTTY: deps.isTTY,
+      open: deps.open,
+      readLine: deps.readLine,
+      saveCredential: deps.saveCredential,
+      fetch: deps.fetch,
+    })
+  }
+  return deps.legacyAdd(providerId, cwd)
 }
