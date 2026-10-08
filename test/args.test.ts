@@ -72,6 +72,15 @@ test('plugins: subcommand + subArgs', () => {
   expect(parseCliArgs(['plugins']).subArgs).toEqual([])
 })
 
+test('gh-bot: subcommand + subArgs', () => {
+  expect(parseCliArgs(['gh-bot', 'serve', '--port', '18790'])).toMatchObject({
+    command: 'gh-bot',
+    subArgs: ['serve'],
+    port: 18790,
+  })
+  expect(parseCliArgs(['gh-bot']).subArgs).toEqual([])
+})
+
 test('login flags: --key dan --logout', () => {
   expect(parseCliArgs(['login', 'openrouter', '--key'])).toMatchObject({
     command: 'login',

@@ -109,6 +109,7 @@ Usage:
   bccli acp                     run as an ACP agent for editors (Zed, ...)
   bccli serve [--port N]        serve sessions over HTTP+WS for IDEs/bots
   bccli plugins               list, install, remove, or update plugins
+  bccli gh-bot [serve]         GitHub comment bot (off-by-default; needs config)
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>|serve [--base-url <url>]    manage MCP servers, or serve this account's tools over stdio
   bccli integrations             show the status of external agent integrations
@@ -138,6 +139,7 @@ Pemakaian:
   bccli acp                     jalankan sebagai agen ACP untuk editor (Zed, ...)
   bccli serve [--port N]        sajikan sesi lewat HTTP+WS untuk IDE/bot
   bccli plugins               daftar, install, remove, atau perbarui plugin
+  bccli gh-bot [serve]         bot komentar GitHub (nonaktif default; butuh config)
   bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <nama>|remove <nama>|auth <nama>|logout <nama>|serve [--base-url <url>]    kelola server MCP, atau layani tools akun ini lewat stdio
   bccli integrations             lihat status integrasi agent eksternal
@@ -186,6 +188,13 @@ Opsi:
   'No image on the clipboard.': 'Tidak ada gambar di clipboard.',
   'githubBot secret env {env} is empty — set it before enabling the bot.':
     'secret env githubBot {env} kosong — setel sebelum mengaktifkan bot.',
+  'githubBot.{name} must be an array of strings.': 'githubBot.{name} harus berupa array of string.',
+  'githubBot.{name} must be a positive integer.': 'githubBot.{name} harus bilangan bulat positif.',
+  'githubBot.enabled must be a boolean.': 'githubBot.enabled harus boolean.',
+  'githubBot.path must be an absolute path like /github.': 'githubBot.path harus path absolut seperti /github.',
+  'githubBot.secretEnv must be a non-empty string.': 'githubBot.secretEnv harus string tidak kosong.',
+  'Ignored empty command in delivery {id}.': 'Mengabaikan perintah kosong di delivery {id}.',
+  'Unknown action: {action}. Use serve.': 'Aksi tidak dikenal: {action}. Gunakan serve.',
   'Unknown action: {action}. Use list, install <spec>, remove <name>, or update [name].':
     'Aksi tidak dikenal: {action}. Gunakan list, install <spec>, remove <nama>, atau update [nama].',
   'Cannot read the plugin config while running {action}: {reason} at {path} — no changes were made; fix the config, then retry.':
