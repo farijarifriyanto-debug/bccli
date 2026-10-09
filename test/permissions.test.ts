@@ -112,3 +112,36 @@ test('list shows config and session rules; revoke only removes session ones', ()
   p.revoke('bash(git status)')
   expect(p.list()).toEqual([{ rule: 'bash(npm test)', source: 'config' }])
 })
+
+test('opt-in P1 policy asks human approval even in allowAll for destructive operations and secrets', () => {
+  const previous = process.env.BC_TOOL_POLICY_ENFORCE
+  process.env.BC_TOOL_POLICY_ENFORCE = 'true'
+  try {
+    const p = new Permissions('allowAll', ['bash', 'mcp', 'read'], '/work/app')
+    const destructive = bash('rm -rf /work/app/data')
+    const privateFile = { tool:'read', kind:'read' as const, target:'/work/app/.env.production' }
+    const keyFile = { tool:'read', kind:'read' as const, target:'/home/u/.ssh/id_ed25519' }
+    const mcpDelete = { tool:'mcp__github__delete_repo', kind:'mcp' as const, target:'{}' }
+    expect(p.check(destructive)).toBe('ask')
+    expect(p.check(privateFile)).toBe('ask')
+    expect(p.check(keyFile)).toBe('ask')
+    expect(p.check(mcpDelete)).toBe('ask')
+    expect(p.rulesFor(destructive)).toBeUndefined()
+    p.allowForSession(destructive)
+    expect(p.check(destructive)).toBe('ask')
+    expect(p.check(bash('npm test'))).toBe('allow')
+  } finally {
+    if (previous === undefined) delete process.env.BC_TOOL_POLICY_ENFORCE
+    else process.env.BC_TOOL_POLICY_ENFORCE = previous
+  }
+})
+
+test('sensitive approval policy is default OFF to preserve existing CLI behavior', () => {
+  const previous = process.env.BC_TOOL_POLICY_ENFORCE
+  delete process.env.BC_TOOL_POLICY_ENFORCE
+  try {
+    expect(new Permissions('allowAll').check(bash('rm -rf dist'))).toBe('allow')
+  } finally {
+    if (previous !== undefined) process.env.BC_TOOL_POLICY_ENFORCE = previous
+  }
+})

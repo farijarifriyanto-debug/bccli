@@ -23,6 +23,24 @@ function commandKey(segment: string): string {
   return TWO_WORD.has(words[0]) && words[1] ? `${words[0]} ${words[1]}` : words[0]
 }
 
+// P1 opt-in execution gate: model output and configured blanket grants do
+// not substitute for human approval for destructive/exfiltrating operations.
+export function requiresSensitiveToolApproval(req: PermissionRequest): boolean {
+  const target = req.target.trim()
+  if (req.kind === 'read' || req.kind === 'edit') {
+    return /(?:^|[/\\])(?:\.env(?:\..*)?|\.ssh|\.aws|\.config\/gcloud|secrets?|credentials?)(?:[/\\]|$)/i.test(target)
+      || /(?:id_rsa|id_ed25519|\.pem|\.p12|\.key)$/i.test(target)
+  }
+  if (req.kind === 'bash') {
+    return /\b(?:rm\s+-[a-z]*r[a-z]*f[a-z]*\s|rm\s+-[a-z]*f[a-z]*r[a-z]*\s|mkfs(?:\.|\s)|wipefs\b|shred\s|git\s+push\s+(?:--force|-f)\b|docker\s+(?:system\s+prune|volume\s+rm)|kubectl\s+delete\b|drop\s+(?:database|table)|npm\s+publish\b)/i.test(target)
+      || /\b(?:deploy-service\.sh|aws\s+secretsmanager|cat\s+[^;&|]*\.env\b)/i.test(target)
+  }
+  if (req.kind === 'mcp') {
+    return /(?:delete|remove|revoke|transfer|send_email|publish|deploy|execute_command|run_command|read_secret)/i.test(req.tool)
+  }
+  return false
+}
+
 export class Permissions {
   private readonly rules: Set<string>
   private readonly configRules: Set<string>
@@ -45,6 +63,7 @@ export class Permissions {
 
   /** Rules that "[a] allow for this session" would add; undefined when it must always be asked. */
   rulesFor(req: PermissionRequest): string[] | undefined {
+    if (process.env.BC_TOOL_POLICY_ENFORCE === 'true' && requiresSensitiveToolApproval(req)) return undefined
     if (req.kind === 'edit') return this.editInProject(req.target) ? ['edit(project)'] : undefined
     if (req.kind === 'fetch') {
       try {
@@ -68,6 +87,8 @@ export class Permissions {
   }
 
   check(req: PermissionRequest): Decision {
+    if (this.mode === 'plan' && req.kind !== 'read') return 'deny'
+    if (process.env.BC_TOOL_POLICY_ENFORCE === 'true' && requiresSensitiveToolApproval(req)) return 'ask'
     if (req.kind === 'read') return 'allow'
     if (this.mode === 'allowAll') return 'allow'
     if (this.mode === 'plan') return 'deny'
