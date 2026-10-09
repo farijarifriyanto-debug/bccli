@@ -1,5 +1,5 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { darwinProfile, sandboxArgv, sandboxSupported } from '../src/tools/sandbox'
@@ -73,12 +73,20 @@ describe('sandbox', () => {
     expect(r.output.toLowerCase()).toContain('sandbox')
   })
 
-  it('the bash tool wraps commands when the platform supports it', async () => {
-    const tool = createBashTool({ sandbox: true, platform: 'linux' })
-    // bwrap does not exist on this machine; the tool must at least TRY the wrapped argv,
-    // which fails to spawn -> exit/error output, not a shell run of the raw command.
-    const r = await tool.run({ command: 'echo RAW_RUN' }, ctx())
-    expect(r.output).not.toContain('RAW_RUN')
+  it('the bash tool cannot write outside the sandbox even when bwrap is installed', async () => {
+    if (process.platform !== 'linux') return
+    const probe = mkdtempSync(join(homedir(), '.bccli-sandbox-test-'))
+    const marker = join(probe, 'unsafe-write')
+    try {
+      const tool = createBashTool({ sandbox: true, platform: 'linux' })
+      const r = await tool.run({ command: `printf UNWRAPPED > ${JSON.stringify(marker)}` }, ctx())
+      // A sandboxed command is either blocked by bwrap startup or denied a write to HOME.
+      // An unsafe raw-shell fallback would create the marker and fail this test.
+      expect(existsSync(marker)).toBe(false)
+      expect(r.isError).toBe(true)
+    } finally {
+      rmSync(probe, { recursive: true, force: true })
+    }
   })
 
   it('config: sandbox must be "off" or "on", default off', () => {
