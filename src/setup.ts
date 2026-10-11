@@ -210,6 +210,7 @@ export function createRuntime(opts: {
     budgetModel: modelRef,
     contextWindow: contextWindowFor(modelRef, env),
     onMessage: (m) => session.append(m),
+    onUsage: (u) => session.appendUsage({ ...u, model: modelRef }),
     onReset: () => session.reset(),
     onTurnStart: () => {
       for (let i = turnMarks.length - 1; i >= 0 && turnMarks[i] > agent.messages.length; i--) {

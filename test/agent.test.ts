@@ -1,12 +1,12 @@
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { ResponseOutputItem } from 'openai/resources/responses/responses'
 import { expect, test } from 'vitest'
 import { z } from 'zod'
-import type { ResponseOutputItem } from 'openai/resources/responses/responses'
 import { Agent, type AgentEvent } from '../src/agent'
 import { Permissions } from '../src/permissions'
-import { type ChatRequest, type Completion, type Provider, ProviderError } from '../src/provider'
+import { type ChatMessage, type ChatRequest, type Completion, type Provider, ProviderError } from '../src/provider'
 import { ALL_TOOLS } from '../src/tools/index'
 
 function scripted(steps: Completion[]): Provider & { requests: ChatRequest[] } {
@@ -432,9 +432,10 @@ test('compaction trims history that would overflow even the summary request, at 
   for (const m of withoutSystemAndPrompt) {
     if (m.role === 'tool') expect(answered.has((m as { tool_call_id: string }).tool_call_id)).toBe(true)
   }
-  // Oldest turns were dropped, recent ones kept.
+  // Oldest turns were dropped from the summary request; the newest turn is kept beside the
+  // summary (not re-sent inside the summary request).
   expect(withoutSystemAndPrompt.some((m) => m.role === 'user' && String(m.content).startsWith('tugas 0'))).toBe(false)
-  expect(withoutSystemAndPrompt.some((m) => m.role === 'user' && String(m.content).startsWith('tugas 4'))).toBe(true)
+  expect(agent.messages.some((m) => m.role === 'user' && String(m.content).startsWith('tugas 4'))).toBe(true)
 })
 
 test('a tool that throws outside run() still gets an answer; the turn survives', async () => {
@@ -559,4 +560,87 @@ test('usageCap.usd blocks using prices matched against the model ref', async () 
   await agent.run('dua', new AbortController().signal)
   expect(provider.requests.length).toBe(1)
   expect(events.find((e) => e.type === 'budgetExceeded')).toEqual({ type: 'budgetExceeded', kind: 'usd', used: 1.6, limit: 1 })
+})
+
+test('onUsage receives per-turn deltas so the session can persist them', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-'))
+  const provider = scripted([
+    { ...reply('one'), usage: { inputTokens: 900, outputTokens: 10 } },
+    { ...reply('two'), usage: { inputTokens: 500, outputTokens: 30, cachedInputTokens: 400, cacheWriteTokens: 50 } },
+  ])
+  const deltas: Array<{ inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheWriteTokens?: number }> = []
+  const agent = new Agent({
+    provider, tools: ALL_TOOLS, permissions: new Permissions('default', [], cwd), systemPrompt: 'SYS', cwd,
+    onUsage: (u) => deltas.push(u),
+  })
+  await agent.run('satu', new AbortController().signal)
+  await agent.run('dua', new AbortController().signal)
+  expect(deltas).toEqual([
+    { inputTokens: 900, outputTokens: 10 },
+    { inputTokens: 500, outputTokens: 30, cachedInputTokens: 400, cacheWriteTokens: 50 },
+  ])
+  expect(agent.totalUsage.inputTokens).toBe(1400)
+})
+
+
+test('compaction keeps recent turns beside the summary', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-keep-'))
+  const provider = scripted([reply('RINGKASAN'), reply('done')])
+  const agent = new Agent({
+    provider,
+    tools: ALL_TOOLS,
+    permissions: new Permissions('default', [], cwd),
+    systemPrompt: 'SYS',
+    cwd,
+    contextWindow: 1000,
+  })
+  agent.load([
+    { role: 'user', content: 't0 ' + 'a'.repeat(800) },
+    { role: 'assistant', content: 'r0' },
+    { role: 'user', content: 't1 ' + 'b'.repeat(800) },
+    { role: 'assistant', content: 'r1' },
+    { role: 'user', content: 't2 TERBARU' },
+    { role: 'assistant', content: 'r2' },
+  ])
+  ;(agent as unknown as { lastInputTokens: number }).lastInputTokens = 900
+  await agent.run('lanjut', new AbortController().signal)
+  // Summary replaces the old turns…
+  expect(agent.messages.some((m) => m.role === 'user' && String(m.content).includes('Summary of the previous conversation'))).toBe(true)
+  expect(agent.messages.some((m) => m.role === 'user' && String(m.content).startsWith('t0 '))).toBe(false)
+  // …but the newest turn is kept verbatim beside it.
+  expect(agent.messages.some((m) => m.role === 'user' && m.content === 't2 TERBARU')).toBe(true)
+  expect(agent.messages.some((m) => m.role === 'assistant' && m.content === 'r2')).toBe(true)
+})
+
+test('compaction stubs old tool outputs in the summary request but keeps recent ones', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-prune-'))
+  const provider = scripted([reply('RINGKASAN'), reply('done')])
+  const agent = new Agent({
+    provider,
+    tools: ALL_TOOLS,
+    permissions: new Permissions('default', [], cwd),
+    systemPrompt: 'SYS',
+    cwd,
+    contextWindow: 200_000,
+  })
+  const big = (id: string, content: string): ChatMessage[] => [
+    { role: 'user', content: 'go ' + id },
+    { role: 'assistant', content: null, tool_calls: [{ id, type: 'function' as const, function: { name: 'read', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: id, content },
+    { role: 'assistant', content: 'ok ' + id },
+  ]
+  agent.load([
+    ...big('c0', 'a'.repeat(200_000)),
+    ...big('c1', 'b'.repeat(200_000)),
+    ...big('c2', 'c'.repeat(60_000)),
+  ])
+  ;(agent as unknown as { lastInputTokens: number }).lastInputTokens = 180_000
+  await agent.run('lanjut', new AbortController().signal)
+  const compactReq = provider.requests[0].messages
+  const toolMsgs = compactReq.filter((m) => m.role === 'tool') as Array<{ content: string }>
+  // Old huge tool outputs are stubs in the summary request…
+  expect(toolMsgs.some((m) => m.content.startsWith('a'.repeat(200)))).toBe(false)
+  expect(toolMsgs.some((m) => /Old tool result content cleared/.test(m.content))).toBe(true)
+  // …and the recent turn's tool output is kept verbatim beside the summary (not only in the summary request).
+  expect(agent.messages.some((m) => m.role === 'tool' && m.tool_call_id === 'c2' && m.content.startsWith('c'.repeat(60_000)))).toBe(true)
 })

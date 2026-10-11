@@ -41,6 +41,12 @@ export interface CliArgs {
   baseUrl?: string
   /** `bccli stats` — only count sessions from the last N days (default 7). */
   days?: number
+  /** `bccli stats` - cap the tool-usage list to the top N tools. */
+  tools?: number
+  /** `bccli stats [--models [N|all]]` - show per-model token usage (top N or all). */
+  models?: string
+  /** `bccli stats --project <slug>` - filter rows; empty string = current project. */
+  project?: string
   /** `bccli pr` — explicit owner/name repo when cwd is not a git checkout of the PR. */
   repo?: string
 }
@@ -60,7 +66,8 @@ Usage:
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>|serve [--base-url <url>]    manage MCP servers, or serve this account's tools over stdio
   bccli completion <shell>     print a shell completion script (bash, zsh, fish, powershell)
-  bccli stats [--days N]       show token usage from local sessions (default: last 7 days)
+  bccli stats [--days N] [--tools N] [--models [N|all]] [--project slug]
+                                     show token usage from local sessions (default: last 7 days)
   bccli export [session] [file]  copy a session JSONL to a file (default: last session here)
   bccli import <file>          import a session JSONL into the current project
   bccli pr <number> [--repo owner/name] [task]   check out a GitHub PR and run a task on it
@@ -86,8 +93,13 @@ Options:
 export const helpText = (): string => t(HELP)
 
 export function parseCliArgs(argv: string[]): CliArgs {
+  // `--models` may appear bare (show all) or with a number; parseArgs string options
+  // require a value, so a bare flag is rewritten to `--models=all` before parsing.
+  const expanded = argv.map((a, i) =>
+    a === '--models' && (i + 1 >= argv.length || argv[i + 1].startsWith('-')) ? '--models=all' : a,
+  )
   const { values, positionals } = parseArgs({
-    args: argv,
+    args: expanded,
     allowPositionals: true,
     options: {
       print: { type: 'boolean', short: 'p' },
@@ -114,6 +126,9 @@ export function parseCliArgs(argv: string[]): CliArgs {
       token: { type: 'string' },
       'base-url': { type: 'string' },
       days: { type: 'string' },
+      tools: { type: 'string' },
+      models: { type: 'string' },
+      project: { type: 'string' },
       repo: { type: 'string' },
     },
   })
@@ -141,6 +156,17 @@ export function parseCliArgs(argv: string[]): CliArgs {
   const days = values.days !== undefined ? Number(values.days) : undefined
   if (days !== undefined && (!Number.isInteger(days) || days < 1)) {
     throw new ConfigError(t('--days must be a positive integer'))
+  }
+  const tools = values.tools !== undefined ? Number(values.tools) : undefined
+  if (tools !== undefined && (!Number.isInteger(tools) || tools < 1)) {
+    throw new ConfigError(t('--tools must be a positive integer'))
+  }
+  let models: string | undefined
+  if (values.models !== undefined) {
+    models = values.models === '' || values.models === 'all' ? 'all' : values.models
+    if (models !== 'all' && (!Number.isInteger(Number(models)) || Number(models) < 1)) {
+      throw new ConfigError(t('--models must be a positive integer or "all"'))
+    }
   }
   if (values.host !== undefined && !LOOPBACK_BIND.has(values.host)) {
     throw new ConfigError(t('serve only accepts loopback --host (127.0.0.1, localhost, ::1)'))
@@ -177,6 +203,9 @@ export function parseCliArgs(argv: string[]): CliArgs {
     token: values.token,
     baseUrl: values['base-url'],
     days,
+    tools,
+    models,
+    project: values.project,
     repo: values.repo,
   }
 }
