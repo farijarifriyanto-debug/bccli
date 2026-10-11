@@ -119,7 +119,7 @@ export function extractCommand(body: string): string | null {
   const trimmed = body.trimStart()
   if (!trimmed.startsWith('/bccli')) return null
   const rest = trimmed.slice('/bccli'.length)
-  if (rest.length > 0 && !/^\s/.test(rest)) return null // '/bcclix' bukan perintah
+  if (rest.length > 0 && !/^\s/.test(rest)) return null // '/bcclix' is not a command
   const task = rest.trim()
   return task === '' ? null : task
 }

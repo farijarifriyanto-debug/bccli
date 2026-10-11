@@ -51,7 +51,7 @@ function resolveEntryPath(entry: string, home: string): string | null {
   if (isAbsolute(entry)) return entry
   if (entry.startsWith('.')) return join(home, entry)
   try {
-    return require_.resolve(entry) // bare spec — gagal → null (tak-terresolve), jangan throw
+    return require_.resolve(entry) // bare spec — fail → null (unresolved), do not throw
   } catch {
     return null
   }

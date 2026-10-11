@@ -82,10 +82,10 @@ function makeRunJob(
             env: o.env,
             provider: o.provider,
             fetch: o.fetch ?? globalThis.fetch, // injectable (review #3)
-            maxSteps: cfg.stepLimit, // knob yang benar-benar dipakai Agent
+            maxSteps: cfg.stepLimit, // the knob the Agent actually uses
           })
           rt.agent.setSystemPrompt(ghSystemPrompt()) // via API agent
-          rt.agent.setTools([]) // MCP TIDAK pernah start — sumber tool nol
+          rt.agent.setTools([]) // MCP never starts — zero tool sources
           const collector = createDraftCollector()
           rt.agent.onEvent = (e) => collector.onEvent(e)
           return {
@@ -105,7 +105,7 @@ function makeRunJob(
       })
       if (!draft.ok) {
         o.err?.(`gh-bot draft failed (${d.repo}#${d.number}): ${draft.reason}`)
-        return { ok: false, reason: draft.reason } // gagal → TANPA post
+        return { ok: false, reason: draft.reason } // failed → NO post
       }
       const post = await postReply(d, draft.text, { gh, signal })
       if (!post.ok) {

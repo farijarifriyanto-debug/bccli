@@ -62,7 +62,7 @@ export function createGhSpawn(cmd = 'gh', o?: CreateGhSpawnOptions): GhDeps['spa
       }
       const noop = (): void => {}
       const onStdinError = (e: NodeJS.ErrnoException): void => {
-        if (e.code !== 'EPIPE') stderr += `\nstdin error: ${e.message}` // EPIPE: child keluar duluan — abaikan
+        if (e.code !== 'EPIPE') stderr += `\nstdin error: ${e.message}` // EPIPE: child exited first — ignore
       }
       const startBoundedTermination = (): void => {
         if (settled || graceTimer) return

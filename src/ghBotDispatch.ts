@@ -192,7 +192,7 @@ export class GhBotHub {
     const summary: CloseSummary = {
       aborted,
       terminationConfirmed: aborted - unconfirmedDuringClose,
-      terminationUnconfirmed: this.unconfirmedTotal, // global — termasuk gagal sebelum close
+      terminationUnconfirmed: this.unconfirmedTotal, // global — includes jobs that failed before close
     }
     if (summary.terminationUnconfirmed > 0) {
       this.deps.err(
