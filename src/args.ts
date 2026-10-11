@@ -6,7 +6,7 @@ import { LOOPBACK_BIND } from './serveProtocol'
 import { type Lang, parseLang, t } from './i18n'
 
 export interface CliArgs {
-  command: 'run' | 'login' | 'models' | 'update' | 'acp' | 'serve' | 'plugins' | 'gh-bot' | 'provider' | 'mcp' | 'connect' | 'disconnect' | 'integrations'
+  command: 'run' | 'login' | 'models' | 'update' | 'acp' | 'serve' | 'plugins' | 'gh-bot' | 'provider' | 'mcp' | 'connect' | 'disconnect' | 'integrations' | 'completion' | 'stats' | 'export' | 'import' | 'pr'
   subArgs: string[]
   url?: string
   name?: string
@@ -39,6 +39,10 @@ export interface CliArgs {
   token?: string
   /** Base URL override for `bccli mcp serve`. */
   baseUrl?: string
+  /** `bccli stats` — only count sessions from the last N days (default 7). */
+  days?: number
+  /** `bccli pr` — explicit owner/name repo when cwd is not a git checkout of the PR. */
+  repo?: string
 }
 
 const HELP = `BCCLI — BotConnector's AI coding agent for the terminal
@@ -55,6 +59,11 @@ Usage:
   bccli gh-bot [serve]         GitHub comment bot (off-by-default; needs config)
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>|serve [--base-url <url>]    manage MCP servers, or serve this account's tools over stdio
+  bccli completion <shell>     print a shell completion script (bash, zsh, fish, powershell)
+  bccli stats [--days N]       show token usage from local sessions (default: last 7 days)
+  bccli export [session] [file]  copy a session JSONL to a file (default: last session here)
+  bccli import <file>          import a session JSONL into the current project
+  bccli pr <number> [--repo owner/name] [task]   check out a GitHub PR and run a task on it
   bccli integrations             show the status of external agent integrations
   bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible, openclaw, hermes
   bccli disconnect <agent>       remove an integration and restore the previous config
@@ -104,6 +113,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
       host: { type: 'string' },
       token: { type: 'string' },
       'base-url': { type: 'string' },
+      days: { type: 'string' },
+      repo: { type: 'string' },
     },
   })
   const reasoning = values.reasoning
@@ -120,12 +131,16 @@ export function parseCliArgs(argv: string[]): CliArgs {
     throw new ConfigError(t('--output-format must be one of: {formats}', { formats: 'text, json, stream-json' }))
   }
   const [first, ...rest] = positionals
-  const SUBCOMMANDS = ['login', 'models', 'update', 'acp', 'serve', 'plugins', 'gh-bot', 'provider', 'mcp', 'connect', 'disconnect', 'integrations']
+  const SUBCOMMANDS = ['login', 'models', 'update', 'acp', 'serve', 'plugins', 'gh-bot', 'provider', 'mcp', 'connect', 'disconnect', 'integrations', 'completion', 'stats', 'export', 'import', 'pr']
   const command = SUBCOMMANDS.includes(first) ? (first as CliArgs['command']) : 'run'
   const words = command === 'run' ? positionals : rest
   const port = values.port !== undefined ? Number(values.port) : undefined
   if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535)) {
     throw new ConfigError(t('--port must be a number between 0 and 65535'))
+  }
+  const days = values.days !== undefined ? Number(values.days) : undefined
+  if (days !== undefined && (!Number.isInteger(days) || days < 1)) {
+    throw new ConfigError(t('--days must be a positive integer'))
   }
   if (values.host !== undefined && !LOOPBACK_BIND.has(values.host)) {
     throw new ConfigError(t('serve only accepts loopback --host (127.0.0.1, localhost, ::1)'))
@@ -152,7 +167,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     loginProvider: command === 'login' ? (rest[0] ?? 'bc-cloud') : undefined,
     key: !!values.key,
     logout: !!values.logout,
-    subArgs: ['models', 'plugins', 'gh-bot', 'provider', 'mcp', 'connect', 'disconnect', 'integrations'].includes(command) ? rest : [],
+    subArgs: ['models', 'plugins', 'gh-bot', 'provider', 'mcp', 'connect', 'disconnect', 'integrations', 'completion', 'stats', 'export', 'import', 'pr'].includes(command) ? rest : [],
     url: values.url,
     name: values.name,
     keyEnv: values['key-env'],
@@ -161,5 +176,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     host: values.host,
     token: values.token,
     baseUrl: values['base-url'],
+    days,
+    repo: values.repo,
   }
 }

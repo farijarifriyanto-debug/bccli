@@ -100,6 +100,26 @@ async function main(): Promise<number> {
     const { runGhBotCommand } = await import('./ghBotCli')
     return runGhBotCommand(args, { env: process.env, cwd, out: (s) => console.log(s), err: (s) => console.error(s) })
   }
+  if (args.command === 'completion') {
+    const { runCompletionCommand } = await import('./completion')
+    return runCompletionCommand(args, { out: (s) => console.log(s), err: (s) => console.error(s) })
+  }
+  if (args.command === 'stats') {
+    const { runStatsCommand } = await import('./statsCli')
+    const { bccliHome } = await import('./config')
+    return runStatsCommand({ subArgs: args.subArgs, home: bccliHome(process.env) }, { out: (s) => console.log(s), err: (s) => console.error(s) })
+  }
+  if (args.command === 'export' || args.command === 'import') {
+    const { runExportCommand, runImportCommand } = await import('./transferCli')
+    const { bccliHome } = await import('./config')
+    const deps = { subArgs: args.subArgs, home: bccliHome(process.env), cwd }
+    const io = { out: (s: string) => console.log(s), err: (s: string) => console.error(s) }
+    return args.command === 'export' ? runExportCommand(deps, io) : runImportCommand(deps, io)
+  }
+  if (args.command === 'pr') {
+    const { runPrCommand } = await import('./prCli')
+    return runPrCommand({ subArgs: args.subArgs, cwd }, { out: (s) => console.log(s), err: (s) => console.error(s) })
+  }
   const rt = createRuntime({ cwd, args })
   setTheme(rt.config.theme)
   try {
