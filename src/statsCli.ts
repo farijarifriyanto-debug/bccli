@@ -96,6 +96,8 @@ export interface StatsCliArgs {
   subArgs: string[]
   home: string
   now?: number
+  /** Already-parsed `--days` from parseCliArgs (subArgs never contains it). */
+  days?: number
 }
 
 export interface StatsDeps {
@@ -107,7 +109,7 @@ export interface StatsDeps {
  * `bccli stats [--days N]` — token usage estimated from local session files.
  */
 export function runStatsCommand(args: StatsCliArgs, deps: StatsDeps): number {
-  let days = 7
+  let days = args.days ?? 7
   const rest = args.subArgs
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === '--days') {
