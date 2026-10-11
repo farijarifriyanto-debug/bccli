@@ -1,5 +1,6 @@
 import { helpText, parseCliArgs } from './args'
 import { ConfigError } from './config'
+import { settleExit } from './exit'
 import { defaultLoginDeps, runLogin } from './login'
 import { runPrint } from './print'
 import { readGlobalConfigFile } from './providers'
@@ -156,9 +157,9 @@ async function main(): Promise<number> {
 }
 
 main().then(
-  (code) => process.exit(code),
+  (code) => settleExit(code),
   (error) => {
     console.error(error instanceof ConfigError || error?.code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION' ? error.message : error)
-    process.exit(1)
+    settleExit(1)
   },
 )
