@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { delimiter, dirname, join } from 'node:path'
+import { delimiter, posix, win32 } from 'node:path'
 
 /**
  * Synchronous npm runner. On Windows it NEVER goes through cmd.exe: npm's own
@@ -25,14 +25,16 @@ export interface RunNpmOptions {
 }
 
 function findNpmCli(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, exists: (p: string) => boolean, execPath: string): string | null {
-  const sibling = join(dirname(execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')
+  // Use win32 path semantics when platform is win32, even on POSIX hosts (tests).
+  const path = platform === 'win32' ? win32 : posix
+  const sibling = path.join(path.dirname(execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')
   if (exists(sibling)) return sibling
   const sep = platform === 'win32' ? ';' : delimiter
   for (const dir of (env.PATH ?? '').split(sep)) {
     if (!dir) continue
-    const shim = join(dir, platform === 'win32' ? 'npm.cmd' : 'npm')
+    const shim = path.join(dir, platform === 'win32' ? 'npm.cmd' : 'npm')
     if (!exists(shim)) continue
-    const cli = join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js')
+    const cli = path.join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js')
     if (exists(cli)) return cli
   }
   return null
