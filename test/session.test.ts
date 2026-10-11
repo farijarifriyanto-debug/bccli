@@ -1,4 +1,4 @@
-import { appendFileSync, mkdtempSync, utimesSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
@@ -151,4 +151,27 @@ test('pruneSessions removes files older than 30 days', () => {
   utimesSync(s.file, old, old)
   expect(pruneSessions(h)).toBe(1)
   expect(Session.latest(h, '/p')).toBeUndefined()
+})
+
+test('appendUsage writes a usage record that load ignores', () => {
+  const h = home()
+  const s = Session.create(h, '/w')
+  s.append({ role: 'user', content: 'hi' })
+  s.appendUsage({ inputTokens: 100, outputTokens: 20, cachedInputTokens: 80, cacheWriteTokens: 5 })
+  s.append({ role: 'assistant', content: 'yo' })
+  const raw = readFileSync(s.file, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>)
+  expect(raw[1]).toMatchObject({ t: 'usage', inputTokens: 100, outputTokens: 20, cachedInputTokens: 80, cacheWriteTokens: 5 })
+  expect(s.load()).toEqual([
+    { role: 'user', content: 'hi' },
+    { role: 'assistant', content: 'yo' },
+  ])
+})
+
+test('appendUsage persists the model ref for stats --models', () => {
+  const home = mkdtempSync(join(tmpdir(), 'bccli-session-'))
+  const session = Session.create(home, '/tmp/proj')
+  session.appendUsage({ inputTokens: 10, outputTokens: 2, model: 'bc-cloud/flash' })
+  const lines = readFileSync(session.file, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+  expect(lines[0]).toEqual({ t: 'usage', inputTokens: 10, outputTokens: 2, model: 'bc-cloud/flash' })
+  expect(session.load()).toEqual([])
 })

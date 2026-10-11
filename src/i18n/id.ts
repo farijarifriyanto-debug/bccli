@@ -113,7 +113,8 @@ Usage:
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>|serve [--base-url <url>]    manage MCP servers, or serve this account's tools over stdio
   bccli completion <shell>     print a shell completion script (bash, zsh, fish, powershell)
-  bccli stats [--days N]       show token usage from local sessions (default: last 7 days)
+  bccli stats [--days N] [--tools N] [--models [N|all]] [--project slug]
+                                     show token usage from local sessions (default: last 7 days)
   bccli export [session] [file]  copy a session JSONL to a file (default: last session here)
   bccli import <file>          import a session JSONL into the current project
   bccli pr <number> [--repo owner/name] [task]   check out a GitHub PR and run a task on it
@@ -482,11 +483,12 @@ Opsi:
   'Blocked: {host} resolves to a private address ({addr}). Fetching an internal host through a public DNS name is not allowed.': 'Diblokir: {host} mengarah ke alamat privat ({addr}). Mengambil host internal lewat nama DNS publik tidak diizinkan.',
   'usage: bccli completion <{shells}>': 'pakai: bccli completion <{shells}>',
   '--days must be a positive integer': '--days harus bilangan bulat positif',
+  '--tools must be a positive integer': '--tools harus bilangan bulat positif',
+  '--models must be a positive integer or "all"': '--models harus bilangan bulat positif atau "all"',
   'no sessions in the last {days} day(s)': 'tidak ada sesi dalam {days} hari terakhir',
   'sessions (last {days} day(s)):': 'sesi ({days} hari terakhir):',
   'session(s)': 'sesi',
   'message(s)': 'pesan',
-  'recorded': 'tercatat',
   'no session to export in this folder': 'tidak ada sesi untuk diekspor di folder ini',
   'exported {file}': 'diekspor ke {file}',
   'file not found: {file}': 'file tidak ditemukan: {file}',

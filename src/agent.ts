@@ -9,7 +9,7 @@ import { pruneOldFetches, WebBudget } from './webBudget'
 import { ABORTED, raceAbort } from './abort'
 import { t } from './i18n'
 import { budgetStatus, type UsageCap } from './budget'
-import { estimateMessages, estimateTokens, trimToFit } from './tokenBudget'
+import { estimateMessages, estimateTokens, pruneOldToolOutputs, splitKeepRecent, trimToFit } from './tokenBudget'
 
 export type AgentEvent =
   | { type: 'text'; delta: string }
@@ -47,6 +47,8 @@ export interface AgentOptions {
   contextWindow?: number
   onMessage?: (message: ChatMessage) => void
   onReset?: () => void
+  /** Per-turn token usage delta (provider-reported or estimated); the session persists it for stats. */
+  onUsage?: (usage: Usage) => void
   /** Marks the start of a user turn (undo boundary). */
   onTurnStart?: () => void
   checkpoint?: (absPath: string) => Promise<void>
@@ -162,9 +164,15 @@ export class Agent {
   }
 
   async compact(signal: AbortSignal): Promise<void> {
+    // Stub old tool outputs so both the summary request and the kept tail stay lean.
+    pruneOldToolOutputs(this.messages)
+    // Keep the newest turns (~15k tokens, capped at 10% of the window) beside the summary;
+    // summarize only the older part so the model retains fresh detail.
+    const keepTokens = Math.min(15_000, Math.floor(this.contextWindow * 0.1))
+    const [older, keep] = splitKeepRecent(this.messages, keepTokens)
     // Even the summary request must fit the window: drop whole oldest turns first when the
     // history itself is too big to send, then summarize what remains.
-    const history = trimToFit(this.messages, Math.floor(this.contextWindow * 0.8))
+    const history = trimToFit(older, Math.floor(this.contextWindow * 0.8))
     const completion = await this.provider.chat({
       messages: [{ role: 'system', content: this.systemPrompt }, ...history, { role: 'user', content: COMPACT_PROMPT }],
       // Some gateways reject tool_calls in history when no tools are declared.
@@ -175,6 +183,8 @@ export class Agent {
     this.clear()
     this.push({ role: 'user', content: `Summary of the previous conversation:\n${completion.text}` })
     this.push({ role: 'assistant', content: 'OK, I will continue from this summary.' })
+    // Re-attach the recent turns so the model still sees fresh context beside the summary.
+    for (const m of keep) this.push(m)
     this.onEvent({ type: 'compacted' })
   }
 
@@ -243,6 +253,7 @@ export class Agent {
         this.totalUsage.cacheWriteTokens = (this.totalUsage.cacheWriteTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
         this.lastInputTokens = usage.inputTokens
         this.onEvent({ type: 'usage', ...this.totalUsage })
+        this.opts.onUsage?.(usage)
         this.push(completionAssistantMessage(completion))
         if (completion.finishReason === 'repetition') {
           this.onEvent({ type: 'textReplace', text: completion.text })
@@ -397,6 +408,7 @@ export class Agent {
         this.totalUsage.cachedInputTokens = (this.totalUsage.cachedInputTokens ?? 0) + (u.cachedInputTokens ?? 0)
         this.totalUsage.cacheWriteTokens = (this.totalUsage.cacheWriteTokens ?? 0) + (u.cacheWriteTokens ?? 0)
         this.onEvent({ type: 'usage', ...this.totalUsage })
+        this.opts.onUsage?.(u)
       },
     }
     emit({ type: 'toolStart', id: call.id, tool: tool.name, target })

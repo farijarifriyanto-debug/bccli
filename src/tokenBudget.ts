@@ -19,3 +19,59 @@ export function trimToFit(messages: ChatMessage[], maxTokens: number): ChatMessa
   }
   return out
 }
+
+/**
+ * Splits history into [old, keep]: the newest whole turns that fit `keepTokens` (at least the
+ * last user turn) stay verbatim; everything older goes to `old` for summarization. Cutting at
+ * user boundaries keeps tool_calls paired with their replies.
+ */
+export function splitKeepRecent(messages: ChatMessage[], keepTokens: number): [ChatMessage[], ChatMessage[]] {
+  if (messages.length === 0) return [[], []]
+  let start = messages.length
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (i > 0 && messages[i].role !== 'user') continue
+    if (estimateMessages(messages.slice(i)) <= keepTokens) start = i
+    else break
+  }
+  // Even the last turn alone is over budget: still keep it so the model sees fresh detail.
+  if (start === messages.length) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        start = i
+        break
+      }
+    }
+  }
+  return [messages.slice(0, start), messages.slice(start)]
+}
+
+const TOOL_STUB = '[Old tool result content cleared]'
+const TOOL_PRUNE_KEEP_TOKENS = 40_000
+const TOOL_PRUNE_MIN_TOKENS = 20_000
+
+export const isToolStub = (content: string): boolean => content.startsWith(TOOL_STUB)
+
+/**
+ * Replaces old tool results with a one-line stub once they add up past PRUNE_MIN_TOKENS, so the
+ * prompt prefix (and its cache) changes rarely. The newest KEEP_TOKENS worth stay intact.
+ */
+export function pruneOldToolOutputs(messages: ChatMessage[]): boolean {
+  let kept = 0
+  let oldTokens = 0
+  const old: number[] = []
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m.role !== 'tool' || isToolStub(m.content)) continue
+    kept += estimateTokens(m.content)
+    if (kept > TOOL_PRUNE_KEEP_TOKENS) {
+      old.push(i)
+      oldTokens += estimateTokens(m.content)
+    }
+  }
+  if (oldTokens <= TOOL_PRUNE_MIN_TOKENS) return false
+  for (const i of old) {
+    const m = messages[i] as Extract<ChatMessage, { role: 'tool' }>
+    messages[i] = { ...m, content: TOOL_STUB }
+  }
+  return true
+}

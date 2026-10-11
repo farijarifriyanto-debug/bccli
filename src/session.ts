@@ -1,9 +1,12 @@
 import { randomBytes } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { contentText, type ChatMessage } from './provider'
+import { contentText, type ChatMessage, type Usage } from './provider'
 
-type SessionRecord = { t: 'msg'; m: ChatMessage } | { t: 'reset' }
+type SessionRecord =
+  | { t: 'msg'; m: ChatMessage }
+  | { t: 'reset' }
+  | { t: 'usage'; inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheWriteTokens?: number; model?: string }
 
 function projectDir(home: string, cwd: string): string {
   const slug =
@@ -59,6 +62,10 @@ export class Session {
 
   append(message: ChatMessage): void {
     this.write({ t: 'msg', m: message })
+  }
+
+  appendUsage(usage: Usage & { model?: string }): void {
+    this.write({ t: 'usage', ...usage })
   }
 
   reset(): void {

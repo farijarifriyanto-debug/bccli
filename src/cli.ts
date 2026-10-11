@@ -108,7 +108,10 @@ async function main(): Promise<number> {
   if (args.command === 'stats') {
     const { runStatsCommand } = await import('./statsCli')
     const { bccliHome } = await import('./config')
-    return runStatsCommand({ subArgs: args.subArgs, home: bccliHome(process.env), days: args.days }, { out: (s) => console.log(s), err: (s) => console.error(s) })
+    return runStatsCommand(
+      { subArgs: args.subArgs, home: bccliHome(process.env), cwd, days: args.days, tools: args.tools, models: args.models, project: args.project },
+      { out: (s) => console.log(s), err: (s) => console.error(s) },
+    )
   }
   if (args.command === 'export' || args.command === 'import') {
     const { runExportCommand, runImportCommand } = await import('./transferCli')
