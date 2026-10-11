@@ -109,8 +109,10 @@ function startBackground(command: string | string[], cwd: string, env?: NodeJS.P
 }
 
 function backgroundStatus(task: BackgroundTask): string {
-  if (task.status === 'running') return `[running ${Math.round((Date.now() - task.startedAt) / 1000)}s]`
+  // A kill request is reported at once: the 'close' event can lag behind (on Windows the
+  // grandchild may still hold the stdio pipes after the shell is taken down).
   if (task.killed) return '[killed]'
+  if (task.status === 'running') return `[running ${Math.round((Date.now() - task.startedAt) / 1000)}s]`
   return `[exit code ${task.exitCode}]`
 }
 
