@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { t } from './i18n'
+import { defaultShell } from './tools/shell'
 
 export type HookEvent = 'PreToolUse' | 'PostToolUse' | 'SessionStart' | 'Stop'
 
@@ -63,8 +64,18 @@ function runOne(
       resolve(result)
     }
     let child: ReturnType<typeof spawn>
+    const shell = defaultShell()
     try {
-      child = spawn(command, { shell: true, env, cwd: opts.cwd ?? process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] })
+      if (shell) {
+        child = spawn(shell.file, shell.args(command), {
+          shell: false,
+          env,
+          cwd: opts.cwd ?? process.cwd(),
+          stdio: ['ignore', 'pipe', 'pipe'],
+        })
+      } else {
+        child = spawn(command, { shell: true, env, cwd: opts.cwd ?? process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] })
+      }
     } catch (error) {
       resolve({ failure: (error as Error).message })
       return
