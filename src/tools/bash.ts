@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { z } from 'zod'
 import { sandboxArgv } from './sandbox'
+import { type ShellDeps, type ShellSpec, defaultShell, resolveShell } from './shell'
 import { defineTool } from './types'
 
 const HALF = 15_000
@@ -56,8 +58,8 @@ interface BackgroundTask {
 const backgrounds = new Map<number, BackgroundTask>()
 let nextBackgroundId = 1
 
-function startBackground(command: string | string[], cwd: string, env?: NodeJS.ProcessEnv): BackgroundTask {
-  const child = spawnChild(command, cwd, env)
+function startBackground(command: string | string[], cwd: string, env?: NodeJS.ProcessEnv, shell?: ShellSpec): BackgroundTask {
+  const child = spawnChild(command, cwd, env, shell)
   const task: BackgroundTask = {
     id: nextBackgroundId++,
     command: Array.isArray(command) ? command.join(' ') : command,
@@ -143,11 +145,18 @@ export interface CommandResult {
   aborted: boolean
 }
 
-/** One place that spawns: a string goes through the shell, an argv array runs directly (sandbox wrappers). */
-function spawnChild(command: string | string[], cwd: string, env?: NodeJS.ProcessEnv) {
-  return Array.isArray(command)
-    ? spawn(command[0], command.slice(1), { cwd, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] as const, env })
-    : spawn(command, { cwd, shell: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] as const, env })
+/**
+ * One place that spawns: a string runs through the shell (Git Bash / PowerShell on Windows,
+ * sh elsewhere), an argv array runs directly (sandbox wrappers).
+ */
+function spawnChild(command: string | string[], cwd: string, env?: NodeJS.ProcessEnv, shell?: ShellSpec) {
+  if (Array.isArray(command)) {
+    return spawn(command[0], command.slice(1), { cwd, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] as const, env })
+  }
+  if (shell) {
+    return spawn(shell.file, shell.args(command), { cwd, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] as const, env })
+  }
+  return spawn(command, { cwd, shell: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] as const, env })
 }
 
 /** Best-effort detection of commands that reach the internet (networkPolicy "offline"). */
@@ -189,10 +198,10 @@ export function offlineEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Process
 
 export function runCommand(
   command: string | string[],
-  opts: { cwd: string; timeoutMs: number; signal: AbortSignal; env?: NodeJS.ProcessEnv },
+  opts: { cwd: string; timeoutMs: number; signal: AbortSignal; env?: NodeJS.ProcessEnv; shell?: ShellSpec },
 ): Promise<CommandResult> {
   return new Promise((resolve) => {
-    const child = spawnChild(command, opts.cwd, opts.env)
+    const child = spawnChild(command, opts.cwd, opts.env, opts.shell ?? defaultShell())
     if (!exitHookInstalled) {
       process.on('exit', killAllCommands)
       exitHookInstalled = true
@@ -276,14 +285,24 @@ export interface BashToolOptions {
   sandbox?: boolean
   /** Test hook: pretend to be another platform. */
   platform?: NodeJS.Platform
+  /** Test hook: fake environment / file lookup used to pick the Windows shell. */
+  shellDeps?: Partial<ShellDeps>
+}
+
+const SHELL_NOTE: Record<ShellSpec['name'], string> = {
+  bash: 'Shell: Git Bash. Unix tools such as tail, grep, ls, sed and head are available.',
+  powershell:
+    'Shell: Windows PowerShell 5.1. Unix tools such as tail, grep, ls, sed and head are NOT installed; use PowerShell equivalents (Select-Object -Last 40, Select-String, Get-ChildItem, Get-Content).',
 }
 
 export function createBashTool(options: BashToolOptions = {}) {
   const offline = options.networkPolicy === 'offline'
   const sandbox = options.sandbox === true
   const platform = options.platform ?? process.platform
+  const shell = resolveShell({ platform, env: process.env, exists: existsSync, ...options.shellDeps })
   const childEnv = offline ? offlineEnv() : undefined
-  const description = `${offline ? `${BASH_DESCRIPTION}\nNetwork access is off (networkPolicy "offline"): internet commands such as curl, wget, git fetch/push/clone, package installs (npm, pip, ...), gh, and docker pull are blocked.` : BASH_DESCRIPTION}${sandbox ? '\nCommands run inside an OS sandbox: file writes are limited to the working directory and temp areas.' : ''}`
+  const shellNote = shell ? `\n${SHELL_NOTE[shell.name]}` : ''
+  const description = `${offline ? `${BASH_DESCRIPTION}\nNetwork access is off (networkPolicy "offline"): internet commands such as curl, wget, git fetch/push/clone, package installs (npm, pip, ...), gh, and docker pull are blocked.` : BASH_DESCRIPTION}${sandbox ? '\nCommands run inside an OS sandbox: file writes are limited to the working directory and temp areas.' : ''}${shellNote}`
   return defineTool({
     name: 'bash',
     description,
@@ -323,7 +342,7 @@ export function createBashTool(options: BashToolOptions = {}) {
       }
       if (input.background) {
         if (!input.command) return { output: 'The "command" argument is required to start a background task.', isError: true }
-        const task = startBackground(exec, ctx.cwd, childEnv)
+        const task = startBackground(exec, ctx.cwd, childEnv, shell)
         return {
           output: `Background task #${task.id} started: ${input.command}\nPoll it with {task_id: ${task.id}}; stop it with {task_id: ${task.id}, kill: true}.`,
         }
@@ -336,6 +355,7 @@ export function createBashTool(options: BashToolOptions = {}) {
         timeoutMs: input.timeout_ms ?? 120_000,
         signal: ctx.signal,
         env: childEnv,
+        shell,
       })
       const status = r.timedOut
         ? `[stopped: timeout after ${Math.round((input.timeout_ms ?? 120_000) / 1000)} seconds]`
