@@ -112,6 +112,11 @@ Usage:
   bccli gh-bot [serve]         GitHub comment bot (off-by-default; needs config)
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>|serve [--base-url <url>]    manage MCP servers, or serve this account's tools over stdio
+  bccli completion <shell>     print a shell completion script (bash, zsh, fish, powershell)
+  bccli stats [--days N]       show token usage from local sessions (default: last 7 days)
+  bccli export [session] [file]  copy a session JSONL to a file (default: last session here)
+  bccli import <file>          import a session JSONL into the current project
+  bccli pr <number> [--repo owner/name] [task]   check out a GitHub PR and run a task on it
   bccli integrations             show the status of external agent integrations
   bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible, openclaw, hermes
   bccli disconnect <agent>       remove an integration and restore the previous config
@@ -475,4 +480,20 @@ Opsi:
   'timeout after {n} seconds': 'timeout {n} detik',
   'Could not start MCP servers: {error}': 'Tidak bisa menjalankan server MCP: {error}',
   'Blocked: {host} resolves to a private address ({addr}). Fetching an internal host through a public DNS name is not allowed.': 'Diblokir: {host} mengarah ke alamat privat ({addr}). Mengambil host internal lewat nama DNS publik tidak diizinkan.',
+  'usage: bccli completion <{shells}>': 'pakai: bccli completion <{shells}>',
+  '--days must be a positive integer': '--days harus bilangan bulat positif',
+  'no sessions in the last {days} day(s)': 'tidak ada sesi dalam {days} hari terakhir',
+  'sessions (last {days} day(s)):': 'sesi ({days} hari terakhir):',
+  'session(s)': 'sesi',
+  'message(s)': 'pesan',
+  'recorded': 'tercatat',
+  'no session to export in this folder': 'tidak ada sesi untuk diekspor di folder ini',
+  'exported {file}': 'diekspor ke {file}',
+  'file not found: {file}': 'file tidak ditemukan: {file}',
+  'invalid session file (non-JSON line): {file}': 'file sesi tidak valid (baris bukan JSON): {file}',
+  'imported {n} record(s) into {file}': 'impor {n} rekaman ke {file}',
+  'usage: bccli pr <number> [--repo owner/name] [task]': 'pakai: bccli pr <nomor> [--repo owner/name] [tugas]',
+  'gh is not available ({error}); install GitHub CLI first': 'gh tidak tersedia ({error}); pasang GitHub CLI dulu',
+  'gh pr checkout {n} failed (exit {code})': 'gh pr checkout {n} gagal (exit {code})',
+  'checked out PR #{n}': 'checkout PR #{n} selesai',
 }
