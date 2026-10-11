@@ -32,12 +32,11 @@ function defaultGh(argv: string[]): Promise<{ code: number; stdout: string; stde
 }
 
 async function defaultRunTask(opts: { prompt?: string; allowAll: boolean; cwd: string }): Promise<number> {
-  const argv = process.execPath
-    ? [new URL('../cli.js', import.meta.url).pathname, ...(opts.prompt ? ['-p', opts.prompt] : []), '--allow-all']
-    : []
-  // Prefer the bundled dist entry relative to this module.
+  // process.argv[1] is the actual entry being executed (dist/cli.js via the npm
+  // shim); import.meta.url points at a tsup chunk, so ../cli.js would be wrong.
+  const entry = process.argv[1]
+  if (!entry) return 1
   return new Promise((resolve) => {
-    const entry = new URL('../cli.js', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
     const child = spawn(process.execPath, [entry, ...(opts.prompt ? ['-p', opts.prompt] : []), '--allow-all'], {
       shell: false,
       stdio: 'inherit',
@@ -45,7 +44,6 @@ async function defaultRunTask(opts: { prompt?: string; allowAll: boolean; cwd: s
     })
     child.on('error', () => resolve(1))
     child.on('close', (code) => resolve(code ?? 1))
-    void argv
   })
 }
 

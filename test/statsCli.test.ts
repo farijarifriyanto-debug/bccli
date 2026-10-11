@@ -81,6 +81,19 @@ test('runStatsCommand parses --days', () => {
   expect(lines.join('\n')).not.toContain('p')
 })
 
+test('runStatsCommand uses pre-parsed days from args.days (real CLI path)', () => {
+  // parseCliArgs consumes --days, so subArgs never contains it; args.days must win.
+  const home = makeHome()
+  writeSession(home, 'p', 's.jsonl', [msg('user', 'hi')], 3)
+  const stale: string[] = []
+  runStatsCommand({ subArgs: [], home, now: Date.now(), days: 30 }, { out: (l) => stale.push(l) })
+  expect(stale.join('\n')).toContain('p')
+  const fresh: string[] = []
+  runStatsCommand({ subArgs: [], home, now: Date.now(), days: 1 }, { out: (l) => fresh.push(l) })
+  expect(fresh.join('\n')).not.toContain('p')
+  expect(stale.join('\n')).toContain('30')
+})
+
 test('runStatsCommand rejects invalid --days', () => {
   const errs: string[] = []
   const code = runStatsCommand({ subArgs: ['--days', '0'], home: makeHome(), now: Date.now() }, { out: () => {}, err: (l) => errs.push(l) })
