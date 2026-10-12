@@ -173,13 +173,16 @@ export class Agent {
     // Even the summary request must fit the window: drop whole oldest turns first when the
     // history itself is too big to send, then summarize what remains.
     const history = trimToFit(older, Math.floor(this.contextWindow * 0.8))
-    const completion = await this.provider.chat({
+    const pending = this.provider.chat({
       messages: [{ role: 'system', content: this.systemPrompt }, ...history, { role: 'user', content: COMPACT_PROMPT }],
       // Some gateways reject tool_calls in history when no tools are declared.
       tools: this.definitions,
       signal,
       reasoning: this.reasoning,
     })
+    // A provider may ignore AbortSignal (or never settle). Esc must release the UI.
+    const completion = await raceAbort(pending, signal)
+    if (completion === ABORTED) throw new Error('aborted')
     this.clear()
     this.push({ role: 'user', content: `Summary of the previous conversation:\n${completion.text}` })
     this.push({ role: 'assistant', content: 'OK, I will continue from this summary.' })
@@ -225,15 +228,22 @@ export class Agent {
           this.onEvent({ type: 'budgetExceeded', ...over })
           return
         }
-        let completion = await this.provider.chat({
+        const pendingCompletion = this.provider.chat({
           messages: [{ role: 'system', content: this.systemPrompt }, ...this.messages],
           tools: this.turnDefinitions,
           programmaticToolNames: this.turnTools.filter((tool) => tool.programmaticSafe).map((tool) => tool.name),
           signal,
-          onText: (delta) => this.onEvent({ type: 'text', delta }),
-          onThinking: (delta) => this.onEvent({ type: 'thinking', delta }),
+          // Late output from a cancelled provider must not leak into the next turn.
+          onText: (delta) => { if (!signal.aborted) this.onEvent({ type: 'text', delta }) },
+          onThinking: (delta) => { if (!signal.aborted) this.onEvent({ type: 'thinking', delta }) },
           reasoning: this.reasoning,
         })
+        const outcome = await raceAbort(pendingCompletion, signal)
+        if (outcome === ABORTED) {
+          this.onEvent({ type: 'aborted' })
+          return
+        }
+        let completion = outcome
         if (!completion.toolCalls.length && completion.finishReason !== 'repetition') {
           const recovered = recoverTextToolCalls(completion.text, this.turnDefinitions)
           if (recovered) {
