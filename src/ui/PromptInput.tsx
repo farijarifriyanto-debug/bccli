@@ -4,6 +4,7 @@ import { SLASH_COMMANDS } from '../commands'
 import { completeFile } from './complete'
 import { EditableText } from './EditableText'
 import { isFocusReport } from './focusReport'
+import { isMouseControlInput } from './thinkingMouse'
 import { applyEditKey, insert, type LineState, moveLine } from './lineEdit'
 import { applyVim, type VimMode } from './vim'
 import { color } from './theme'
@@ -49,6 +50,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
 
   useInput(
     (input, key) => {
+      if (isMouseControlInput(input)) return
       // While slash suggestions are open, arrows pick one, Enter runs it, Tab completes it.
       if (suggestions.length) {
         if (key.upArrow) {

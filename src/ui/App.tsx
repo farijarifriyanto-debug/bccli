@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
-import { Box, Static, Text, useApp, useInput } from 'ink'
+import { Box, Static, Text, measureElement, useApp, useInput, useStdin, useStdout, type DOMElement } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentEvent, PermissionAnswer, PermissionAsk } from '../agent'
 import { BUILTIN_AGENTS } from '../agents'
@@ -36,6 +36,7 @@ import { type ProviderEntry, ProviderMenu } from './ProviderMenu'
 import { PermissionPrompt } from './PermissionPrompt'
 import { PromptInput } from './PromptInput'
 import { Spinner } from './Spinner'
+import { clickedThinking, parseCursorPosition, parseMousePress } from './thinkingMouse'
 import { StatusBar } from './StatusBar'
 import { ACCENT, color } from './theme'
 import { CATALOG, fillTemplate } from '../mcp/catalog'
@@ -98,6 +99,10 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   // Messages typed while the agent works; each runs after the turn before it.
   const [queued, setQueued] = useState<string[]>([])
   const [showThinking, setShowThinking] = useState(runtime.config.thinkingVisible === true)
+  const { stdin } = useStdin()
+  const { stdout } = useStdout()
+  const liveRootRef = useRef<DOMElement>(null)
+  const thinkingTargetRef = useRef<DOMElement>(null)
   const [injected, setInjected] = useState<{ text: string; n: number } | undefined>()
   useEffect(() => runtime.todos.subscribe(setTodos), [runtime])
   const extraCommands = [
@@ -676,6 +681,61 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     }
   }, [initialPrompt, submit])
 
+  const toggleThinking = useCallback(() => {
+      const bind = runtime.config.keybinds.thinking.spec
+      const next = !showThinking
+      const toggled = next ? t('Thinking shown ({bind} to hide).', { bind }) : t('Thinking hidden ({bind} to show).', { bind })
+      setShowThinking(next)
+      try {
+        writeGlobalConfig({ thinkingVisible: next }, runtime.env)
+      } catch (error) {
+        notice(t('Could not save thinking visibility: {error}', { error: (error as Error).message }), 'warn')
+      }
+      setTranscript((t) => {
+        // Scrollback is printed once, so an already finished thinking block is reprinted open.
+        const last = [...t.done, ...t.live].findLast((e) => e.kind === 'thinking')
+        const reprint = next && last?.kind === 'thinking' && t.done.includes(last)
+        return {
+          ...t,
+          done: [
+            ...t.done,
+            ...(reprint ? [entry({ kind: 'thinking', text: last.text, open: true })] : []),
+            entry({ kind: 'notice', text: toggled, tone: 'info' }),
+          ],
+        }
+      })
+  }, [runtime, showThinking, notice])
+
+  // Ink has no mouse handler: temporarily enable SGR left-click reports while
+  // Thinking is active. Cursor-position response maps Ink's live layout to
+  // terminal coordinates; historical Static scrollback remains keyboard-only.
+  useEffect(() => {
+    if (!busy || pending || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
+    let click: { x: number; y: number } | undefined
+    const onData = (data: Buffer | string) => {
+      const value = String(data)
+      const press = parseMousePress(value)
+      if (press) {
+        click = press
+        stdout.write('\x1b[6n')
+        return
+      }
+      const cursor = parseCursorPosition(value)
+      if (!cursor || !click || !liveRootRef.current || !thinkingTargetRef.current) return
+      const current = click
+      click = undefined
+      const root = measureElement(liveRootRef.current)
+      const target = measureElement(thinkingTargetRef.current)
+      if (clickedThinking(current, cursor.row, root.height, target)) toggleThinking()
+    }
+    stdin.on('data', onData)
+    stdout.write('\x1b[?1000h\x1b[?1006h')
+    return () => {
+      stdin.off('data', onData)
+      stdout.write('\x1b[?1000l\x1b[?1006l')
+    }
+  }, [busy, pending, stdin, stdout, toggleThinking])
+
   useInput((input, key) => {
     if (key.tab && key.shift) {
       const next = nextMode(runtime.agent.permissions.mode)
@@ -699,28 +759,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         }
       })()
     } else if (matchKeybind(runtime.config.keybinds.thinking, input, key)) {
-      const bind = runtime.config.keybinds.thinking.spec
-      const next = !showThinking
-      const toggled = next ? t('Thinking shown ({bind} to hide).', { bind }) : t('Thinking hidden ({bind} to show).', { bind })
-      setShowThinking(next)
-      try {
-        writeGlobalConfig({ thinkingVisible: next }, runtime.env)
-      } catch (error) {
-        notice(t('Could not save thinking visibility: {error}', { error: (error as Error).message }), 'warn')
-      }
-      setTranscript((t) => {
-        // Scrollback is printed once, so an already finished thinking block is reprinted open.
-        const last = [...t.done, ...t.live].findLast((e) => e.kind === 'thinking')
-        const reprint = next && last?.kind === 'thinking' && t.done.includes(last)
-        return {
-          ...t,
-          done: [
-            ...t.done,
-            ...(reprint ? [entry({ kind: 'thinking', text: last.text, open: true })] : []),
-            entry({ kind: 'notice', text: toggled, tone: 'info' }),
-          ],
-        }
-      })
+      toggleThinking()
     } else if (matchKeybind(runtime.config.keybinds.toolOutput, input, key) && lastTool.current) {
       const t = lastTool.current
       notice(`⎿ ${t.tool} ${t.target}\n${t.output}`)
@@ -861,11 +900,11 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   }
 
   return (
-    <Box flexDirection="column">
+    <Box ref={liveRootRef} flexDirection="column">
       <Static items={transcript.done}>{renderEntry}</Static>
       {transcript.live.map(renderEntry)}
       {busy && !pending && !planAsk ? (
-        <Box marginTop={1}>
+        <Box ref={thinkingTargetRef} marginTop={1}>
           <Spinner label={cancelling ? t('Cancelling') : t('Thinking')} startedAt={startedAt} />
           <Text dimColor>{` · ${runtime.config.keybinds.thinking.spec} ${t('Thinking')}`}</Text>
         </Box>
