@@ -278,6 +278,7 @@ Opsi:
     'Untuk mencabut key akun kamu, buka {dashboard}.',
   'Budget exceeded ({kind}): {used} of {limit}. Further model calls are blocked; raise usageCap in ~/.bccli/config.json.':
     'Anggaran terlampaui ({kind}): {used} dari {limit}. Panggilan model selanjutnya diblokir; naikkan usageCap di ~/.bccli/config.json.',
+  'Could not save thinking visibility: {error}': 'Gagal menyimpan pengaturan tampilan Thinking: {error}',
   'Verifying edits: {cmds}': 'Memverifikasi edit: {cmds}',
   'Verification passed.': 'Verifikasi lulus.',
   'Verification still failing after {n} fix round(s). Run the commands manually to see why.':

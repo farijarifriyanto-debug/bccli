@@ -514,8 +514,9 @@ function responseTools(
 }
 
 function responseReasoning(level: ReasoningLevel): Record<string, unknown> {
-  if (level === 'auto') return {}
-  return { reasoning: { effort: level === 'off' ? 'none' : level } }
+  if (level === 'off') return { reasoning: { effort: 'none' } }
+  // OpenAI Responses exposes an optional user-facing summary, not hidden raw reasoning.
+  return { reasoning: { ...(level === 'auto' ? {} : { effort: level }), summary: 'auto' } }
 }
 
 function toResponsesUsage(usage?: { input_tokens?: number; output_tokens?: number }): Usage | undefined {
@@ -556,8 +557,10 @@ export function hasPendingProgrammaticReplay(messages: ChatMessage[]): boolean {
 async function readResponsesStream(
   res: Response,
   onText?: (delta: string) => void,
+  onThinking?: (delta: string) => void,
 ): Promise<Completion> {
   let text = ''
+  let thinking = ''
   let usage: Usage | undefined
   let finishReason: string | undefined
   let loopAt = -1
@@ -589,6 +592,12 @@ async function readResponsesStream(
     }
     if (event.type === 'response.failed') {
       throw new ProviderError(t('Error from the provider: {message}', { message: event.response?.error?.message ?? 'Response failed' }))
+    }
+    if (event.type === 'response.reasoning_summary_text.delta' || event.type === 'response.reasoning_summary.delta') {
+      const summary = String(event.delta ?? '')
+      thinking += summary
+      if (summary) onThinking?.(summary)
+      return
     }
     if (event.type === 'response.output_text.delta' || event.type === 'response.refusal.delta') {
       emitText(String(event.delta ?? ''))
@@ -658,21 +667,32 @@ async function readResponsesStream(
   return {
     text,
     toolCalls: [...calls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call),
+    thinking: thinking || undefined,
     usage,
     finishReason,
     responsesOutputItems,
   }
 }
 
-async function readResponsesJson(res: Response): Promise<Completion> {
+async function readResponsesJson(res: Response, onThinking?: (delta: string) => void): Promise<Completion> {
   const body = (await res.json()) as ResponsesPayload
   let text = ''
+  let thinking = ''
   const toolCalls: ToolCall[] = []
   for (const item of body.output ?? []) {
     if (item?.type === 'message') {
       for (const part of item.content ?? []) {
         if (part?.type === 'output_text' && typeof part.text === 'string') text += part.text
         else if (part?.type === 'refusal' && typeof part.refusal === 'string') text += part.refusal
+      }
+    } else if (item?.type === 'reasoning' && Array.isArray(item.summary)) {
+      const summary = item.summary
+        .filter((part): part is { text: string } => typeof part === 'object' && part !== null && typeof part.text === 'string')
+        .map((part) => part.text)
+        .join('')
+      if (summary) {
+        thinking += summary
+        onThinking?.(summary)
       }
     } else if (item?.type === 'function_call') {
       toolCalls.push({
@@ -686,6 +706,7 @@ async function readResponsesJson(res: Response): Promise<Completion> {
   return {
     text,
     toolCalls,
+    thinking: thinking || undefined,
     usage: toResponsesUsage(body.usage),
     responsesOutputItems: body.output as ResponseOutputItem[] | undefined,
     finishReason: responsesFinishReason(
@@ -770,10 +791,12 @@ async function readResponsesWebSocketTurn(
   events: ResponsesWsIterator,
   ws: ResponsesWS,
   onText?: (delta: string) => void,
+  onThinking?: (delta: string) => void,
   signal?: AbortSignal,
 ): Promise<LunaWsTurnResult> {
   let responseId = ''
   let text = ''
+  let thinking = ''
   let usage: Usage | undefined
   let finishReason: string | undefined
   let loopAt = -1
@@ -822,6 +845,12 @@ async function readResponsesWebSocketTurn(
       }
       if (event.type === 'response.created') {
         responseId = String(event.response?.id || responseId)
+        continue
+      }
+      if (event.type === 'response.reasoning_summary_text.delta') {
+        const summary = String(event.delta ?? '')
+        thinking += summary
+        if (summary) onThinking?.(summary)
         continue
       }
       if (event.type === 'response.output_text.delta' || event.type === 'response.refusal.delta') {
@@ -888,6 +917,7 @@ async function readResponsesWebSocketTurn(
           completion: {
             text,
             toolCalls: [...calls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call),
+            thinking: thinking || undefined,
             usage,
             finishReason,
             responsesOutputItems,
@@ -977,6 +1007,7 @@ export function createProvider(options: ProviderOptions): Provider {
     reasoning: ReasoningLevel,
     signal: AbortSignal | undefined,
     onText: ((delta: string) => void) | undefined,
+    onThinking: ((delta: string) => void) | undefined,
   ): Promise<Completion> {
     const ptcEnabled = shouldEnableLunaPtc(messages, enableProgrammaticToolCalling, programmaticToolNames)
     const forcePtc = shouldForceLunaPtc(messages, ptcEnabled)
@@ -1007,10 +1038,14 @@ export function createProvider(options: ProviderOptions): Provider {
         if (delta) emittedText = true
         onText?.(delta)
       }
+      const trackSummary = (delta: string) => {
+        if (delta) emittedText = true
+        onThinking?.(delta)
+      }
 
       try {
         ws.send(createEvent)
-        const result = await readResponsesWebSocketTurn(events, ws, trackText, signal)
+        const result = await readResponsesWebSocketTurn(events, ws, trackText, trackSummary, signal)
         if (result.completion.finishReason === 'repetition') {
           resetLunaWebSocket()
           return result.completion
@@ -1082,7 +1117,7 @@ export function createProvider(options: ProviderOptions): Provider {
 
       if (useResponsesWebSocket) {
         try {
-          return await chatLunaWebSocket(messages, tools, programmaticToolNames, reasoning, signal, onText)
+          return await chatLunaWebSocket(messages, tools, programmaticToolNames, reasoning, signal, onText, onThinking)
         } catch (error) {
           const err = error instanceof ProviderError ? error : new ProviderError((error as Error).message)
           if (err.code !== 'bc_ws_http_fallback') throw err
@@ -1106,10 +1141,10 @@ export function createProvider(options: ProviderOptions): Provider {
           },
           signal,
         )
-        if ((res.headers.get('content-type') ?? '').includes('application/json')) return readResponsesJson(res)
+        if ((res.headers.get('content-type') ?? '').includes('application/json')) return readResponsesJson(res, onThinking)
         if (!res.body) throw new ProviderError(t('Empty response from the provider'))
-        // OpenAI raw reasoning events are intentionally not surfaced. BCCLI only streams final text and tool calls.
-        return readResponsesStream(res, onText)
+        // Only provider-supplied summary deltas are surfaced, never hidden raw reasoning.
+        return readResponsesStream(res, onText, onThinking)
       }
 
       const res = await post(

@@ -97,7 +97,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [planAsk, setPlanAsk] = useState<{ plan: string; resolve(d: PlanDecision): void } | null>(null)
   // Messages typed while the agent works; each runs after the turn before it.
   const [queued, setQueued] = useState<string[]>([])
-  const [showThinking, setShowThinking] = useState(false)
+  const [showThinking, setShowThinking] = useState(runtime.config.thinkingVisible === true)
   const [injected, setInjected] = useState<{ text: string; n: number } | undefined>()
   useEffect(() => runtime.todos.subscribe(setTodos), [runtime])
   const extraCommands = [
@@ -703,6 +703,11 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       const next = !showThinking
       const toggled = next ? t('Thinking shown ({bind} to hide).', { bind }) : t('Thinking hidden ({bind} to show).', { bind })
       setShowThinking(next)
+      try {
+        writeGlobalConfig({ thinkingVisible: next }, runtime.env)
+      } catch (error) {
+        notice(t('Could not save thinking visibility: {error}', { error: (error as Error).message }), 'warn')
+      }
       setTranscript((t) => {
         // Scrollback is printed once, so an already finished thinking block is reprinted open.
         const last = [...t.done, ...t.live].findLast((e) => e.kind === 'thinking')
@@ -862,6 +867,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       {busy && !pending && !planAsk ? (
         <Box marginTop={1}>
           <Spinner label={cancelling ? t('Cancelling') : t('Thinking')} startedAt={startedAt} />
+          <Text dimColor>{` · ${runtime.config.keybinds.thinking.spec} ${t('Thinking')}`}</Text>
         </Box>
       ) : null}
       {pending ? <PermissionPrompt key={pending.id} request={pending.request} onAnswer={answer} /> : null}
