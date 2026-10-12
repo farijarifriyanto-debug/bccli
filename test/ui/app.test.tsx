@@ -482,6 +482,42 @@ test('thinking is folded to one line; ctrl+t opens and closes it', async () => {
 })
 
 
+test('SGR mouse click toggles live Thinking without inserting control bytes into the prompt', async () => {
+  const rt = makeRuntime([])
+  let release: (() => void) | undefined
+  rt.agent.provider = {
+    async chat() {
+      await new Promise<void>((resolve) => { release = resolve })
+      return { text: 'MOCK_OK', toolCalls: [] }
+    },
+    async listModels() { return [] },
+  }
+  const { stdin, stdout, frames, lastFrame, unmount } = render(<App runtime={rt} version="test" />)
+  Object.assign(stdout, { isTTY: true })
+  await wait()
+  stdin.write('mouse canary')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => (lastFrame() ?? '').includes('ctrl+t'))
+  let clicked = false
+  for (let y = 1; y <= 50; y++) {
+    stdin.write('\x1b[<0;10;' + y + 'M')
+    await wait(5)
+    stdin.write('\x1b[50;1R')
+    await wait(12)
+    if (frames.some((frame) => frame.includes('Thinking ditampilkan'))) {
+      clicked = true
+      break
+    }
+  }
+  expect(clicked).toBe(true)
+  expect(lastFrame()).toContain('Model:')
+  release?.()
+  await waitFor(() => (lastFrame() ?? '').includes('MOCK_OK'))
+  expect(rt.agent.messages.filter((message) => message.role === 'user')).toHaveLength(1)
+  unmount()
+}, 20000)
+
 test('/reasoning direct command persists preference and status bar reflects it', async () => {
   const rt = makeRuntime([])
   const { stdin, frames, lastFrame } = render(<App runtime={rt} version="test" />)
