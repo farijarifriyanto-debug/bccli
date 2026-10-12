@@ -687,7 +687,7 @@ test('Luna displays provider-supplied final summary when no summary deltas arriv
   }) as unknown as ReturnType<WsFactory>)
   const p = createProvider({
     baseURL: 'https://api.botconnector.id/v1',
-    apiKey: 'test_not_a_real_key',
+    apiKey: 'bc_live_test_key',
     model: 'gpt-6-luna',
     providerId: 'bc-cloud',
     responsesWebSocketFactory: factory,
