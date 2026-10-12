@@ -602,6 +602,7 @@ test('Luna Responses WebSocket sends automatic compaction context management', a
         message: { type: 'response.created', response: { id: 'resp_ws_compact' } },
       },
     },
+    { done: false, value: { type: 'message', message: { type: 'response.reasoning_summary_text.delta', delta: 'Reviewed the request.' } } },
     {
       done: false,
       value: {
@@ -642,15 +643,59 @@ test('Luna Responses WebSocket sends automatic compaction context management', a
     responsesWebSocketFactory: wsFactory,
   })
 
-  await p.chat({ messages: [{ role: 'user', content: 'hi' }] })
+  const summaries: string[] = []
+  const result = await p.chat({ messages: [{ role: 'user', content: 'hi' }], onThinking: (d) => summaries.push(d) })
+  expect(result.thinking).toBe('Reviewed the request.')
+  expect(summaries).toEqual(['Reviewed the request.'])
 
   expect(sent).toHaveLength(1)
   expect(sent[0]).toMatchObject({
     type: 'response.create',
     model: 'gpt-6-luna',
     store: false,
+    reasoning: { summary: 'auto' },
     context_management: [{ type: 'compaction', compact_threshold: 240_000 }],
   })
+})
+
+test('Luna displays provider-supplied final summary when no summary deltas arrive', async () => {
+  type WsFactory = NonNullable<Parameters<typeof createProvider>[0]['responsesWebSocketFactory']>
+  const messages = [
+    { type: 'response.created', response: { id: 'resp_summary' } },
+    {
+      type: 'response.completed',
+      response: {
+        id: 'resp_summary',
+        output: [{ type: 'reasoning', summary: [{ type: 'summary_text', text: 'Checked the prompt.' }] }],
+        usage: { input_tokens: 12, output_tokens: 3 },
+      },
+    },
+  ]
+  const factory = vi.fn(() => ({
+    send() {},
+    stream() {
+      let i = 0
+      return {
+        async next() {
+          const message = messages[i++]
+          return message ? { done: false, value: { type: 'message', message } } : { done: true, value: undefined }
+        },
+        [Symbol.asyncIterator]() { return this },
+      }
+    },
+    close() {},
+  }) as unknown as ReturnType<WsFactory>)
+  const p = createProvider({
+    baseURL: 'https://api.botconnector.id/v1',
+    apiKey: 'bc_live_test_key',
+    model: 'gpt-6-luna',
+    providerId: 'bc-cloud',
+    responsesWebSocketFactory: factory,
+  })
+  const summaries: string[] = []
+  const result = await p.chat({ messages: [{ role: 'user', content: 'hi' }], onThinking: (d) => summaries.push(d) })
+  expect(result.thinking).toBe('Checked the prompt.')
+  expect(summaries).toEqual(['Checked the prompt.'])
 })
 
 test('Luna Responses WebSocket falls back to HTTP SSE when the socket fails before output', async () => {
@@ -676,6 +721,7 @@ test('Luna Responses WebSocket falls back to HTTP SSE when the socket fails befo
   )
   const f = vi.fn(async () =>
     sse([
+      { type: 'response.reasoning_summary_text.delta', delta: 'Checked the input.' },
       { type: 'response.output_text.delta', delta: 'FALLBACK_OK' },
       {
         type: 'response.completed',
@@ -692,11 +738,15 @@ test('Luna Responses WebSocket falls back to HTTP SSE when the socket fails befo
     responsesWebSocketFactory: wsFactory,
   })
   const deltas: string[] = []
+  const summaries: string[] = []
   const completion = await p.chat({
     messages: [{ role: 'user', content: 'hi' }],
     onText: (delta) => deltas.push(delta),
+    onThinking: (delta) => summaries.push(delta),
   })
 
+  expect(summaries).toEqual(['Checked the input.'])
+  expect(completion.thinking).toBe('Checked the input.')
   expect(completion.text).toBe('FALLBACK_OK')
   expect(completion.usage).toEqual({ inputTokens: 11, outputTokens: 4 })
   expect(deltas).toEqual(['FALLBACK_OK'])
@@ -705,6 +755,7 @@ test('Luna Responses WebSocket falls back to HTTP SSE when the socket fails befo
   const [fallbackUrl, fallbackInit] = f.mock.calls[0] as unknown as [string, RequestInit]
   expect(fallbackUrl).toBe('https://api.botconnector.id/v1/responses')
   expect(JSON.parse(String(fallbackInit.body))).toMatchObject({
+    reasoning: { summary: 'auto' },
     context_management: [{ type: 'compaction', compact_threshold: 240_000 }],
   })
 })

@@ -172,3 +172,14 @@ test('a plugins value that is not an array of strings is rejected', () => {
   writeFileSync(join(home, 'config.json'), JSON.stringify({ plugins: [42] }))
   expect(() => loadConfig(project, env)).toThrow(/plugins/)
 })
+
+
+test('thinking visibility is global-only and survives config reload', () => {
+  expect(loadConfig(project, env).thinkingVisible).toBe(false)
+  mkdirSync(join(project, '.bccli'), { recursive: true })
+  writeFileSync(join(project, '.bccli', 'config.json'), JSON.stringify({ thinkingVisible: true }))
+  expect(loadConfig(project, env).thinkingVisible).toBe(false)
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ thinkingVisible: true }))
+  writeFileSync(join(project, '.bccli', 'config.json'), JSON.stringify({ thinkingVisible: false }))
+  expect(loadConfig(project, env).thinkingVisible).toBe(true)
+})
