@@ -515,6 +515,18 @@ test('SGR mouse click toggles live Thinking without inserting control bytes into
   }
   expect(clicked).toBe(true)
   expect(lastFrame()).toContain('Model:')
+  // The reporter must survive the frame reflow when the inspector expands.
+  let closed = false
+  for (let y = 1; y <= 50; y++) {
+    stdin.write('\x1b[<0;10;' + y + 'M\x1b[50;1R')
+    await wait(12)
+    if (!(lastFrame() ?? '').includes('Model:')) {
+      closed = true
+      break
+    }
+  }
+  expect(closed).toBe(true)
+  expect(lastFrame()).not.toContain('Model:')
   release?.()
   await waitFor(() => (lastFrame() ?? '').includes('MOCK_OK'))
   expect(rt.agent.messages.filter((message) => message.role === 'user')).toHaveLength(1)

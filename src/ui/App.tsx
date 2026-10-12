@@ -36,7 +36,7 @@ import { type ProviderEntry, ProviderMenu } from './ProviderMenu'
 import { PermissionPrompt } from './PermissionPrompt'
 import { PromptInput } from './PromptInput'
 import { Spinner } from './Spinner'
-import { clickedThinking, parseCursorPosition, parseMousePress } from './thinkingMouse'
+import { clickedThinking, parseThinkingReports } from './thinkingMouse'
 import { StatusBar } from './StatusBar'
 import { ACCENT, color } from './theme'
 import { CATALOG, fillTemplate } from '../mcp/catalog'
@@ -99,6 +99,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   // Messages typed while the agent works; each runs after the turn before it.
   const [queued, setQueued] = useState<string[]>([])
   const [showThinking, setShowThinking] = useState(runtime.config.thinkingVisible === true)
+  const showThinkingRef = useRef(showThinking)
   // The last turn summary is a single mutable inspector, never immutable Ink scrollback.
   const [lastThinking, setLastThinking] = useState('')
   const hasThinking = !!lastThinking.trim()
@@ -690,7 +691,10 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   }, [initialPrompt, submit])
 
   const toggleThinking = useCallback(() => {
-    const next = !showThinking
+    // Keep this callback stable while the mouse reporter is active; the Ink
+    // frame reflows on expansion and React otherwise tears the reporter down.
+    const next = !showThinkingRef.current
+    showThinkingRef.current = next
     setShowThinking(next)
     try {
       writeGlobalConfig({ thinkingVisible: next }, runtime.env)
@@ -698,7 +702,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       notice(t('Could not save thinking visibility: {error}', { error: (error as Error).message }), 'warn')
     }
     // Do not append to transcript.done: Ink <Static> is write-once scrollback.
-  }, [runtime, showThinking, notice])
+  }, [runtime, notice])
 
   // Ink has no mouse handler: temporarily enable SGR left-click reports while
   // Thinking is active. Cursor-position response maps Ink's live layout to
@@ -706,21 +710,26 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   useEffect(() => {
     if ((!busy && !hasThinking) || pending || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
     let click: { x: number; y: number } | undefined
+    let pending = ''
     const onData = (data: Buffer | string) => {
-      const value = String(data)
-      const press = parseMousePress(value)
-      if (press) {
-        click = press
-        stdout.write('\x1b[6n')
-        return
+      // Windows ConPTY can split or combine the SGR mouse and cursor replies.
+      // Keep an incomplete escape sequence across chunks and process both
+      // reports when they arrive in the same chunk.
+      pending += String(data)
+      const reports = parseThinkingReports(pending)
+      pending = reports.rest.slice(-80)
+      for (const report of reports.events) {
+        if (report.type === 'mouse') {
+          click = report.press
+          stdout.write('\x1b[6n')
+        } else if (click && liveRootRef.current && thinkingTargetRef.current) {
+          const current = click
+          click = undefined
+          const root = measureElement(liveRootRef.current)
+          const target = measureElement(thinkingTargetRef.current)
+          if (clickedThinking(current, report.cursor.row, root.height, target)) toggleThinking()
+        }
       }
-      const cursor = parseCursorPosition(value)
-      if (!cursor || !click || !liveRootRef.current || !thinkingTargetRef.current) return
-      const current = click
-      click = undefined
-      const root = measureElement(liveRootRef.current)
-      const target = measureElement(thinkingTargetRef.current)
-      if (clickedThinking(current, cursor.row, root.height, target)) toggleThinking()
     }
     stdin.on('data', onData)
     stdout.write('\x1b[?1000h\x1b[?1006h')
