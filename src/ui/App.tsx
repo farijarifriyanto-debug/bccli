@@ -101,6 +101,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [showThinking, setShowThinking] = useState(runtime.config.thinkingVisible === true)
   // The last turn summary is a single mutable inspector, never immutable Ink scrollback.
   const [lastThinking, setLastThinking] = useState('')
+  const hasThinking = !!lastThinking.trim()
   const { stdin } = useStdin()
   const { stdout } = useStdout()
   const liveRootRef = useRef<DOMElement>(null)
@@ -703,7 +704,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   // Thinking is active. Cursor-position response maps Ink's live layout to
   // terminal coordinates; historical Static scrollback remains keyboard-only.
   useEffect(() => {
-    if ((!busy && !lastThinking.trim()) || pending || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
+    if ((!busy && !hasThinking) || pending || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
     let click: { x: number; y: number } | undefined
     const onData = (data: Buffer | string) => {
       const value = String(data)
@@ -727,7 +728,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       stdin.off('data', onData)
       stdout.write('\x1b[?1000l\x1b[?1006l')
     }
-  }, [busy, pending, stdin, stdout, toggleThinking, Boolean(lastThinking.trim())])
+  }, [busy, pending, stdin, stdout, toggleThinking, hasThinking])
 
   useInput((input, key) => {
     if (key.tab && key.shift) {
@@ -877,7 +878,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     <Box ref={liveRootRef} flexDirection="column">
       <Static items={transcript.done}>{renderEntry}</Static>
       {transcript.live.map(renderEntry)}
-      {((busy && !pending && !planAsk) || (!busy && !!lastThinking.trim())) ? (
+      {((busy && !pending && !planAsk) || (!busy && hasThinking)) ? (
         <Box ref={thinkingTargetRef} marginTop={1} flexDirection="column">
           <Box flexDirection="row">
             {busy ? (
