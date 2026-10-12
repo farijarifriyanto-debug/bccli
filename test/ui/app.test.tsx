@@ -495,7 +495,7 @@ test('SGR mouse click toggles live Thinking without inserting control bytes into
     },
     async listModels() { return [] },
   }
-  const { stdin, stdout, frames, lastFrame, unmount } = render(<App runtime={rt} version="test" />)
+  const { stdin, stdout, lastFrame, unmount } = render(<App runtime={rt} version="test" />)
   Object.assign(stdout, { isTTY: true })
   await wait()
   stdin.write('mouse canary')
