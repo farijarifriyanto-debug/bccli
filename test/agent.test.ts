@@ -206,6 +206,49 @@ test('a 400 about tools suggests switching model', async () => {
   expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('/model') })
 })
 
+test('Esc cancels a provider that ignores AbortSignal and discards all late deltas', async () => {
+  const { agent, events } = setup([])
+  let resolveFirst: ((v: Completion) => void) | undefined
+  let lateText: ((delta: string) => void) | undefined
+  let lateThinking: ((delta: string) => void) | undefined
+  agent.provider = {
+    chat(req) {
+      lateText = req.onText
+      lateThinking = req.onThinking
+      return new Promise<Completion>((resolve) => { resolveFirst = resolve })
+    },
+    async listModels() { return [] },
+  }
+  const controller = new AbortController()
+  const task = agent.run('please work', controller.signal)
+  expect(resolveFirst).toBeDefined()
+  lateThinking?.('visible before cancel')
+  controller.abort()
+  await task
+  expect(events.at(-1)?.type).toBe('aborted')
+  const count = events.length
+  lateText?.('LATE_TEXT_SHOULD_NEVER_APPEAR')
+  lateThinking?.('LATE_THINKING_SHOULD_NEVER_APPEAR')
+  resolveFirst?.(reply('LATE_COMPLETION'))
+  await Promise.resolve()
+  expect(events).toHaveLength(count)
+  expect(agent.messages.filter((m) => m.role === 'assistant')).toHaveLength(0)
+})
+
+test('abort releases /compact even if the provider never settles', async () => {
+  const { agent } = setup([])
+  agent.messages.push({ role: 'user', content: 'keep this context' })
+  agent.provider = {
+    chat() { return new Promise<Completion>(() => {}) },
+    async listModels() { return [] },
+  }
+  const controller = new AbortController()
+  const task = agent.compact(controller.signal)
+  controller.abort()
+  await expect(task).rejects.toThrow('aborted')
+  expect(agent.messages.at(-1)).toEqual({ role: 'user', content: 'keep this context' })
+})
+
 test('abort before tools answers every pending call and emits aborted', async () => {
   const controller = new AbortController()
   const { agent, events } = setup([{ text: '', toolCalls: [call('glob', { pattern: '*' }, 'a'), call('glob', { pattern: '*' }, 'b')] }])
