@@ -710,14 +710,14 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   useEffect(() => {
     if ((!busy && !hasThinking) || pending || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
     let click: { x: number; y: number } | undefined
-    let pending = ''
+    let mouseBuffer = ''
     const onData = (data: Buffer | string) => {
       // Windows ConPTY can split or combine the SGR mouse and cursor replies.
       // Keep an incomplete escape sequence across chunks and process both
       // reports when they arrive in the same chunk.
-      pending += String(data)
-      const reports = parseThinkingReports(pending)
-      pending = reports.rest.slice(-80)
+      mouseBuffer += String(data)
+      const reports = parseThinkingReports(mouseBuffer)
+      mouseBuffer = reports.rest.slice(-80)
       for (const report of reports.events) {
         if (report.type === 'mouse') {
           click = report.press
