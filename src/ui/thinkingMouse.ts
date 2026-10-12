@@ -2,7 +2,9 @@
 export interface MousePress { x: number; y: number }
 
 export function parseMousePress(value: string): MousePress | undefined {
-  const match = /\x1b\[<(\d+);(\d+);(\d+)M/.exec(value)
+  const start = value.indexOf('\x1b[<')
+  if (start < 0) return undefined
+  const match = /^<(\d+);(\d+);(\d+)M/.exec(value.slice(start + 2))
   if (!match) return undefined
   const button = Number(match[1])
   if (button !== 0) return undefined // left click only, no drag/wheel/modifiers
@@ -13,7 +15,9 @@ export function parseMousePress(value: string): MousePress | undefined {
 }
 
 export function parseCursorPosition(value: string): { row: number; col: number } | undefined {
-  const match = /\x1b\[(\d+);(\d+)R/.exec(value)
+  const start = value.indexOf('\x1b[')
+  if (start < 0) return undefined
+  const match = /^(\d+);(\d+)R/.exec(value.slice(start + 2))
   if (!match) return undefined
   const row = Number(match[1])
   const col = Number(match[2])
