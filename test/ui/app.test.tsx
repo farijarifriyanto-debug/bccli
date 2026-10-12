@@ -448,7 +448,7 @@ test('typing while the agent works queues the message and runs it after the turn
   expect(seen).toEqual(['satu', 'dua', 'tiga'])
 })
 
-test('thinking is folded to one line; ctrl+t opens and closes it', async () => {
+test('Thinking uses one reversible panel; repeated ctrl+t does not append duplicate scrollback', async () => {
   const rt = makeRuntime([])
   rt.agent.provider = {
     async chat(req) {
@@ -456,9 +456,7 @@ test('thinking is folded to one line; ctrl+t opens and closes it', async () => {
       req.onText?.('Jawabannya 391.')
       return { text: 'Jawabannya 391.', toolCalls: [], thinking: 'baris satu\nbaris dua' }
     },
-    async listModels() {
-      return []
-    },
+    async listModels() { return [] },
   }
   const { stdin, frames, lastFrame } = render(<App runtime={rt} version="test" />)
   await wait()
@@ -466,19 +464,24 @@ test('thinking is folded to one line; ctrl+t opens and closes it', async () => {
   await wait()
   stdin.write('\r')
   await waitFor(() => frames.some((f) => f.includes('Jawabannya 391.')))
-  await wait()
-  expect(lastFrame()).toContain('✻ Berpikir · 2 baris · ctrl+t buka')
+  await waitFor(() => (lastFrame() ?? '').includes('klik untuk buka/tutup'))
   expect(lastFrame()).not.toContain('baris satu')
-  stdin.write('\u0014') // ctrl+t
-  await waitFor(() => (lastFrame() ?? '').includes('Thinking ditampilkan'))
-  expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).thinkingVisible).toBe(true)
-  expect(lastFrame()).toContain('baris satu')
-  expect(lastFrame()).toContain('✻ Berpikir (ctrl+t tutup)')
-  stdin.write('\u0014')
-  await waitFor(() => (lastFrame() ?? '').includes('Thinking disembunyikan'))
-  expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).thinkingVisible).toBe(false)
-  expect(lastFrame()).toContain('Thinking disembunyikan')
+  for (let n = 0; n < 3; n++) {
+    stdin.write('\u0014')
+    await waitFor(() => (lastFrame() ?? '').includes('baris satu'))
+    expect((lastFrame() ?? '').split('baris satu').length - 1).toBe(1)
+    expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).thinkingVisible).toBe(true)
+    stdin.write('\u0014')
+    await waitFor(() => !(lastFrame() ?? '').includes('baris satu'))
+    expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).thinkingVisible).toBe(false)
+    expect(lastFrame()).not.toContain('Thinking shown')
+    expect(lastFrame()).not.toContain('Thinking hidden')
+  }
   expect(rt.agent.messages.at(-1)).toEqual({ role: 'assistant', content: 'Jawabannya 391.' })
+  await slash(stdin, '/clear')
+  await waitFor(() => (lastFrame() ?? '').includes('Percakapan dibersihkan.'))
+  expect(lastFrame()).not.toContain('baris satu')
+  expect(lastFrame()).not.toContain('klik untuk buka/tutup')
 })
 
 
@@ -505,7 +508,7 @@ test('SGR mouse click toggles live Thinking without inserting control bytes into
     await wait(5)
     stdin.write('\x1b[50;1R')
     await wait(12)
-    if (frames.some((frame) => frame.includes('Thinking ditampilkan'))) {
+    if ((lastFrame() ?? '').includes('Model:')) {
       clicked = true
       break
     }
