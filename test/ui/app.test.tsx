@@ -471,14 +471,52 @@ test('thinking is folded to one line; ctrl+t opens and closes it', async () => {
   expect(lastFrame()).not.toContain('baris satu')
   stdin.write('\u0014') // ctrl+t
   await waitFor(() => (lastFrame() ?? '').includes('Thinking ditampilkan'))
+  expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).thinkingVisible).toBe(true)
   expect(lastFrame()).toContain('baris satu')
   expect(lastFrame()).toContain('✻ Berpikir (ctrl+t tutup)')
   stdin.write('\u0014')
   await waitFor(() => (lastFrame() ?? '').includes('Thinking disembunyikan'))
+  expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).thinkingVisible).toBe(false)
   expect(lastFrame()).toContain('Thinking disembunyikan')
   expect(rt.agent.messages.at(-1)).toEqual({ role: 'assistant', content: 'Jawabannya 391.' })
 })
 
+
+test('SGR mouse click toggles live Thinking without inserting control bytes into the prompt', async () => {
+  const rt = makeRuntime([])
+  let release: (() => void) | undefined
+  rt.agent.provider = {
+    async chat() {
+      await new Promise<void>((resolve) => { release = resolve })
+      return { text: 'MOCK_OK', toolCalls: [] }
+    },
+    async listModels() { return [] },
+  }
+  const { stdin, stdout, frames, lastFrame, unmount } = render(<App runtime={rt} version="test" />)
+  Object.assign(stdout, { isTTY: true })
+  await wait()
+  stdin.write('mouse canary')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => (lastFrame() ?? '').includes('ctrl+t'))
+  let clicked = false
+  for (let y = 1; y <= 50; y++) {
+    stdin.write('\x1b[<0;10;' + y + 'M')
+    await wait(5)
+    stdin.write('\x1b[50;1R')
+    await wait(12)
+    if (frames.some((frame) => frame.includes('Thinking ditampilkan'))) {
+      clicked = true
+      break
+    }
+  }
+  expect(clicked).toBe(true)
+  expect(lastFrame()).toContain('Model:')
+  release?.()
+  await waitFor(() => (lastFrame() ?? '').includes('MOCK_OK'))
+  expect(rt.agent.messages.filter((message) => message.role === 'user')).toHaveLength(1)
+  unmount()
+}, 20000)
 
 test('/reasoning direct command persists preference and status bar reflects it', async () => {
   const rt = makeRuntime([])

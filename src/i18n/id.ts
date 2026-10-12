@@ -24,6 +24,9 @@ export const ID: Record<string, string> = {
   '   enter save · esc cancel': '   enter simpan · esc batal',
   'shift+tab switch mode': 'shift+tab ganti mode',
   '{n} tokens': '{n} token',
+  'click to toggle': 'klik untuk buka/tutup',
+  'Model: {model} · reasoning: {level}': 'Model: {model} · penalaran: {level}',
+  'No reasoning summary received yet; tool activity remains visible above.': 'Belum ada ringkasan penalaran dari model; aktivitas tool tetap terlihat di atas.',
   'esc to cancel': 'esc batal',
   '/ for commands': '/ perintah',
   '… {n} earlier steps': '… {n} langkah sebelumnya',
@@ -278,6 +281,7 @@ Opsi:
     'Untuk mencabut key akun kamu, buka {dashboard}.',
   'Budget exceeded ({kind}): {used} of {limit}. Further model calls are blocked; raise usageCap in ~/.bccli/config.json.':
     'Anggaran terlampaui ({kind}): {used} dari {limit}. Panggilan model selanjutnya diblokir; naikkan usageCap di ~/.bccli/config.json.',
+  'Could not save thinking visibility: {error}': 'Gagal menyimpan pengaturan tampilan Thinking: {error}',
   'Verifying edits: {cmds}': 'Memverifikasi edit: {cmds}',
   'Verification passed.': 'Verifikasi lulus.',
   'Verification still failing after {n} fix round(s). Run the commands manually to see why.':
