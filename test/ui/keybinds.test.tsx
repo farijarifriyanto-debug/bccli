@@ -1,4 +1,4 @@
-﻿import { mkdtempSync, writeFileSync } from 'node:fs'
+﻿import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { render } from 'ink-testing-library'
@@ -35,25 +35,32 @@ function makeRuntime(globalConfig: object) {
   return createRuntime({ cwd, args: parseCliArgs([]), env, provider: scripted([]), userHome: mkdtempSync(join(tmpdir(), 'bccli-kb-u-')) })
 }
 
-test('ctrl+t toggles the thinking display by default', async () => {
+const thinkingEnabled = (home: string) =>
+  (JSON.parse(readFileSync(join(home, 'config.json'), 'utf8')) as { thinkingVisible?: boolean }).thinkingVisible === true
+
+test('ctrl+t toggles the persisted Thinking view without writing notices to scrollback', async () => {
   const rt = makeRuntime({})
   const { stdin, frames } = render(<App runtime={rt} version="test" />)
   await wait()
-  stdin.write('\x14') // ctrl+t
-  await waitFor(() => frames.some((f) => f.includes('ctrl+t')))
-  expect(frames.join('\n')).toContain('ctrl+t')
+  stdin.write('\x14')
+  await waitFor(() => thinkingEnabled(rt.env.BCCLI_HOME!))
+  expect(thinkingEnabled(rt.env.BCCLI_HOME!)).toBe(true)
+  stdin.write('\x14')
+  await waitFor(() => !thinkingEnabled(rt.env.BCCLI_HOME!))
+  expect(frames.join('\n')).not.toContain('Thinking shown')
+  expect(frames.join('\n')).not.toContain('Thinking hidden')
 })
 
-test('a rebound thinking key works and the old binding stops firing', async () => {
+test('a rebound Thinking key works and old binding does not change visibility', async () => {
   const rt = makeRuntime({ keybinds: { thinking: 'alt+x' } })
-  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  const { stdin } = render(<App runtime={rt} version="test" />)
   await wait()
-  stdin.write('\x14') // ctrl+t: no longer bound to thinking
-  await wait(200)
-  expect(frames.join('\n')).not.toContain('ctrl+t')
-  stdin.write('\x1bx') // alt+x
-  await waitFor(() => frames.some((f) => f.includes('alt+x')))
-  expect(frames.join('\n')).toContain('alt+x')
+  stdin.write('\x14')
+  await wait(150)
+  expect(thinkingEnabled(rt.env.BCCLI_HOME!)).toBe(false)
+  stdin.write('\x1bx')
+  await waitFor(() => thinkingEnabled(rt.env.BCCLI_HOME!))
+  expect(thinkingEnabled(rt.env.BCCLI_HOME!)).toBe(true)
 })
 
 test('/help lists the configured bindings', async () => {

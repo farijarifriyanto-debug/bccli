@@ -102,6 +102,36 @@ test('whitespace-only assistant text before a tool call is not rendered as an em
   expect(frames.join('\n')).not.toMatch(/● *\n/)
 })
 
+test('Esc cancels a never-settling mock provider and the next prompt still runs', async () => {
+  const rt = makeRuntime([])
+  let requests = 0
+  rt.agent.provider = {
+    async chat(req) {
+      requests++
+      if (requests === 1) return new Promise<Completion>(() => {})
+      req.onText?.('NEXT_TURN_OK')
+      return { text: 'NEXT_TURN_OK', toolCalls: [] }
+    },
+    async listModels() { return [] },
+  }
+  const { stdin, lastFrame, frames, unmount } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('mock long request')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => requests === 1 && (lastFrame() ?? '').includes('esc batal'))
+  expect((lastFrame() ?? '')).toContain('esc batal')
+  stdin.write('\u001B')
+  await waitFor(() => frames.some((frame) => frame.includes('Dibatalkan.')))
+  expect(frames.some((frame) => frame.includes('Dibatalkan.'))).toBe(true)
+  stdin.write('next request')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((frame) => frame.includes('NEXT_TURN_OK')))
+  expect(requests).toBe(2)
+  unmount()
+})
+
 test('Esc cancels a running /compact', async () => {
   const rt = makeRuntime([])
   rt.agent.provider = {
@@ -448,7 +478,7 @@ test('typing while the agent works queues the message and runs it after the turn
   expect(seen).toEqual(['satu', 'dua', 'tiga'])
 })
 
-test('thinking is folded to one line; ctrl+t opens and closes it', async () => {
+test('Thinking uses one reversible panel; repeated ctrl+t does not append duplicate scrollback', async () => {
   const rt = makeRuntime([])
   rt.agent.provider = {
     async chat(req) {
@@ -456,9 +486,7 @@ test('thinking is folded to one line; ctrl+t opens and closes it', async () => {
       req.onText?.('Jawabannya 391.')
       return { text: 'Jawabannya 391.', toolCalls: [], thinking: 'baris satu\nbaris dua' }
     },
-    async listModels() {
-      return []
-    },
+    async listModels() { return [] },
   }
   const { stdin, frames, lastFrame } = render(<App runtime={rt} version="test" />)
   await wait()
@@ -466,19 +494,24 @@ test('thinking is folded to one line; ctrl+t opens and closes it', async () => {
   await wait()
   stdin.write('\r')
   await waitFor(() => frames.some((f) => f.includes('Jawabannya 391.')))
-  await wait()
-  expect(lastFrame()).toContain('✻ Berpikir · 2 baris · ctrl+t buka')
+  await waitFor(() => (lastFrame() ?? '').includes('klik untuk buka/tutup'))
   expect(lastFrame()).not.toContain('baris satu')
-  stdin.write('\u0014') // ctrl+t
-  await waitFor(() => (lastFrame() ?? '').includes('Thinking ditampilkan'))
-  expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).thinkingVisible).toBe(true)
-  expect(lastFrame()).toContain('baris satu')
-  expect(lastFrame()).toContain('✻ Berpikir (ctrl+t tutup)')
-  stdin.write('\u0014')
-  await waitFor(() => (lastFrame() ?? '').includes('Thinking disembunyikan'))
-  expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).thinkingVisible).toBe(false)
-  expect(lastFrame()).toContain('Thinking disembunyikan')
+  for (let n = 0; n < 3; n++) {
+    stdin.write('\u0014')
+    await waitFor(() => (lastFrame() ?? '').includes('baris satu'))
+    expect((lastFrame() ?? '').split('baris satu').length - 1).toBe(1)
+    expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).thinkingVisible).toBe(true)
+    stdin.write('\u0014')
+    await waitFor(() => !(lastFrame() ?? '').includes('baris satu'))
+    expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).thinkingVisible).toBe(false)
+    expect(lastFrame()).not.toContain('Thinking shown')
+    expect(lastFrame()).not.toContain('Thinking hidden')
+  }
   expect(rt.agent.messages.at(-1)).toEqual({ role: 'assistant', content: 'Jawabannya 391.' })
+  await slash(stdin, '/clear')
+  await waitFor(() => (lastFrame() ?? '').includes('Percakapan dibersihkan.'))
+  expect(lastFrame()).not.toContain('baris satu')
+  expect(lastFrame()).not.toContain('klik untuk buka/tutup')
 })
 
 
@@ -492,7 +525,7 @@ test('SGR mouse click toggles live Thinking without inserting control bytes into
     },
     async listModels() { return [] },
   }
-  const { stdin, stdout, frames, lastFrame, unmount } = render(<App runtime={rt} version="test" />)
+  const { stdin, stdout, lastFrame, unmount } = render(<App runtime={rt} version="test" />)
   Object.assign(stdout, { isTTY: true })
   await wait()
   stdin.write('mouse canary')
@@ -505,13 +538,25 @@ test('SGR mouse click toggles live Thinking without inserting control bytes into
     await wait(5)
     stdin.write('\x1b[50;1R')
     await wait(12)
-    if (frames.some((frame) => frame.includes('Thinking ditampilkan'))) {
+    if ((lastFrame() ?? '').includes('Model:')) {
       clicked = true
       break
     }
   }
   expect(clicked).toBe(true)
   expect(lastFrame()).toContain('Model:')
+  // The reporter must survive the frame reflow when the inspector expands.
+  let closed = false
+  for (let y = 1; y <= 50; y++) {
+    stdin.write('\x1b[<0;10;' + y + 'M\x1b[50;1R')
+    await wait(12)
+    if (!(lastFrame() ?? '').includes('Model:')) {
+      closed = true
+      break
+    }
+  }
+  expect(closed).toBe(true)
+  expect(lastFrame()).not.toContain('Model:')
   release?.()
   await waitFor(() => (lastFrame() ?? '').includes('MOCK_OK'))
   expect(rt.agent.messages.filter((message) => message.role === 'user')).toHaveLength(1)

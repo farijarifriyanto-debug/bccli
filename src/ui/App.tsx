@@ -36,7 +36,7 @@ import { type ProviderEntry, ProviderMenu } from './ProviderMenu'
 import { PermissionPrompt } from './PermissionPrompt'
 import { PromptInput } from './PromptInput'
 import { Spinner } from './Spinner'
-import { clickedThinking, parseCursorPosition, parseMousePress } from './thinkingMouse'
+import { clickedThinking, parseThinkingReports } from './thinkingMouse'
 import { StatusBar } from './StatusBar'
 import { ACCENT, color } from './theme'
 import { CATALOG, fillTemplate } from '../mcp/catalog'
@@ -99,6 +99,10 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   // Messages typed while the agent works; each runs after the turn before it.
   const [queued, setQueued] = useState<string[]>([])
   const [showThinking, setShowThinking] = useState(runtime.config.thinkingVisible === true)
+  const showThinkingRef = useRef(showThinking)
+  // The last turn summary is a single mutable inspector, never immutable Ink scrollback.
+  const [lastThinking, setLastThinking] = useState('')
+  const hasThinking = !!lastThinking.trim()
   const { stdin } = useStdin()
   const { stdout } = useStdout()
   const liveRootRef = useRef<DOMElement>(null)
@@ -129,6 +133,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       if ((event.tool === 'edit' || event.tool === 'write') && !event.isError) editedInTurn.current = true
     }
     if (event.type === 'usage') setTokens(event.inputTokens + event.outputTokens)
+    if (event.type === 'thinking' && event.delta) setLastThinking((prev) => prev + event.delta)
     if (event.type === 'budgetExceeded') {
       notice(
         t('Budget exceeded ({kind}): {used} of {limit}. Further model calls are blocked; raise usageCap in ~/.bccli/config.json.', {
@@ -160,6 +165,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     async (text: string) => {
       setTranscript((t) => ({ ...t, done: [...t.done, entry({ kind: 'user', text })] }))
       setBusy(true)
+      setLastThinking('')
       setStartedAt(Date.now())
       editedInTurn.current = false
       controller.current = new AbortController()
@@ -207,6 +213,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'clear':
           runtime.agent.clear()
           setTokens(0)
+          setLastThinking('')
           notice(t('Conversation cleared.'))
           return
         case 'cost': {
@@ -303,6 +310,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'new':
           runtime.newSession()
           setTokens(0)
+          setLastThinking('')
           notice(t('New session started. The previous session stays saved (/resume).'))
           return
         case 'session':
@@ -335,6 +343,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
               if (!chosen) return
               runtime.resume(chosen.session)
               setTokens(0)
+              setLastThinking('')
               const chat = runtime.agent.messages
                 .map((m) => (m.role === 'user' && Array.isArray(m.content) ? { ...m, content: contentText(m.content) } : m))
                 .filter(
@@ -682,51 +691,45 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   }, [initialPrompt, submit])
 
   const toggleThinking = useCallback(() => {
-      const bind = runtime.config.keybinds.thinking.spec
-      const next = !showThinking
-      const toggled = next ? t('Thinking shown ({bind} to hide).', { bind }) : t('Thinking hidden ({bind} to show).', { bind })
-      setShowThinking(next)
-      try {
-        writeGlobalConfig({ thinkingVisible: next }, runtime.env)
-      } catch (error) {
-        notice(t('Could not save thinking visibility: {error}', { error: (error as Error).message }), 'warn')
-      }
-      setTranscript((t) => {
-        // Scrollback is printed once, so an already finished thinking block is reprinted open.
-        const last = [...t.done, ...t.live].findLast((e) => e.kind === 'thinking')
-        const reprint = next && last?.kind === 'thinking' && t.done.includes(last)
-        return {
-          ...t,
-          done: [
-            ...t.done,
-            ...(reprint ? [entry({ kind: 'thinking', text: last.text, open: true })] : []),
-            entry({ kind: 'notice', text: toggled, tone: 'info' }),
-          ],
-        }
-      })
-  }, [runtime, showThinking, notice])
+    // Keep this callback stable while the mouse reporter is active; the Ink
+    // frame reflows on expansion and React otherwise tears the reporter down.
+    const next = !showThinkingRef.current
+    showThinkingRef.current = next
+    setShowThinking(next)
+    try {
+      writeGlobalConfig({ thinkingVisible: next }, runtime.env)
+    } catch (error) {
+      notice(t('Could not save thinking visibility: {error}', { error: (error as Error).message }), 'warn')
+    }
+    // Do not append to transcript.done: Ink <Static> is write-once scrollback.
+  }, [runtime, notice])
 
   // Ink has no mouse handler: temporarily enable SGR left-click reports while
   // Thinking is active. Cursor-position response maps Ink's live layout to
   // terminal coordinates; historical Static scrollback remains keyboard-only.
   useEffect(() => {
-    if (!busy || pending || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
+    if ((!busy && !hasThinking) || pending || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
     let click: { x: number; y: number } | undefined
+    let mouseBuffer = ''
     const onData = (data: Buffer | string) => {
-      const value = String(data)
-      const press = parseMousePress(value)
-      if (press) {
-        click = press
-        stdout.write('\x1b[6n')
-        return
+      // Windows ConPTY can split or combine the SGR mouse and cursor replies.
+      // Keep an incomplete escape sequence across chunks and process both
+      // reports when they arrive in the same chunk.
+      mouseBuffer += String(data)
+      const reports = parseThinkingReports(mouseBuffer)
+      mouseBuffer = reports.rest.slice(-80)
+      for (const report of reports.events) {
+        if (report.type === 'mouse') {
+          click = report.press
+          stdout.write('\x1b[6n')
+        } else if (click && liveRootRef.current && thinkingTargetRef.current) {
+          const current = click
+          click = undefined
+          const root = measureElement(liveRootRef.current)
+          const target = measureElement(thinkingTargetRef.current)
+          if (clickedThinking(current, report.cursor.row, root.height, target)) toggleThinking()
+        }
       }
-      const cursor = parseCursorPosition(value)
-      if (!cursor || !click || !liveRootRef.current || !thinkingTargetRef.current) return
-      const current = click
-      click = undefined
-      const root = measureElement(liveRootRef.current)
-      const target = measureElement(thinkingTargetRef.current)
-      if (clickedThinking(current, cursor.row, root.height, target)) toggleThinking()
     }
     stdin.on('data', onData)
     stdout.write('\x1b[?1000h\x1b[?1006h')
@@ -734,7 +737,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       stdin.off('data', onData)
       stdout.write('\x1b[?1000l\x1b[?1006l')
     }
-  }, [busy, pending, stdin, stdout, toggleThinking])
+  }, [busy, pending, stdin, stdout, toggleThinking, hasThinking])
 
   useInput((input, key) => {
     if (key.tab && key.shift) {
@@ -862,28 +865,9 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
             <Markdown text={e.text.replace(/^\s+/, '')} />
           </Box>
         )
-      case 'thinking': {
-        const text = e.text.trim()
-        if (!text) return null
-        if (!(e.open ?? showThinking)) {
-          const lines = text.split('\n').length
-          return (
-            <Box key={e.id} marginTop={1}>
-              <Text dimColor>{t('✻ Thinking · {n} lines · {bind} to show', { n: lines, bind: runtime.config.keybinds.thinking.spec })}</Text>
-            </Box>
-          )
-        }
-        return (
-          <Box key={e.id} marginTop={1} flexDirection="column">
-            <Text dimColor>{t('✻ Thinking ({bind} to hide)', { bind: runtime.config.keybinds.thinking.spec })}</Text>
-            <Box paddingLeft={2}>
-              <Text dimColor italic>
-                {text}
-              </Text>
-            </Box>
-          </Box>
-        )
-      }
+      case 'thinking':
+        // Render in the single live inspector below; never write a copy into <Static>.
+        return null
       case 'tool':
         return (
           <ToolBlock key={e.id} tool={e.tool} target={e.target} output={e.output} display={e.display} isError={e.isError} done={e.done} sub={e.sub} moreBind={runtime.config.keybinds.toolOutput.spec} />
@@ -903,18 +887,24 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     <Box ref={liveRootRef} flexDirection="column">
       <Static items={transcript.done}>{renderEntry}</Static>
       {transcript.live.map(renderEntry)}
-      {busy && !pending && !planAsk ? (
+      {((busy && !pending && !planAsk) || (!busy && hasThinking)) ? (
         <Box ref={thinkingTargetRef} marginTop={1} flexDirection="column">
           <Box flexDirection="row">
-            <Spinner label={cancelling ? t('Cancelling') : t('Thinking')} startedAt={startedAt} />
+            {busy ? (
+              <Spinner label={cancelling ? t('Cancelling') : t('Thinking')} startedAt={startedAt} />
+            ) : (
+              <Text dimColor>{t('✻ Thinking')}</Text>
+            )}
             <Text dimColor> · {runtime.config.keybinds.thinking.spec} · {t('click to toggle')}</Text>
           </Box>
           {showThinking ? (
             <Box flexDirection="column" paddingLeft={2}>
               <Text dimColor>{t('Model: {model} · reasoning: {level}', { model: runtime.modelRef, level: reasoning })}</Text>
-              {![...transcript.done, ...transcript.live].some((e) => e.kind === 'thinking' && !!e.text.trim()) ? (
+              {lastThinking.trim() ? (
+                <Text dimColor italic>{lastThinking.trim()}</Text>
+              ) : (
                 <Text dimColor>{t('No reasoning summary received yet; tool activity remains visible above.')}</Text>
-              ) : null}
+              )}
             </Box>
           ) : null}
         </Box>
