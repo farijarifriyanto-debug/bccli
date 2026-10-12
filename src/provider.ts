@@ -148,6 +148,16 @@ interface ResponsesStreamEvent {
   response?: ResponsesPayload
 }
 
+/** Provider-supplied public summary only; never show hidden reasoning fields. */
+function outputReasoningSummary(items?: ResponsesOutputItem[]): string {
+  return (items ?? [])
+    .filter((item) => item.type === 'reasoning' && Array.isArray(item.summary))
+    .flatMap((item) => item.summary as { text?: unknown }[])
+    .map((part) => typeof part?.text === 'string' ? part.text : '')
+    .filter(Boolean)
+    .join('\n')
+}
+
 const retryable = (status: number) => status === 429 || status >= 500
 
 /**
@@ -636,6 +646,10 @@ async function readResponsesStream(
       usage = toResponsesUsage(event.response?.usage)
       responsesOutputItems = (event.response?.output as ResponseOutputItem[] | undefined) ??
         [...outputItems.entries()].sort(([a], [b]) => a - b).map(([, item]) => item as ResponseOutputItem)
+      if (!thinking) {
+        const summary = outputReasoningSummary(responsesOutputItems)
+        if (summary) { thinking = summary; onThinking?.(summary) }
+      }
       finishReason = responsesFinishReason(responsesOutputItems, calls.size)
       return
     }
@@ -643,6 +657,10 @@ async function readResponsesStream(
       usage = toResponsesUsage(event.response?.usage)
       responsesOutputItems = (event.response?.output as ResponseOutputItem[] | undefined) ??
         [...outputItems.entries()].sort(([a], [b]) => a - b).map(([, item]) => item as ResponseOutputItem)
+      if (!thinking) {
+        const summary = outputReasoningSummary(responsesOutputItems)
+        if (summary) { thinking = summary; onThinking?.(summary) }
+      }
       finishReason = responsesFinishReason(
         responsesOutputItems,
         calls.size,
@@ -905,6 +923,10 @@ async function readResponsesWebSocketTurn(
         const responsesOutputItems =
           (event.response?.output as ResponseOutputItem[] | undefined) ??
           [...outputItems.entries()].sort(([a], [b]) => a - b).map(([, item]) => item as ResponseOutputItem)
+        if (!thinking) {
+          const summary = outputReasoningSummary(responsesOutputItems)
+          if (summary) { thinking = summary; onThinking?.(summary) }
+        }
         finishReason = responsesFinishReason(
           responsesOutputItems,
           calls.size,

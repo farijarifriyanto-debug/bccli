@@ -658,6 +658,46 @@ test('Luna Responses WebSocket sends automatic compaction context management', a
   })
 })
 
+test('Luna displays provider-supplied final summary when no summary deltas arrive', async () => {
+  type WsFactory = NonNullable<Parameters<typeof createProvider>[0]['responsesWebSocketFactory']>
+  const messages = [
+    { type: 'response.created', response: { id: 'resp_summary' } },
+    {
+      type: 'response.completed',
+      response: {
+        id: 'resp_summary',
+        output: [{ type: 'reasoning', summary: [{ type: 'summary_text', text: 'Checked the prompt.' }] }],
+        usage: { input_tokens: 12, output_tokens: 3 },
+      },
+    },
+  ]
+  const factory = vi.fn(() => ({
+    send() {},
+    stream() {
+      let i = 0
+      return {
+        async next() {
+          const message = messages[i++]
+          return message ? { done: false, value: { type: 'message', message } } : { done: true, value: undefined }
+        },
+        [Symbol.asyncIterator]() { return this },
+      }
+    },
+    close() {},
+  }) as unknown as ReturnType<WsFactory>)
+  const p = createProvider({
+    baseURL: 'https://api.botconnector.id/v1',
+    apiKey: 'test_not_a_real_key',
+    model: 'gpt-6-luna',
+    providerId: 'bc-cloud',
+    responsesWebSocketFactory: factory,
+  })
+  const summaries: string[] = []
+  const result = await p.chat({ messages: [{ role: 'user', content: 'hi' }], onThinking: (d) => summaries.push(d) })
+  expect(result.thinking).toBe('Checked the prompt.')
+  expect(summaries).toEqual(['Checked the prompt.'])
+})
+
 test('Luna Responses WebSocket falls back to HTTP SSE when the socket fails before output', async () => {
   type WsFactory = NonNullable<Parameters<typeof createProvider>[0]['responsesWebSocketFactory']>
   const wsFactory = vi.fn(

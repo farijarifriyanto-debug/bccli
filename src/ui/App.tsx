@@ -904,9 +904,19 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       <Static items={transcript.done}>{renderEntry}</Static>
       {transcript.live.map(renderEntry)}
       {busy && !pending && !planAsk ? (
-        <Box ref={thinkingTargetRef} marginTop={1}>
-          <Spinner label={cancelling ? t('Cancelling') : t('Thinking')} startedAt={startedAt} />
-          <Text dimColor>{` · ${runtime.config.keybinds.thinking.spec} ${t('Thinking')}`}</Text>
+        <Box ref={thinkingTargetRef} marginTop={1} flexDirection="column">
+          <Box flexDirection="row">
+            <Spinner label={cancelling ? t('Cancelling') : t('Thinking')} startedAt={startedAt} />
+            <Text dimColor> · {runtime.config.keybinds.thinking.spec} · {t('click to toggle')}</Text>
+          </Box>
+          {showThinking ? (
+            <Box flexDirection="column" paddingLeft={2}>
+              <Text dimColor>{t('Model: {model} · reasoning: {level}', { model: runtime.modelRef, level: reasoning })}</Text>
+              {![...transcript.done, ...transcript.live].some((e) => e.kind === 'thinking' && !!e.text.trim()) ? (
+                <Text dimColor>{t('No reasoning summary received yet; tool activity remains visible above.')}</Text>
+              ) : null}
+            </Box>
+          ) : null}
         </Box>
       ) : null}
       {pending ? <PermissionPrompt key={pending.id} request={pending.request} onAnswer={answer} /> : null}
