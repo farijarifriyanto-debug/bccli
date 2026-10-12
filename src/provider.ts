@@ -149,11 +149,14 @@ interface ResponsesStreamEvent {
 }
 
 /** Provider-supplied public summary only; never show hidden reasoning fields. */
-function outputReasoningSummary(items?: ResponsesOutputItem[]): string {
+function outputReasoningSummary(items?: readonly unknown[]): string {
   return (items ?? [])
-    .filter((item) => item.type === 'reasoning' && Array.isArray(item.summary))
-    .flatMap((item) => item.summary as { text?: unknown }[])
-    .map((part) => typeof part?.text === 'string' ? part.text : '')
+    .flatMap((item) => {
+      if (!item || typeof item !== 'object' || !('type' in item) || item.type !== 'reasoning') return []
+      if (!('summary' in item) || !Array.isArray(item.summary)) return []
+      return item.summary as unknown[]
+    })
+    .map((part) => part && typeof part === 'object' && 'text' in part && typeof part.text === 'string' ? part.text : '')
     .filter(Boolean)
     .join('\n')
 }
