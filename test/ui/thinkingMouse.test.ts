@@ -53,5 +53,6 @@ test('SGR and cursor sequences split across stdin chunks are preserved', () => {
 test('only Thinking header is clickable, not expanded summary lines', () => {
   const target = { x: 0, y: 3, width: 68, height: 7 }
   expect(clickedThinking({ x: 7, y: 18 }, 22, 8, target)).toBe(true)
+  expect(clickedThinking({ x: 7, y: 17 }, 22, 8, target)).toBe(true)
   expect(clickedThinking({ x: 7, y: 19 }, 22, 8, target)).toBe(false)
 })

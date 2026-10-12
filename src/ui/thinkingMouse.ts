@@ -36,7 +36,10 @@ export function clickedThinking(
   const origin = cursorRow - rootHeight + 1
   const row = origin + target.y
   const col = target.x + 1
-  return click.y === row &&
+  // ConPTY reports the cursor one line below Ink's live frame in some
+  // Windows Terminal layouts (prompt/spinner reflow). Accept the header at
+  // either of the two adjacent rows, never arbitrary summary lines.
+  return (click.y === row || click.y === row - 1) &&
     click.x >= col && click.x < col + Math.min(target.width, 46)
 }
 
