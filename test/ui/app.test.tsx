@@ -102,6 +102,36 @@ test('whitespace-only assistant text before a tool call is not rendered as an em
   expect(frames.join('\n')).not.toMatch(/● *\n/)
 })
 
+test('Esc cancels a never-settling mock provider and the next prompt still runs', async () => {
+  const rt = makeRuntime([])
+  let requests = 0
+  rt.agent.provider = {
+    async chat(req) {
+      requests++
+      if (requests === 1) return new Promise<Completion>(() => {})
+      req.onText?.('NEXT_TURN_OK')
+      return { text: 'NEXT_TURN_OK', toolCalls: [] }
+    },
+    async listModels() { return [] },
+  }
+  const { stdin, lastFrame, frames, unmount } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('mock long request')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => requests === 1)
+  expect((lastFrame() ?? '')).toContain('Thinking')
+  stdin.write('\u001B')
+  await waitFor(() => frames.some((frame) => frame.includes('Dibatalkan.')))
+  expect(frames.some((frame) => frame.includes('Dibatalkan.'))).toBe(true)
+  stdin.write('next request')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((frame) => frame.includes('NEXT_TURN_OK')))
+  expect(requests).toBe(2)
+  unmount()
+})
+
 test('Esc cancels a running /compact', async () => {
   const rt = makeRuntime([])
   rt.agent.provider = {
