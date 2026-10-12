@@ -471,10 +471,12 @@ test('thinking is folded to one line; ctrl+t opens and closes it', async () => {
   expect(lastFrame()).not.toContain('baris satu')
   stdin.write('\u0014') // ctrl+t
   await waitFor(() => (lastFrame() ?? '').includes('Thinking ditampilkan'))
+  expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).thinkingVisible).toBe(true)
   expect(lastFrame()).toContain('baris satu')
   expect(lastFrame()).toContain('✻ Berpikir (ctrl+t tutup)')
   stdin.write('\u0014')
   await waitFor(() => (lastFrame() ?? '').includes('Thinking disembunyikan'))
+  expect(JSON.parse(readFileSync(join(rt.home, 'config.json'), 'utf8')).thinkingVisible).toBe(false)
   expect(lastFrame()).toContain('Thinking disembunyikan')
   expect(rt.agent.messages.at(-1)).toEqual({ role: 'assistant', content: 'Jawabannya 391.' })
 })

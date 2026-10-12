@@ -23,6 +23,8 @@ export interface Config {
   model: string
   permissionMode: PermissionMode
   reasoning: ReasoningLevel
+  /** Show provider-supplied reasoning summaries in the TUI. Global setting only. */
+  thinkingVisible?: boolean
   /** Tool-call step cap per turn. Omitted (unset) uses DEFAULT_MAX_STEPS; null or 0 means unlimited. */
   maxSteps?: number | null
   /** Interface language; only the global config is read for it. */
@@ -271,6 +273,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     model: project.model ?? global.model ?? DEFAULT_CONFIG.model,
     permissionMode: global.permissionMode ?? DEFAULT_CONFIG.permissionMode,
     reasoning: global.reasoning ?? DEFAULT_CONFIG.reasoning,
+    thinkingVisible: global.thinkingVisible === true,
     maxSteps: resolvedMaxSteps(global),
     hooks: global.hooks,
     vision: global.vision ?? DEFAULT_CONFIG.vision,
