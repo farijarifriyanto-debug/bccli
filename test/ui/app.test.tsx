@@ -494,7 +494,8 @@ test('Thinking uses one reversible panel; repeated ctrl+t does not append duplic
   await wait()
   stdin.write('\r')
   await waitFor(() => frames.some((f) => f.includes('Jawabannya 391.')))
-  await waitFor(() => (lastFrame() ?? '').includes('klik untuk buka/tutup'))
+  await waitFor(() => (lastFrame() ?? '').includes('ctrl+t'))
+  expect(lastFrame()).not.toContain('klik untuk buka/tutup')
   expect(lastFrame()).not.toContain('baris satu')
   for (let n = 0; n < 3; n++) {
     stdin.write('\u0014')
@@ -515,8 +516,35 @@ test('Thinking uses one reversible panel; repeated ctrl+t does not append duplic
 })
 
 
+test('mouse reporting stays off by default so terminal drag-to-copy keeps working', async () => {
+  const rt = makeRuntime([])
+  expect(rt.config.thinkingClickCollapse).toBe(false)
+  let release: (() => void) | undefined
+  rt.agent.provider = {
+    async chat() {
+      await new Promise<void>((resolve) => { release = resolve })
+      return { text: 'MOCK_OK', toolCalls: [] }
+    },
+    async listModels() { return [] },
+  }
+  const { stdin, stdout, frames, lastFrame, unmount } = render(<App runtime={rt} version="test" />)
+  Object.assign(stdout, { isTTY: true })
+  await wait()
+  stdin.write('no mouse please')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => (lastFrame() ?? '').includes('ctrl+t'))
+  await wait(50)
+  expect(frames.join('')).not.toContain('\x1b[?1000h')
+  expect(lastFrame()).not.toContain('klik untuk buka/tutup')
+  release?.()
+  await waitFor(() => (lastFrame() ?? '').includes('MOCK_OK'))
+  unmount()
+}, 20000)
+
 test('SGR mouse click toggles live Thinking without inserting control bytes into the prompt', async () => {
   const rt = makeRuntime([])
+  rt.config.thinkingClickCollapse = true
   let release: (() => void) | undefined
   rt.agent.provider = {
     async chat() {

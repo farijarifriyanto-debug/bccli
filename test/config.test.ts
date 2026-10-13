@@ -183,3 +183,12 @@ test('thinking visibility is global-only and survives config reload', () => {
   writeFileSync(join(project, '.bccli', 'config.json'), JSON.stringify({ thinkingVisible: false }))
   expect(loadConfig(project, env).thinkingVisible).toBe(true)
 })
+
+test('thinkingClickCollapse is off by default and read from the global config only', () => {
+  expect(loadConfig(project, env).thinkingClickCollapse).toBe(false)
+  mkdirSync(join(project, '.bccli'), { recursive: true })
+  writeFileSync(join(project, '.bccli', 'config.json'), JSON.stringify({ thinkingClickCollapse: true }))
+  expect(loadConfig(project, env).thinkingClickCollapse).toBe(false)
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ thinkingClickCollapse: true }))
+  expect(loadConfig(project, env).thinkingClickCollapse).toBe(true)
+})
