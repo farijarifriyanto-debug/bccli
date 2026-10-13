@@ -16,6 +16,10 @@ edits files, and runs commands — with your permission.
 *Real session recording: BCCLI creates `hello.js` and runs it with `node`.*
 
 ```bash
+# one-line install (macOS / Linux / WSL2) — provisions a portable Node if needed, no sudo
+curl -fsSL https://raw.githubusercontent.com/farijarifriyanto-debug/bccli/main/install.sh | bash
+
+# or manual, if you already have Node.js 22+
 npm i -g @botconnector/bccli@next    # latest beta, requires Node.js 22+
 bccli login                     # store your BotConnector Cloud API key
 cd your-project && bccli
