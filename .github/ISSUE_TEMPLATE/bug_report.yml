@@ -1,0 +1,44 @@
+name: Bug report
+description: BCCLI tidak berfungsi sebagaimana mestinya
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happended
+    attributes:
+      label: Apa yang terjadi
+      description: Jelaskan perilaku yang diharapkan vs yang terjadi.
+      placeholder: "Saya menjalankan `bccli -p ...` dan hasilnya ..."
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Langkah reproduksi
+      description: Perintah persis, folder kerja, dan isi prompt bila bisa direproduksi tanpa data sensitif.
+      placeholder: |
+        1. `npm i -g @botconnector/bccli@next`
+        2. `bccli -p "..." --allow-all`
+        3. Lihat error ...
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Lingkungan
+      description: Output `bccli --version`, OS, versi Node.
+      placeholder: |
+        - bccli: 0.4.0-beta.48
+        - OS: Ubuntu 24.04
+        - Node: v24.20.0
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Cek sebelum kirim
+      options:
+        - label: Saya sudah mencoba versi terbaru (`@botconnector/bccli@next`)
+          required: true
+        - label: Log tidak berisi API key atau data sensitif
+          required: true
