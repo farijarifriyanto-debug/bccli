@@ -1,5 +1,7 @@
 # BCCLI
 
+**Bahasa Indonesia** · [English](README.en.md)
+
 [![npm](https://img.shields.io/npm/v/@botconnector/bccli?label=@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli)
 [![npm downloads](https://img.shields.io/npm/dm/@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli)
 [![Node.js](https://img.shields.io/node/v/@botconnector/bccli)](https://nodejs.org/)
@@ -225,3 +227,4 @@ menjalankan test, smoke test ke BotConnector Cloud, dan `npm publish --provenanc
 - [Unduh & panduan BCCLI](https://botconnector.id/id/download)
 - [Developer API BotConnector](https://botconnector.id/id/developers/api) — endpoint kompatibel OpenAI SDK
 - [Switchboard](https://github.com/farijarifriyanto-debug/switchboard) — harness agent open source dari BotConnector
+- [Berkontribusi](CONTRIBUTING.md)
