@@ -193,3 +193,16 @@ test('thinkingClickCollapse is off by default and read from the global config on
   writeFileSync(join(home, 'config.json'), JSON.stringify({ thinkingClickCollapse: true }))
   expect(loadConfig(project, env).thinkingClickCollapse).toBe(true)
 })
+
+test('sessionRetentionDays is off by default (sessions are kept until deleted) and read from the global config only', () => {
+  expect(loadConfig(project, env).sessionRetentionDays).toBeNull()
+  mkdirSync(join(project, '.bccli'), { recursive: true })
+  writeFileSync(join(project, '.bccli', 'config.json'), JSON.stringify({ sessionRetentionDays: 5 }))
+  expect(loadConfig(project, env).sessionRetentionDays).toBeNull()
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ sessionRetentionDays: 45 }))
+  expect(loadConfig(project, env).sessionRetentionDays).toBe(45)
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ sessionRetentionDays: 0 }))
+  expect(loadConfig(project, env).sessionRetentionDays).toBeNull()
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ sessionRetentionDays: -3 }))
+  expect(() => loadConfig(project, env)).toThrow(/sessionRetentionDays/)
+})

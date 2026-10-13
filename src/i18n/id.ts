@@ -305,6 +305,7 @@ Opsi:
   '--output-format must be one of: {formats}': '--output-format harus salah satu dari: {formats}',
   'Invalid config: {path} ({error})': 'Config tidak valid: {path} ({error})',
   'maxSteps must be a positive number, or 0/null to disable the limit.': 'maxSteps harus berupa angka positif, atau 0/null untuk menonaktifkan batas.',
+  'sessionRetentionDays must be a positive number of days, or 0/null to keep sessions.': 'sessionRetentionDays harus berupa jumlah hari positif, atau 0/null untuk menyimpan sesi.',
   'Hook {event} failed: {reason}': 'Hook {event} gagal: {reason}',
   'list background tasks': 'daftar tugas latar belakang',
   'Nothing to rewind.': 'Tidak ada yang bisa di-rewind.',

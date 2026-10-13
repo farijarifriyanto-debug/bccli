@@ -25,6 +25,8 @@ export interface Config {
   reasoning: ReasoningLevel
   /** Show provider-supplied reasoning summaries in the TUI. Global setting only. */
   thinkingVisible?: boolean
+  /** Delete saved sessions older than this many days at startup. Omitted, null or 0 keeps them until you delete them (the default). Global setting only. */
+  sessionRetentionDays?: number | null
   /** Click the Thinking block to expand/collapse it. Off by default: it needs terminal mouse reporting, which blocks drag-to-copy. Global setting only; ctrl+t works either way. */
   thinkingClickCollapse?: boolean
   /** Tool-call step cap per turn. Omitted, null or 0 means unlimited (the default); a positive number opts into a cap. */
@@ -120,6 +122,15 @@ function resolvedMaxSteps(global: Partial<Config>): number | null {
   if (value === null || value === 0) return null
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     throw new ConfigError(t('maxSteps must be a positive number, or 0/null to disable the limit.'))
+  }
+  return Math.max(1, Math.floor(value))
+}
+
+function resolvedSessionRetentionDays(global: Partial<Config>): number | null {
+  const value = global.sessionRetentionDays
+  if (value === undefined || value === null || value === 0) return null
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new ConfigError(t('sessionRetentionDays must be a positive number of days, or 0/null to keep sessions.'))
   }
   return Math.max(1, Math.floor(value))
 }
@@ -276,6 +287,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     reasoning: global.reasoning ?? DEFAULT_CONFIG.reasoning,
     thinkingVisible: global.thinkingVisible === true,
     thinkingClickCollapse: global.thinkingClickCollapse === true,
+    sessionRetentionDays: resolvedSessionRetentionDays(global),
     maxSteps: resolvedMaxSteps(global),
     hooks: global.hooks,
     vision: global.vision ?? DEFAULT_CONFIG.vision,

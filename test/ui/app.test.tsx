@@ -703,3 +703,15 @@ test('/language shows, switches and saves the interface language', async () => {
     setLanguage('id')
   }
 })
+
+test('a conversation loaded at start (-c / -r) is shown on screen, not only the header', async () => {
+  const rt = makeRuntime([])
+  rt.session.append({ role: 'user', content: 'pertanyaan lama' })
+  rt.session.append({ role: 'assistant', content: 'jawaban lama' })
+  rt.agent.load(rt.session.load())
+  const { frames } = render(<App runtime={rt} version="test" />)
+  await waitFor(() => frames.join('\n').includes('jawaban lama'))
+  const all = frames.join('\n')
+  expect(all).toContain('pertanyaan lama')
+  expect(all).toContain('jawaban lama')
+})

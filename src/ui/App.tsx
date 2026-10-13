@@ -20,7 +20,6 @@ import { exportMarkdown } from '../slash/export'
 import { agentsText, sessionText, skillsText, statusText } from '../slash/info'
 import { appendMemory, instructionFiles, parseMemoryArgs } from '../slash/memory'
 import { parseFrontmatter } from '../extensions'
-import { contentText } from '../provider'
 import type { PermissionMode } from '../config'
 import { nextMode } from '../permissions'
 import type { PlanDecision } from '../tools/plan'
@@ -45,6 +44,7 @@ import { McpMenu, type McpMenuItem } from './McpMenu'
 import { PlanApproval } from './PlanApproval'
 import { TodoList } from './TodoList'
 import { ToolBlock } from './ToolBlock'
+import { replayEntries } from './replay'
 import { applyEvent, type Entry, endTurn, entry, type Transcript } from './transcript'
 import { getLanguage, locale, parseLang, setLanguage, t } from '../i18n'
 import { matchKeybind } from '../keybinds'
@@ -74,7 +74,11 @@ const labelFor = (runtime: Runtime, ref: string) => `${ref.slice(ref.indexOf('/'
 
 export function App({ runtime, initialPrompt, version }: { runtime: Runtime; initialPrompt?: string; version: string }) {
   const { exit } = useApp()
-  const [transcript, setTranscript] = useState<Transcript>(() => ({ done: [entry({ kind: 'header' })], live: [] }))
+  // bccli -c / -r load a saved conversation before the screen exists: show it, not only the header.
+  const [transcript, setTranscript] = useState<Transcript>(() => ({
+    done: [entry({ kind: 'header' }), ...(runtime.agent.messages.length ? replayEntries(runtime.session.loadHistory()) : [])],
+    live: [],
+  }))
   const [busy, setBusy] = useState(false)
   const [cancelling, setCancelling] = useState(false) // Esc was pressed; shows that it registered while the turn winds down
   const [startedAt, setStartedAt] = useState(0)
@@ -344,26 +348,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
               runtime.resume(chosen.session)
               setTokens(0)
               setLastThinking('')
-              const chat = runtime.agent.messages
-                .map((m) => (m.role === 'user' && Array.isArray(m.content) ? { ...m, content: contentText(m.content) } : m))
-                .filter(
-                  (m): m is typeof m & { role: 'user' | 'assistant'; content: string } =>
-                    (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && !!m.content.trim(),
-                )
-              setTranscript({
-                done: [
-                  entry({ kind: 'header' }),
-                  entry({
-                    kind: 'notice',
-                    text: t('Resuming the session ({messages} messages saved · {chat} user/assistant chats shown).', { messages: runtime.agent.messages.length, chat: chat.length }),
-                    tone: 'info',
-                  }),
-                  ...chat.map((m) =>
-                    entry(m.role === 'user' ? { kind: 'user', text: m.content } : { kind: 'assistant', text: m.content }),
-                  ),
-                ],
-                live: [],
-              })
+              setTranscript({ done: [entry({ kind: 'header' }), ...replayEntries(chosen.session.loadHistory())], live: [] })
             },
           })
           return
