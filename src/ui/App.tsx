@@ -707,8 +707,10 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   // Ink has no mouse handler: temporarily enable SGR left-click reports while
   // Thinking is active. Cursor-position response maps Ink's live layout to
   // terminal coordinates; historical Static scrollback remains keyboard-only.
+  // Opt-in (thinkingClickCollapse): mouse reporting makes the terminal stop
+  // turning drag into a text selection, so it stays off unless asked for.
   useEffect(() => {
-    if ((!busy && !hasThinking) || pending || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
+    if (!runtime.config.thinkingClickCollapse || (!busy && !hasThinking) || pending || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
     let click: { x: number; y: number } | undefined
     let mouseBuffer = ''
     const onData = (data: Buffer | string) => {
@@ -737,7 +739,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       stdin.off('data', onData)
       stdout.write('\x1b[?1000l\x1b[?1006l')
     }
-  }, [busy, pending, stdin, stdout, toggleThinking, hasThinking])
+  }, [busy, pending, stdin, stdout, toggleThinking, hasThinking, runtime.config.thinkingClickCollapse])
 
   useInput((input, key) => {
     if (key.tab && key.shift) {
@@ -895,7 +897,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
             ) : (
               <Text dimColor>{t('✻ Thinking')}</Text>
             )}
-            <Text dimColor> · {runtime.config.keybinds.thinking.spec} · {t('click to toggle')}</Text>
+            <Text dimColor> · {runtime.config.keybinds.thinking.spec}{runtime.config.thinkingClickCollapse ? ` · ${t('click to toggle')}` : ''}</Text>
           </Box>
           {showThinking ? (
             <Box flexDirection="column" paddingLeft={2}>
