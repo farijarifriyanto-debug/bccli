@@ -65,7 +65,7 @@ async function main(): Promise<number> {
   }
   if (args.command === 'acp') {
     const { runtimeAgent, runAcp } = await import('./acp')
-    await runAcp(process.stdin, process.stdout, { cwd, newAgent: (c) => runtimeAgent(c) })
+    await runAcp(process.stdin, process.stdout, { cwd, newAgent: (c) => runtimeAgent(c, args.allowAll) })
     return 0
   }
   if (args.command === 'serve') {
