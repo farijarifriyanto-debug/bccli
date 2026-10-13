@@ -127,7 +127,7 @@ async function main(): Promise<number> {
   const rt = createRuntime({ cwd, args })
   setTheme(rt.config.theme)
   try {
-    pruneSessions(rt.home)
+    if (rt.config.sessionRetentionDays) pruneSessions(rt.home, Date.now(), rt.config.sessionRetentionDays)
   } catch {
     // pruning is best effort
   }
