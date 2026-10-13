@@ -25,6 +25,8 @@ export interface Config {
   reasoning: ReasoningLevel
   /** Show provider-supplied reasoning summaries in the TUI. Global setting only. */
   thinkingVisible?: boolean
+  /** Click the Thinking block to expand/collapse it. Off by default: it needs terminal mouse reporting, which blocks drag-to-copy. Global setting only; ctrl+t works either way. */
+  thinkingClickCollapse?: boolean
   /** Tool-call step cap per turn. Omitted (unset) uses DEFAULT_MAX_STEPS; null or 0 means unlimited. */
   maxSteps?: number | null
   /** Interface language; only the global config is read for it. */
@@ -274,6 +276,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     permissionMode: global.permissionMode ?? DEFAULT_CONFIG.permissionMode,
     reasoning: global.reasoning ?? DEFAULT_CONFIG.reasoning,
     thinkingVisible: global.thinkingVisible === true,
+    thinkingClickCollapse: global.thinkingClickCollapse === true,
     maxSteps: resolvedMaxSteps(global),
     hooks: global.hooks,
     vision: global.vision ?? DEFAULT_CONFIG.vision,
