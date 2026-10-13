@@ -1,7 +1,17 @@
 # BCCLI
 
-Agent AI coding dari BotConnector yang bekerja di terminal: membaca kode, mengedit file,
+[![npm](https://img.shields.io/npm/v/@botconnector/bccli?label=@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli)
+[![npm downloads](https://img.shields.io/npm/dm/@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli)
+[![Node.js](https://img.shields.io/node/v/@botconnector/bccli)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Website](https://img.shields.io/badge/website-botconnector.id-06305A)](https://botconnector.id/id/download)
+
+Agent AI coding dari [BotConnector](https://botconnector.id/) yang bekerja di terminal: membaca kode, mengedit file,
 dan menjalankan perintah — dengan izin kamu.
+
+![BCCLI membuat hello.js dan menjalankannya dengan node](docs/demo.gif)
+
+*Rekaman sesi asli: BCCLI membuat file `hello.js` lalu menjalankannya dengan `node`.*
 
 ```bash
 npm i -g @botconnector/bccli@next    # beta terbaru, butuh Node.js 22+
@@ -209,3 +219,9 @@ npm test && npm run typecheck && npm run lint && npm run build
 CI (`ci.yml`) menjalankan hal yang sama di Linux, macOS, dan Windows.
 Rilis: naikkan `version` di `package.json`, lalu push tag `v<version>` — `release.yml`
 menjalankan test, smoke test ke BotConnector Cloud, dan `npm publish --provenance`.
+
+## Pelajari lebih lanjut
+
+- [Unduh & panduan BCCLI](https://botconnector.id/id/download)
+- [Developer API BotConnector](https://botconnector.id/id/developers/api) — endpoint kompatibel OpenAI SDK
+- [Switchboard](https://github.com/farijarifriyanto-debug/switchboard) — harness agent open source dari BotConnector
