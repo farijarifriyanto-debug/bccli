@@ -27,7 +27,7 @@ export interface Config {
   thinkingVisible?: boolean
   /** Click the Thinking block to expand/collapse it. Off by default: it needs terminal mouse reporting, which blocks drag-to-copy. Global setting only; ctrl+t works either way. */
   thinkingClickCollapse?: boolean
-  /** Tool-call step cap per turn. Omitted (unset) uses DEFAULT_MAX_STEPS; null or 0 means unlimited. */
+  /** Tool-call step cap per turn. Omitted, null or 0 means unlimited (the default); a positive number opts into a cap. */
   maxSteps?: number | null
   /** Interface language; only the global config is read for it. */
   language?: Lang
@@ -73,13 +73,12 @@ export interface ResolvedModel {
 export class ConfigError extends Error {}
 
 /**
- * Default cap on tool-call steps per turn for the main agent. Interactive CLIs
- * (Claude Code, Codex) leave the main loop unbounded by default, but an uncapped
- * loop can run away on a bad prompt; a generous safety net with the existing
- * "type continue" notice keeps long tasks possible and cost bounded. Set
- * maxSteps to 0/null in the config to restore unlimited.
+ * Default cap on tool-call steps per turn for the main agent: none, like Claude Code, Codex and
+ * OpenCode (its `steps` is unset = unlimited). The turn runs until the model stops or the user
+ * presses Esc. Set maxSteps in the global config to a positive number to opt into a safety cap
+ * (the "type continue" notice then appears when it is reached).
  */
-export const DEFAULT_MAX_STEPS = 100
+export const DEFAULT_MAX_STEPS: number | null = null
 
 const DEFAULT_CONFIG: Config = {
   model: 'bc-cloud/glm-5.3-flash',
