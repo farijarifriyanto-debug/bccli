@@ -22,8 +22,9 @@ test('defaults to BotConnector Cloud', () => {
   expect(config.providers['bc-cloud'].baseURL).toBe('https://api.botconnector.id/v1')
 })
 
-test('maxSteps defaults to the safety cap; only the global config sets it', () => {
-  expect(loadConfig(project, env).maxSteps).toBe(DEFAULT_MAX_STEPS)
+test('maxSteps defaults to unlimited; only the global config can opt into a cap', () => {
+  expect(DEFAULT_MAX_STEPS).toBeNull()
+  expect(loadConfig(project, env).maxSteps).toBeNull()
 
   writeFileSync(join(home, 'config.json'), JSON.stringify({ maxSteps: 200 }))
   expect(loadConfig(project, env).maxSteps).toBe(200)
