@@ -16,6 +16,10 @@ dan menjalankan perintah — dengan izin kamu.
 *Rekaman sesi asli: BCCLI membuat file `hello.js` lalu menjalankannya dengan `node`.*
 
 ```bash
+# install satu baris (macOS / Linux / WSL2) — pasang Node portable bila perlu, tanpa sudo
+curl -fsSL https://raw.githubusercontent.com/farijarifriyanto-debug/bccli/main/install.sh | bash
+
+# atau manual, bila Node.js 22+ sudah terpasang
 npm i -g @botconnector/bccli@next    # beta terbaru, butuh Node.js 22+
 bccli login                     # simpan API key BotConnector Cloud
 cd project-kamu && bccli
