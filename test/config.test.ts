@@ -72,11 +72,12 @@ test('resolveModel splits at the first slash and reads the key from env', () => 
   expect(r).toEqual({ providerId: 'bc-cloud', model: 'stealth/space-bunny-alpha', baseURL: 'https://api.botconnector.id/v1', apiKey: 'k1' })
 })
 
-test('resolveModel falls back to the credentials file; env wins', () => {
-  saveCredential('bc-cloud', 'from-file', env)
+test('resolveModel: a key saved in the app wins over the env var; the env var is the fallback', () => {
   const config = loadConfig(project, env)
-  expect(resolveModel(config, 'bc-cloud/m', env).apiKey).toBe('from-file')
   expect(resolveModel(config, 'bc-cloud/m', { ...env, BOTCONNECTOR_API_KEY: 'from-env' }).apiKey).toBe('from-env')
+  saveCredential('bc-cloud', 'from-file', env)
+  expect(resolveModel(config, 'bc-cloud/m', env).apiKey).toBe('from-file')
+  expect(resolveModel(config, 'bc-cloud/m', { ...env, BOTCONNECTOR_API_KEY: 'from-env' }).apiKey).toBe('from-file')
 })
 
 test('missing API key explains bccli login and the env var', () => {
