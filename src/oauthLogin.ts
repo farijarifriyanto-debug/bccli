@@ -228,7 +228,7 @@ export async function runOauthLogin(deps: OauthLoginDeps): Promise<number> {
   }
   deps.out(t('Logged in: openrouter credential saved.'))
   if (deps.env[OPENROUTER_ENV_KEY]) {
-    deps.out(t('Note: {env} is set in the environment and takes priority over the stored credential.', { env: OPENROUTER_ENV_KEY }))
+    deps.out(t('Note: {env} is also set in the environment; the stored credential takes priority and {env} is only the fallback.', { env: OPENROUTER_ENV_KEY }))
   }
   deps.out(t('Verify with: bccli models openrouter (your key is never printed).'))
   return 0
