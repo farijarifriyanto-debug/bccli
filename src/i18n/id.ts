@@ -270,8 +270,8 @@ Opsi:
   'The key was created on your OpenRouter account but could not be saved locally ({reason}). Manage it (copy or revoke) at {dashboard}, then run bccli login openrouter again.':
     'Key sudah dibuat di akun OpenRouter kamu tetapi gagal disimpan lokal ({reason}). Kelola (salin atau cabut) di {dashboard}, lalu jalankan bccli login openrouter lagi.',
   'Logged in: openrouter credential saved.': 'Login berhasil: credential openrouter tersimpan.',
-  'Note: {env} is set in the environment and takes priority over the stored credential.':
-    'Catatan: {env} ter-set di environment dan lebih diutamakan daripada credential tersimpan.',
+  'Note: {env} is also set in the environment; the stored credential takes priority and {env} is only the fallback.':
+    'Catatan: {env} juga ter-set di environment; credential tersimpan lebih diutamakan dan {env} hanya cadangan.',
   'Verify with: bccli models openrouter (your key is never printed).':
     'Verifikasi dengan: bccli models openrouter (key kamu tidak pernah dicetak).',
   'openrouter credential removed.': 'credential openrouter dihapus.',
@@ -429,7 +429,6 @@ Opsi:
   'Could not write {file}: {error}': 'Gagal menulis {file}: {error}',
   'Added to {file}.': 'Ditambahkan ke {file}.',
   'API key for {provider}': 'API key untuk {provider}',
-  'Key for {provider} saved, but {env} in the environment takes precedence and is still used.': 'Key {provider} tersimpan, tapi {env} di environment lebih diutamakan dan tetap dipakai.',
   'Key for {provider} saved · {n} models.': 'Key {provider} tersimpan · {n} model.',
   'Stored key deleted, but {env} is still set in the environment and is still used.': 'Key tersimpan dihapus, tapi {env} masih ada di environment dan tetap dipakai.',
   'No stored key; {env} is still set in the environment and is still used.': 'Tidak ada key tersimpan; {env} masih ada di environment dan tetap dipakai.',

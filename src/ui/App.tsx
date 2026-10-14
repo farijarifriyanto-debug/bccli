@@ -469,11 +469,6 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
             return
           }
           runtime.setModel(runtime.modelRef) // pick up the new key
-          const envName = runtime.config.providers[id]?.apiKeyEnv
-          if (envName && runtime.env[envName]) {
-            notice(t('Key for {provider} saved, but {env} in the environment takes precedence and is still used.', { provider: runtime.providerLabel(), env: envName }), 'warn')
-            return
-          }
           notice(t('Key for {provider} saved · {n} models.', { provider: runtime.providerLabel(), n: result.models }))
           return
         }
