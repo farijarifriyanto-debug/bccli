@@ -381,7 +381,8 @@ export function resolveModel(config: Config, modelRef: string, env: NodeJS.Proce
   if (!provider) {
     throw new ConfigError(t('Provider "{id}" is not in the config. Available: {list}', { id: providerId, list: Object.keys(config.providers).join(', ') }))
   }
-  const apiKey = (provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined) || readCredentials(env)[providerId] || undefined
+  // A key the user saved in the app (`bccli login`) wins over an inherited env var; the env var is the fallback.
+  const apiKey = readCredentials(env)[providerId] || (provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined) || undefined
   if (provider.apiKeyEnv && !apiKey) {
     throw new ConfigError(t('No API key for {id} yet. Run `bccli login` or set the env var {env}.', { id: providerId, env: provider.apiKeyEnv }))
   }

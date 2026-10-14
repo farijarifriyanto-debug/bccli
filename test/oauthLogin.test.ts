@@ -207,7 +207,7 @@ test('sukses + credential tersimpan + env-absen → pesan tanpa catatan priorita
   expect(h.all()).not.toContain('AUTH-CODE-1')
 })
 
-test('kontrak #1: env OPENROUTER_API_KEY ter-set → sukses DENGAN catatan prioritas env', async () => {
+test('kontrak #1: env OPENROUTER_API_KEY ter-set → sukses DENGAN catatan (credential tersimpan diutamakan, env cadangan)', async () => {
   const h = loginHarness()
   const env = { ...h.deps.env, OPENROUTER_API_KEY: 'env-key-x' }
   expect(await runOauthLogin({ ...h.deps, env })).toBe(0)
@@ -215,15 +215,20 @@ test('kontrak #1: env OPENROUTER_API_KEY ter-set → sukses DENGAN catatan prior
   expect(h.all()).toContain('OPENROUTER_API_KEY')
 })
 
-test('kontrak #1 resolusi: env menang atas credential (resolveModel), credential saja → credential', async () => {
+test('kontrak #1 resolusi: credential tersimpan menang atas env (resolveModel); env hanya cadangan', async () => {
   const home = mkdtempSync(join(tmpdir(), 'bccli-oauth-'))
   const env = { BCCLI_HOME: home } as NodeJS.ProcessEnv
   saveCredential('openrouter', 'stored-key', env)
   writeFileSync(globalConfigPath(env), JSON.stringify({ providers: { openrouter: { baseURL: 'https://openrouter.ai/api/v1', apiKeyEnv: 'OPENROUTER_API_KEY' } } }))
   const { loadConfig, resolveModel } = await import('../src/config')
   const cfg = loadConfig(process.cwd(), env)
-  expect(resolveModel(cfg, 'openrouter/x', { ...env, OPENROUTER_API_KEY: 'env-key' }).apiKey).toBe('env-key')
+  expect(resolveModel(cfg, 'openrouter/x', { ...env, OPENROUTER_API_KEY: 'env-key' }).apiKey).toBe('stored-key')
   expect(resolveModel(cfg, 'openrouter/x', env).apiKey).toBe('stored-key')
+  // tanpa credential tersimpan, env dipakai sebagai cadangan
+  const empty = { BCCLI_HOME: mkdtempSync(join(tmpdir(), 'bccli-oauth-')) } as NodeJS.ProcessEnv
+  writeFileSync(globalConfigPath(empty), JSON.stringify({ providers: { openrouter: { baseURL: 'https://openrouter.ai/api/v1', apiKeyEnv: 'OPENROUTER_API_KEY' } } }))
+  const cfg2 = loadConfig(process.cwd(), empty)
+  expect(resolveModel(cfg2, 'openrouter/x', { ...empty, OPENROUTER_API_KEY: 'env-key' }).apiKey).toBe('env-key')
 })
 
 test('kontrak #2 timeout: pesan timeout, credential lama utuh', async () => {
