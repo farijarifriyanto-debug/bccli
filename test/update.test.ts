@@ -39,6 +39,27 @@ test('checkForUpdate writes the cache and returns a notice only when newer', asy
   expect(cache.latest).toBe('9.9.9-beta.1')
 })
 
+test('notice is displayed once per npm release and returns for the next release', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'bccli-once-'))
+  const release = (v: string) => (async () => new Response(JSON.stringify({ latest: v, next: v }))) as typeof fetch
+  const first = new Date('2026-10-16T00:00:00Z')
+  expect(await checkForUpdate({ home, fetch: release('9.9.9-beta.1'), now: first })).toContain('9.9.9-beta.1')
+  const stored = JSON.parse(readFileSync(join(home, 'update-check.json'), 'utf8'))
+  expect(stored.notified).toBe('9.9.9-beta.1')
+  const neverFetch = (async () => { throw Error('Cache should avoid a second network request') }) as typeof fetch
+  expect(await checkForUpdate({ home, fetch: neverFetch, now: new Date('2026-10-16T01:00:00Z') })).toBeUndefined()
+  expect(await checkForUpdate({ home, fetch: release('9.9.9-beta.1'), now: new Date('2026-10-18T00:00:00Z') })).toBeUndefined()
+  expect(await checkForUpdate({ home, fetch: release('9.9.9-beta.2'), now: new Date('2026-10-20T00:00:00Z') })).toContain('9.9.9-beta.2')
+  expect(await checkForUpdate({ home, fetch: neverFetch, now: new Date('2026-10-20T01:00:00Z') })).toBeUndefined()
+})
+
+test('invalid registry version cannot inject terminal control bytes', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'bccli-reject-ver-'))
+  const malicious = '9.9.9-beta.4\\u001b[2J'.replace('\\u001b', '\\x1b')
+  const fetchUnsafe = (async () => new Response(JSON.stringify({ latest: malicious, next: malicious }))) as typeof fetch
+  expect(await checkForUpdate({ home, fetch: fetchUnsafe, now: new Date() })).toBeUndefined()
+})
+
 test('checkForUpdate reuses a fresh cache without fetching', async () => {
   const home = mkdtempSync(join(tmpdir(), 'bccli-upd3-'))
   const now = new Date('2026-10-07T12:00:00Z')
