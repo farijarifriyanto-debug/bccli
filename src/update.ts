@@ -119,8 +119,9 @@ export function updateSpawnCommand(
   version: string,
   platform: NodeJS.Platform = process.platform,
   nodeExecPath: string = process.execPath,
+  targetVersion?: string,
 ): { command: string; args: string[]; npmCli?: string } {
-  const spec = `@botconnector/bccli@${channelFor(version)}`
+  const spec = `@botconnector/bccli@${targetVersion ?? channelFor(version)}`
   if (platform !== 'win32') return { command: 'npm', args: ['i', '-g', spec] }
   // Node 24+ does not permit direct spawnSync('npm.cmd') on Windows (EINVAL).
   // Execute the npm JS entrypoint using this Node executable without a shell.
@@ -133,8 +134,29 @@ export async function runUpdateCommand(deps: {
   spawn?: typeof spawnSync
   platform?: NodeJS.Platform
   nodeExecPath?: string
+  fetch?: typeof fetch
 }): Promise<number> {
-  const spec = updateSpawnCommand(deps.env.BCCLI_VERSION_OVERRIDE ?? VERSION, deps.platform, deps.nodeExecPath)
+  const current = deps.env.BCCLI_VERSION_OVERRIDE ?? VERSION
+  let target: string
+  try {
+    const response = await (deps.fetch ?? fetch)(REGISTRY_URL, {
+      signal: AbortSignal.timeout(8000),
+      cache: 'no-store',
+      headers: { 'cache-control': 'no-cache' },
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const tags = (await response.json()) as Record<string, string>
+    target = tags[channelFor(current)]
+    if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(target ?? '')) throw new Error('invalid registry version')
+  } catch (error) {
+    console.error(`Could not verify BCCLI update version: ${String(error)}. No changes made.`)
+    return 1
+  }
+  if (compareVersions(target, current) <= 0) {
+    console.log(`BCCLI ${current} is already up to date (registry: ${target}); no changes made.`)
+    return 0
+  }
+  const spec = updateSpawnCommand(current, deps.platform, deps.nodeExecPath, target)
   if (spec.npmCli && !existsSync(spec.npmCli)) {
     console.error(`npm CLI was not found at ${spec.npmCli}. Update manually with: npm install -g @botconnector/bccli@${channelFor(deps.env.BCCLI_VERSION_OVERRIDE ?? VERSION)}`)
     return 1
