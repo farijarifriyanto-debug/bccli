@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { t } from './i18n'
 import { VERSION } from './version'
 
@@ -115,11 +115,31 @@ export async function checkForUpdate(deps: { home: string; fetch: typeof fetch; 
   }
 }
 
-export async function runUpdateCommand(deps: { env: NodeJS.ProcessEnv; spawn?: typeof spawnSync }): Promise<number> {
-  const version = deps.env.BCCLI_VERSION_OVERRIDE ?? VERSION
+export function updateSpawnCommand(
+  version: string,
+  platform: NodeJS.Platform = process.platform,
+  nodeExecPath: string = process.execPath,
+): { command: string; args: string[]; npmCli?: string } {
   const spec = `@botconnector/bccli@${channelFor(version)}`
-  const spawnFn = deps.spawn ?? spawnSync
-  const cmd = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-  const r = spawnFn(cmd, ['i', '-g', spec], { stdio: 'inherit', env: deps.env })
+  if (platform !== 'win32') return { command: 'npm', args: ['i', '-g', spec] }
+  // Node 24+ does not permit direct spawnSync('npm.cmd') on Windows (EINVAL).
+  // Execute the npm JS entrypoint using this Node executable without a shell.
+  const npmCli = join(dirname(nodeExecPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')
+  return { command: nodeExecPath, args: [npmCli, 'i', '-g', spec], npmCli }
+}
+
+export async function runUpdateCommand(deps: {
+  env: NodeJS.ProcessEnv
+  spawn?: typeof spawnSync
+  platform?: NodeJS.Platform
+  nodeExecPath?: string
+}): Promise<number> {
+  const spec = updateSpawnCommand(deps.env.BCCLI_VERSION_OVERRIDE ?? VERSION, deps.platform, deps.nodeExecPath)
+  if (spec.npmCli && !existsSync(spec.npmCli)) {
+    console.error(`npm CLI was not found at ${spec.npmCli}. Update manually with: npm install -g @botconnector/bccli@${channelFor(deps.env.BCCLI_VERSION_OVERRIDE ?? VERSION)}`)
+    return 1
+  }
+  const r = (deps.spawn ?? spawnSync)(spec.command, spec.args, { stdio: 'inherit', env: deps.env, shell: false })
+  if (r.error) console.error(`BCCLI update failed: ${r.error.message}. Try: npm install -g @botconnector/bccli@${channelFor(deps.env.BCCLI_VERSION_OVERRIDE ?? VERSION)}`)
   return typeof r.status === 'number' ? r.status : 1
 }
