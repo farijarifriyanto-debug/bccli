@@ -146,17 +146,18 @@ async function main(): Promise<number> {
     }
   }
   if (!process.stdin.isTTY) throw new ConfigError(t('Interactive mode needs a terminal. For scripts/CI use: bccli -p "task"'))
+  let updateMessage: string | undefined
   if (rt.config.updateCheck !== 'off' && !process.env.BCCLI_NO_UPDATE_CHECK) {
     try {
       const { checkForUpdate } = await import('./update')
       const update = await checkForUpdate({ home: rt.home, fetch: globalThis.fetch, now: new Date() })
-      if (update) console.error(update)
+      updateMessage = update
     } catch {
       // update checks are best effort and must never block startup
     }
   }
   const { startInteractive } = await import('./ui/index')
-  return startInteractive(rt, { initialPrompt: args.prompt, resume: args.resume, version: VERSION })
+  return startInteractive(rt, { initialPrompt: args.prompt, resume: args.resume, version: VERSION, updateMessage })
 }
 
 main().then(

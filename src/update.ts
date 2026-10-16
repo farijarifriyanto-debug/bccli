@@ -10,6 +10,7 @@ const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
 export interface UpdateCache {
   checkedAt: string
   latest?: string
+  notified?: string
 }
 
 function splitVersion(v: string): { core: number[]; pre: string[] } {
@@ -82,21 +83,33 @@ export function dueForCheck(cache: UpdateCache | undefined, now: Date, intervalM
 }
 
 export function updateNotice(current: string, latest: string | undefined): string | undefined {
-  if (!latest || compareVersions(current, latest) >= 0) return undefined
+  // Registry/cache content is external data. Never render arbitrary escape codes
+  // or unbounded text in the operator's terminal.
+  if (!latest || latest.length > 64 || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(latest) || compareVersions(current, latest) >= 0) return undefined
   return t('A new bccli is available: {latest} (you have {current}). Run: bccli update', { latest, current })
+}
+
+function notifyOnce(home: string, cache: UpdateCache | undefined): string | undefined {
+  const message = updateNotice(VERSION, cache?.latest)
+  if (!message || !cache?.latest || cache.notified === cache.latest) return undefined
+  // Acknowledgement belongs to this exact release, not the notification time.
+  // Notification is embedded into the Ink transcript; no stderr flash before UI.
+  writeCache(home, { ...cache, notified: cache.latest })
+  return message
 }
 
 /** Best-effort registry check with a 24h cache; never throws, never blocks startup for long. */
 export async function checkForUpdate(deps: { home: string; fetch: typeof fetch; now: Date; timeoutMs?: number }): Promise<string | undefined> {
   try {
     const cached = readCache(deps.home)
-    if (!dueForCheck(cached, deps.now)) return updateNotice(VERSION, cached?.latest)
+    if (!dueForCheck(cached, deps.now)) return notifyOnce(deps.home, cached)
     const res = await deps.fetch(REGISTRY_URL, { signal: AbortSignal.timeout(deps.timeoutMs ?? 3000) })
-    if (!res.ok) return updateNotice(VERSION, cached?.latest)
+    if (!res.ok) return notifyOnce(deps.home, cached)
     const tags = (await res.json()) as Record<string, string>
     const latest = tags[channelFor(VERSION)] ?? tags.latest
-    writeCache(deps.home, { checkedAt: deps.now.toISOString(), latest })
-    return updateNotice(VERSION, latest)
+    const updated: UpdateCache = { checkedAt: deps.now.toISOString(), latest, notified: cached?.notified }
+    writeCache(deps.home, updated)
+    return notifyOnce(deps.home, updated)
   } catch {
     return undefined
   }
