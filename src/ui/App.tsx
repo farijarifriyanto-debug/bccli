@@ -72,11 +72,11 @@ const INIT_PROMPT =
 
 const labelFor = (runtime: Runtime, ref: string) => `${ref.slice(ref.indexOf('/') + 1)} · ${runtime.providerLabel()}`
 
-export function App({ runtime, initialPrompt, version }: { runtime: Runtime; initialPrompt?: string; version: string }) {
+export function App({ runtime, initialPrompt, version, updateMessage }: { runtime: Runtime; initialPrompt?: string; version: string; updateMessage?: string }) {
   const { exit } = useApp()
   // bccli -c / -r load a saved conversation before the screen exists: show it, not only the header.
   const [transcript, setTranscript] = useState<Transcript>(() => ({
-    done: [entry({ kind: 'header' }), ...(runtime.agent.messages.length ? replayEntries(runtime.session.loadHistory()) : [])],
+    done: [entry({ kind: 'header' }), ...(updateMessage ? [entry({ kind: 'notice', text: updateMessage, tone: 'warn' })] : []), ...(runtime.agent.messages.length ? replayEntries(runtime.session.loadHistory()) : [])],
     live: [],
   }))
   const [busy, setBusy] = useState(false)
