@@ -60,6 +60,17 @@ test('full turn: read, edit with permission prompt, final answer', async () => {
   expect(all).toContain('Sudah diganti.')
 })
 
+test('a new BCCLI release is visible inside the Ink UI without blocking input', async () => {
+  const rt = makeRuntime([])
+  const message = 'bccli versi baru tersedia: 0.4.0-beta.53. Jalankan: bccli update'
+  const { lastFrame } = render(<App runtime={rt} version="0.4.0-beta.52" updateMessage={message} />)
+  await wait()
+  expect(lastFrame()).toContain('BCCLI 0.4.0-beta.52')
+  expect(lastFrame()).toContain(message)
+  expect(lastFrame()).toContain('bccli update')
+  expect(lastFrame()).toContain('>')
+})
+
 test('shift+tab cycles the permission mode', async () => {
   const rt = makeRuntime([])
   const { stdin, lastFrame } = render(<App runtime={rt} version="test" />)
