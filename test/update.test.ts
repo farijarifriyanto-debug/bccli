@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { ConfigError, loadConfig } from '../src/config'
-import { channelFor, checkForUpdate, compareVersions, dueForCheck, runUpdateCommand, updateNotice } from '../src/update'
+import { channelFor, checkForUpdate, compareVersions, dueForCheck, runUpdateCommand, updateNotice, updateSpawnCommand } from '../src/update'
 
 test('compareVersions orders cores numerically and prereleases below releases', () => {
   expect(compareVersions('0.4.0-beta.38', '0.4.0-beta.39')).toBeLessThan(0)
@@ -88,15 +88,28 @@ test('updateNotice is undefined when not newer', () => {
   expect(updateNotice('9.9.9', '0.1.0')).toBeUndefined()
 })
 
+test('Windows Node 24 updater executes npm-cli.js via Node, never npm.cmd or shell', () => {
+  const nodePath = process.execPath
+  const chosen = updateSpawnCommand('0.4.0-beta.53', 'win32', nodePath)
+  expect(chosen.command).toBe(nodePath)
+  expect(chosen.args[0]).toMatch(/npm-cli\.js$/)
+  expect(chosen.args.slice(1)).toEqual(['i', '-g', '@botconnector/bccli@next'])
+  expect(chosen.args.join(' ')).not.toContain('npm.cmd')
+  const stable = updateSpawnCommand('0.4.0', 'win32', nodePath)
+  expect(stable.args).toContain('@botconnector/bccli@latest')
+  const linux = updateSpawnCommand('0.4.0-beta.53', 'linux', nodePath)
+  expect(linux).toEqual({ command: 'npm', args: ['i', '-g', '@botconnector/bccli@next'] })
+})
+
 test('runUpdateCommand installs from npm on the channel of the running version', async () => {
   const calls: { cmd: string; args: string[] }[] = []
   const fakeSpawn = ((cmd: string, args: string[]) => {
     calls.push({ cmd, args })
     return { status: 0 }
   }) as never
-  expect(await runUpdateCommand({ env: { BCCLI_VERSION_OVERRIDE: '0.4.0-beta.38' }, spawn: fakeSpawn })).toBe(0)
+  expect(await runUpdateCommand({ env: { BCCLI_VERSION_OVERRIDE: '0.4.0-beta.38' }, platform: 'linux', spawn: fakeSpawn })).toBe(0)
   expect(calls[0]!.args).toContain('@botconnector/bccli@next')
-  expect(await runUpdateCommand({ env: { BCCLI_VERSION_OVERRIDE: '0.4.0' }, spawn: fakeSpawn })).toBe(0)
+  expect(await runUpdateCommand({ env: { BCCLI_VERSION_OVERRIDE: '0.4.0' }, platform: 'linux', spawn: fakeSpawn })).toBe(0)
   expect(calls[1]!.args).toContain('@botconnector/bccli@latest')
 })
 
