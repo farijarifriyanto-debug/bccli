@@ -101,16 +101,23 @@ test('Windows Node 24 updater executes npm-cli.js via Node, never npm.cmd or she
   expect(linux).toEqual({ command: 'npm', args: ['i', '-g', '@botconnector/bccli@next'] })
 })
 
-test('runUpdateCommand installs from npm on the channel of the running version', async () => {
+test('runUpdateCommand pins a verified newer release, never cached dist-tag', async () => {
   const calls: { cmd: string; args: string[] }[] = []
-  const fakeSpawn = ((cmd: string, args: string[]) => {
+  const spawn = ((cmd: string, args: string[]) => {
     calls.push({ cmd, args })
     return { status: 0 }
   }) as never
-  expect(await runUpdateCommand({ env: { BCCLI_VERSION_OVERRIDE: '0.4.0-beta.38' }, platform: 'linux', spawn: fakeSpawn })).toBe(0)
-  expect(calls[0]!.args).toContain('@botconnector/bccli@next')
-  expect(await runUpdateCommand({ env: { BCCLI_VERSION_OVERRIDE: '0.4.0' }, platform: 'linux', spawn: fakeSpawn })).toBe(0)
-  expect(calls[1]!.args).toContain('@botconnector/bccli@latest')
+  const registry = (version: string) => (async () =>
+    new Response(JSON.stringify({ next: version, latest: version }))) as typeof fetch
+  const env = { BCCLI_VERSION_OVERRIDE: '0.4.0-beta.54' }
+  expect(await runUpdateCommand({ env, platform: 'linux', spawn, fetch: registry('0.4.0-beta.53') })).toBe(0)
+  expect(calls).toHaveLength(0)
+  expect(await runUpdateCommand({ env, platform: 'linux', spawn, fetch: registry('0.4.0-beta.54') })).toBe(0)
+  expect(calls).toHaveLength(0)
+  expect(await runUpdateCommand({ env, platform: 'linux', spawn, fetch: registry('0.4.0-beta.55') })).toBe(0)
+  expect(calls[0]!.args).toContain('@botconnector/bccli@0.4.0-beta.55')
+  expect(await runUpdateCommand({ env, platform: 'linux', spawn, fetch: (async () => { throw Error('offline') }) as typeof fetch })).toBe(1)
+  expect(calls).toHaveLength(1)
 })
 
 test('updateCheck config accepts "on"/"off" only, from the global config', () => {
