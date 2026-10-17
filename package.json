@@ -20,7 +20,7 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "lint": "biome lint src test",
+    "lint": "biome lint --error-on-warnings src test",
     "test": "vitest run"
   },
   "dependencies": {
@@ -51,12 +51,19 @@
   "exports": {
     ".": "./dist/sdk.js"
   },
-  "directories": {
-    "doc": "docs",
-    "test": "test"
-  },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "bccli",
+    "ai",
+    "coding-agent",
+    "agent",
+    "cli",
+    "tui",
+    "terminal",
+    "mcp",
+    "openai",
+    "indonesia"
+  ],
+  "author": "BotConnector (https://botconnector.id)",
   "bugs": {
     "url": "https://github.com/farijarifriyanto-debug/bccli/issues"
   },

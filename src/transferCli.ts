@@ -23,7 +23,7 @@ export function runExportCommand(args: TransferCliArgs, deps: TransferDeps): num
   const first = (args.subArgs[0] ?? '').trim()
   let source: string | undefined
   let dest: string | undefined
-  if (first && first.endsWith('.jsonl') && existsSync(first) && statSync(first).isFile()) {
+  if (first.endsWith('.jsonl') && existsSync(first) && statSync(first).isFile()) {
     source = first
     dest = args.subArgs[1]
   } else {
