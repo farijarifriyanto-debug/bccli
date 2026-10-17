@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { ConfigError } from '../config'
+import { ConfigError, writeFileAtomic } from '../config'
 import { t } from '../i18n'
 
 export type McpServerConfig =
@@ -55,11 +55,11 @@ function readJson<T>(path: string, fallback: T): T {
   }
 }
 
-// Holds tokens (e.g. GitHub PAT), so owner-only.
+// Holds tokens (e.g. GitHub PAT), so owner-only and written atomically (a torn write
+// would drop every server entry).
 function writePrivate(path: string, data: unknown): void {
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 })
-  chmodSync(path, 0o600)
+  writeFileAtomic(path, `${JSON.stringify(data, null, 2)}\n`, 0o600)
 }
 
 export function readMcpFile(path: string): Record<string, McpServerConfig> {

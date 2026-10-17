@@ -37,8 +37,19 @@ function isAlwaysAsk(segment: string): boolean {
   return false
 }
 
+// Runners execute whatever script or entry point they are pointed at, so the grant key
+// must include it: approving `npm run build` must not cover a later `npm run deploy`, or
+// a script added to package.json after the approval (TOCTOU).
+const RUNNER_COMMANDS = new Set([
+  'npm', 'npx', 'pnpm', 'pnpx', 'yarn', 'bun', 'bunx', 'deno', 'node', 'tsx', 'ts-node',
+  'python', 'python3', 'py', 'uv', 'uvx', 'pip', 'pip3', 'pipx', 'pytest',
+  'make', 'cargo', 'go', 'dotnet', 'java', 'ruby', 'bundle', 'rake', 'gradle', 'mvn', 'php', 'composer',
+])
+
 function commandKey(segment: string): string {
   const words = segment.trim().split(/\s+/)
+  // The third word is the script/entry point; flags (`npm test -- auth`) are not part of the key.
+  if (RUNNER_COMMANDS.has(words[0] ?? '') && words[2] && !words[2].startsWith('-')) return words.slice(0, 3).join(' ')
   return words[1] ? `${words[0]} ${words[1]}` : words[0]
 }
 

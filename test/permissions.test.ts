@@ -122,6 +122,21 @@ test('session grants use the first two words, not just the first', () => {
   expect(p.check(bash('ls /etc'))).toBe('ask')
 })
 
+test('runner grants include the script, so approving npm run build never grants npm run deploy', () => {
+  const p = new Permissions('default')
+  p.allowForSession(bash('npm run build'))
+  expect(p.rulesFor(bash('npm run build'))).toEqual(['bash(npm run build)'])
+  expect(p.check(bash('npm run build'))).toBe('allow')
+  expect(p.check(bash('npm run build -- --watch'))).toBe('allow')
+  expect(p.check(bash('npm run deploy'))).toBe('ask')
+  p.allowForSession(bash('python train.py'))
+  expect(p.check(bash('python train.py --epochs 3'))).toBe('allow')
+  expect(p.check(bash('python eval.py'))).toBe('ask')
+  p.allowForSession(bash('node dist/cli.js'))
+  expect(p.check(bash('node dist/cli.js -p hi'))).toBe('allow')
+  expect(p.check(bash('node other.js'))).toBe('ask')
+})
+
 test('dangerous commands are never grantable for the session', () => {
   const p = new Permissions('default')
   const dangerous = [

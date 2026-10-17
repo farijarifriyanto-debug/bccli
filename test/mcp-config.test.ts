@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
@@ -45,6 +45,14 @@ test('project servers need trust; decisions are remembered per folder', () => {
   expect(plan.start.map((s) => s.name)).toEqual(['fetch'])
   setProjectTrust(home, cwd, 'evil', true, evil.config)
   expect(serversToStart(home, cwd).start.map((s) => `${s.name}:${s.source}`)).toEqual(['fetch:global', 'evil:project'])
+})
+
+test('global servers are written atomically (no .tmp leftovers after two updates)', () => {
+  const { home } = dirs()
+  addGlobalServer(home, 'fetch', { command: 'uvx', args: ['mcp-server-fetch'] })
+  addGlobalServer(home, 'git', { command: 'uvx', args: ['mcp-server-git'] })
+  expect(readdirSync(home).filter((f) => f.includes('.tmp'))).toEqual([])
+  expect(Object.keys(readMcpFile(join(home, 'mcp.json'))).sort()).toEqual(['fetch', 'git'])
 })
 
 test('changing an approved project server command asks again', () => {
