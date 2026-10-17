@@ -21,8 +21,17 @@ jobs:
       - run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
       - run: npm run typecheck
       - run: npm run lint
+      - run: npm audit --omit=dev --audit-level=high
+      # Build before the tests: test/mcpServeStdio.test.ts skips itself when dist/cli.js
+      # is missing, so testing first would leave the bundle untested on a clean checkout.
+      - run: npm run build
       - run: npm test
       - if: runner.os == 'Linux'
         run: BCCLI_E2E_MCP=1 npx vitest run test/e2e-mcp.test.ts
-      - run: npm run build
-      - run: node dist/cli.js --version
+      # Smoke the built binary offline: the bundle, the completion output and two
+      # subcommands that only read local state (hermetic BCCLI_HOME).
+      - run: |
+          node dist/cli.js --version
+          node dist/cli.js completion bash > /dev/null
+          BCCLI_HOME="$RUNNER_TEMP/bccli-smoke" node dist/cli.js mcp list
+          BCCLI_HOME="$RUNNER_TEMP/bccli-smoke" node dist/cli.js stats

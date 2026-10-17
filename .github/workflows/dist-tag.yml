@@ -1,0 +1,84 @@
+name: dist-tag
+
+# Maintenance tool: point a dist-tag (e.g. `next`) at a published version, or drop it,
+# without any npm token leaving GitHub. Used to move `next` to the stable 0.4.0 so
+# everyone on the beta line is offered the stable update.
+#
+#   gh workflow run dist-tag.yml -f tag=next -f version=0.4.0
+#   gh workflow run dist-tag.yml -f action=rm -f tag=next
+#
+# The registry propagates a tag change asynchronously (its own notices say "may take a
+# few minutes"), so the verify step polls instead of filing a false failure.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'add (point the tag at a version) or rm (remove the tag)'
+        required: true
+        default: add
+        type: choice
+        options: ['add', 'rm']
+      tag:
+        description: 'Dist-tag name, for example next'
+        required: true
+      version:
+        description: 'Version for add, for example 0.4.0 (ignored by rm)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  dist-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: npm dist-tag
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BBCLI || secrets.NPM_TOKEN }}
+          ACTION: ${{ inputs.action }}
+          TAG: ${{ inputs.tag }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          [ -n "$NODE_AUTH_TOKEN" ] || { echo "::error::no npm token secret is configured"; exit 1; }
+          case "$TAG" in
+            '' | *[!a-z0-9-]*) echo "::error::tag must match [a-z0-9-]+ (got '$TAG')"; exit 1 ;;
+          esac
+          if [ "$ACTION" = rm ]; then
+            npm dist-tag rm "@botconnector/bccli" "$TAG"
+          else
+            [ -n "$VERSION" ] || { echo "::error::version is required for add"; exit 1; }
+            npm dist-tag add "@botconnector/bccli@$VERSION" "$TAG"
+          fi
+      - name: Verify the registry actually changed (asynchronous, so poll)
+        env:
+          ACTION: ${{ inputs.action }}
+          TAG: ${{ inputs.tag }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          cat > "$RUNNER_TEMP/tag-matches.mjs" <<'EOF'
+          const res = await fetch(`https://registry.npmjs.org/@botconnector%2Fbccli?t=${Date.now()}`)
+          const json = await res.json()
+          const actual = json['dist-tags']?.[process.env.TAG] ?? ''
+          process.exit(actual === (process.env.EXPECTED ?? '') ? 0 : 1)
+          EOF
+          if [ "$ACTION" = rm ]; then
+            export EXPECTED=''
+          else
+            export EXPECTED="$VERSION"
+          fi
+          for attempt in $(seq 1 12); do
+            if node "$RUNNER_TEMP/tag-matches.mjs"; then
+              echo "OK: dist-tag $TAG now points at '${EXPECTED:-<removed>}' (attempt $attempt)"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "--- dist-tags as the registry sees them ---"
+          npm view @botconnector/bccli dist-tags || true
+          echo "::error::dist-tag $TAG did not reach '${EXPECTED:-<removed>}' in 120s"
+          exit 1
