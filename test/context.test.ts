@@ -4,17 +4,20 @@ import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { buildSystemPrompt, loadInstructions } from '../src/context'
 
-test('collects global, then outer-to-inner AGENTS.md / BCCLI.md', () => {
+test('collects global, then outer-to-inner AGENTS.md / CLAUDE.md / BCCLI.md', () => {
   const home = mkdtempSync(join(tmpdir(), 'bccli-h-'))
   const root = mkdtempSync(join(tmpdir(), 'bccli-r-'))
   const inner = join(root, 'pkg')
   mkdirSync(inner)
   writeFileSync(join(home, 'BCCLI.md'), 'GLOBAL')
   writeFileSync(join(root, 'AGENTS.md'), 'OUTER')
+  writeFileSync(join(inner, 'CLAUDE.md'), 'CLAUDE-INNER')
   writeFileSync(join(inner, 'BCCLI.md'), 'INNER')
   const text = loadInstructions(inner, home)
   expect(text.indexOf('GLOBAL')).toBeLessThan(text.indexOf('OUTER'))
-  expect(text.indexOf('OUTER')).toBeLessThan(text.indexOf('INNER'))
+  expect(text.indexOf('OUTER')).toBeLessThan(text.indexOf('CLAUDE-INNER'))
+  // BCCLI.md stays the strongest file inside a folder: it is the product's own instructions.
+  expect(text.indexOf('CLAUDE-INNER')).toBeLessThan(text.indexOf('INNER'))
 })
 
 test('system prompt names the cwd, model, git state and includes instructions', () => {
