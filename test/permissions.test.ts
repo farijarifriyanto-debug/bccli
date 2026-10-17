@@ -5,11 +5,49 @@ const bash = (target: string) => ({ tool: 'bash', kind: 'bash' as const, target 
 const edit = { tool: 'edit', kind: 'edit' as const, target: 'a.ts' }
 const read = { tool: 'read', kind: 'read' as const, target: 'a.ts' }
 
-test('reads are always allowed; default mode asks for the rest', () => {
+test('reads of project files are always allowed; default mode asks for the rest', () => {
   const p = new Permissions('default')
   expect(p.check(read)).toBe('allow')
   expect(p.check(edit)).toBe('ask')
   expect(p.check(bash('ls'))).toBe('ask')
+})
+
+test('reading a secret file asks instead of the silent read default', () => {
+  const p = new Permissions('default', [], '/work/app')
+  const secret = (target: string) => ({ tool: 'read', kind: 'read' as const, target })
+  expect(p.check(secret('/work/app/.env'))).toBe('ask')
+  expect(p.check(secret('.env.production'))).toBe('ask')
+  expect(p.check(secret('/home/u/.ssh/id_rsa'))).toBe('ask')
+  expect(p.check(secret('/home/u/.bccli/credentials'))).toBe('ask')
+  expect(p.check(secret('certs/server.pem'))).toBe('ask')
+  expect(p.check(secret('src/index.ts'))).toBe('allow')
+  expect(p.check(secret('README.md'))).toBe('allow')
+})
+
+test('secret reads ask in every mode that can still ask', () => {
+  const secret = { tool: 'read', kind: 'read' as const, target: '/work/app/.env' }
+  expect(new Permissions('default', [], '/work/app').check(secret)).toBe('ask')
+  expect(new Permissions('acceptEdits', [], '/work/app').check(secret)).toBe('ask')
+  expect(new Permissions('plan', [], '/work/app').check(secret)).toBe('ask')
+})
+
+test('a blanket read grant does not cover secret files', () => {
+  const p = new Permissions('default', ['read'], '/work/app')
+  expect(p.check({ tool: 'read', kind: 'read', target: '/work/app/.env' })).toBe('ask')
+  expect(p.check({ tool: 'read', kind: 'read', target: 'src/index.ts' })).toBe('allow')
+})
+
+test('secret reads are never offered as a session grant', () => {
+  const p = new Permissions('default', [], '/work/app')
+  const secret = { tool: 'read', kind: 'read' as const, target: '/home/u/.ssh/id_rsa' }
+  expect(p.rulesFor(secret)).toBeUndefined()
+  p.allowForSession(secret)
+  expect(p.check(secret)).toBe('ask')
+})
+
+test('allowAll still reads secret files without asking: the user chose that mode explicitly', () => {
+  const secret = { tool: 'read', kind: 'read' as const, target: '/work/app/.env' }
+  expect(new Permissions('allowAll', [], '/work/app').check(secret)).toBe('allow')
 })
 
 test('modes', () => {
