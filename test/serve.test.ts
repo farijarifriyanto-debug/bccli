@@ -3,8 +3,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import WebSocket from 'ws'
-import { startServe } from '../src/serve'
+import { serveBanner, startServe } from '../src/serve'
 import { api, connectMux, isItem, raw, scripted, withServe } from './helpers/serve'
+
+test('banner serve: token dari user tidak ikut dicetak, token acak dicetak', () => {
+  const handle = { url: 'http://127.0.0.1:5555', token: 'secret-token' }
+  // --token / BCCLI_SERVE_TOKEN: user sudah punya nilainya, jangan bocorkan ke log.
+  expect(serveBanner(handle, { token: 'secret-token', env: {} })).toBe('bccli serve http://127.0.0.1:5555\n')
+  expect(serveBanner(handle, { env: { BCCLI_SERVE_TOKEN: 'secret-token' } })).toBe('bccli serve http://127.0.0.1:5555\n')
+  // Token yang dibuat BCCLI sendiri harus tampil supaya user bisa menyambung.
+  expect(serveBanner(handle, { env: {} })).toBe('bccli serve http://127.0.0.1:5555 — Authorization: Bearer secret-token\n')
+})
 
 test('health tanpa token → 200 {ok,version}; /v1/models tanpa token → 401', async () => {
   await withServe(['hi'], async ({ base }) => {

@@ -69,9 +69,9 @@ async function main(): Promise<number> {
     return 0
   }
   if (args.command === 'serve') {
-    const { startServe } = await import('./serve')
+    const { serveBanner, startServe } = await import('./serve')
     const handle = await startServe({ port: args.port, host: args.host, token: args.token, cwd, env: process.env })
-    process.stderr.write(`bccli serve ${handle.url} — Authorization: Bearer ${handle.token}\n`)
+    process.stderr.write(serveBanner(handle, { token: args.token }))
     await new Promise<void>((resolve) => {
       const stop = (): void => {
         void handle.close().finally(resolve)
