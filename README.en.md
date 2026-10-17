@@ -19,6 +19,9 @@ edits files, and runs commands — with your permission.
 # one-line install (macOS / Linux / WSL2) — provisions a portable Node if needed, no sudo
 curl -fsSL https://raw.githubusercontent.com/farijarifriyanto-debug/bccli/main/install.sh | bash
 
+# Windows (PowerShell 5.1+) — needs Node.js 22+ already installed
+irm https://raw.githubusercontent.com/farijarifriyanto-debug/bccli/main/install.ps1 | iex
+
 # or manual, if you already have Node.js 22+
 npm i -g @botconnector/bccli        # latest stable, requires Node.js 22+
 npm i -g @botconnector/bccli@next   # …or the next prerelease
@@ -53,13 +56,18 @@ In-session commands (type `/` for suggestions, ↑↓ to select, Enter to run):
 | `/session` | info about this session |
 | `/status` | version, model, permission mode, MCP, context |
 | `/permissions` | view/revoke permissions |
+| `/pr` | review a pull request (`/pr <n\|url\|branch>`) |
+| `/worktree` | list git worktrees; create one with `bccli -w <name>` |
 | `/undo` | undo the last file-edit turn |
+| `/redo` | re-apply the file edits that /undo just reverted |
+| `/rewind` | step back turns: conversation + file edits (`/rewind 2`) |
 | `/diff` | git diff of the project |
 | `/copy` | copy the last answer |
 | `/export` | save the conversation to markdown |
 | `/memory` | project instructions (/memory <text>, /memory global <text>) |
 | `/init` | create/update AGENTS.md for this project |
 | `/agents` | list subagents |
+| `/tasks` | list background tasks |
 | `/skills` | list skills and custom commands |
 | `/doctor` | check installation health |
 | `/login` | store the active provider's API key |
@@ -124,6 +132,8 @@ contract supports them; unsupported levels produce a clear error instead of a si
 the `reasoning` preference is read only from the user config `~/.bccli/config.json`, never from a
 cloned repo — permissions (`permissionMode`, `allow`) and existing providers are configured only
 from `~/.bccli/config.json`, so a cloned repo cannot grant itself full permissions or steal API keys.
+
+Every key of `~/.bccli/config.json` with its values and scope: [`docs/config.md`](docs/config.md).
 
 ## External agent integrations
 
