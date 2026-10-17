@@ -18,7 +18,7 @@
   },
   "license": "MIT",
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "biome lint --error-on-warnings src test",
     "test": "vitest run",
@@ -50,8 +50,12 @@
     "esbuild": "0.28.2"
   },
   "main": "dist/sdk.js",
+  "types": "dist/sdk.d.ts",
   "exports": {
-    ".": "./dist/sdk.js"
+    ".": {
+      "types": "./dist/sdk.d.ts",
+      "default": "./dist/sdk.js"
+    }
   },
   "keywords": [
     "bccli",
