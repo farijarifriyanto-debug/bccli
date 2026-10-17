@@ -15,6 +15,7 @@ git clone https://github.com/farijarifriyanto-debug/bccli.git
 cd bccli
 npm install
 npm test && npm run typecheck && npm run lint && npm run build
+npm run coverage   # gerbang coverage (juga dijalankan di CI Linux)
 ```
 
 Rilis: naikkan `version` di `package.json`, push tag `v<versi>` — CI menjalankan test, smoke test ke BotConnector Cloud, dan `npm publish --provenance`.

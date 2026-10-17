@@ -235,9 +235,10 @@ Instruksi project dibaca dari `AGENTS.md` dan `BCCLI.md`.
 ```bash
 npm install
 npm test && npm run typecheck && npm run lint && npm run build
+npm run coverage   # gerbang coverage (juga dijalankan di CI Linux)
 ```
 
-CI (`ci.yml`) menjalankan hal yang sama di Linux, macOS, dan Windows.
+CI (`ci.yml`) menjalankan hal yang sama di Linux, macOS, dan Windows, plus gerbang coverage di Linux.
 Rilis: naikkan `version` di `package.json`, lalu push tag `v<version>` — `release.yml`
 menjalankan test, smoke test ke BotConnector Cloud, dan `npm publish --provenance`.
 

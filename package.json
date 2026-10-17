@@ -21,7 +21,8 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "lint": "biome lint --error-on-warnings src test",
-    "test": "vitest run"
+    "test": "vitest run",
+    "coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
@@ -39,6 +40,7 @@
     "@types/node": "^26.6.3",
     "@types/react": "^19.3.0",
     "@types/ws": "^8.18.2",
+    "@vitest/coverage-v8": "^5.0.5",
     "ink-testing-library": "^4.0.0",
     "tsup": "^9.0.0",
     "typescript": "^7.0.2",
