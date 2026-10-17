@@ -2,9 +2,9 @@
 
 [English](README.en.md) · **Bahasa Indonesia**
 
-[![npm](https://img.shields.io/npm/v/@botconnector/bccli/next?label=@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli?activeTab=versions)
+[![npm](https://img.shields.io/npm/v/@botconnector/bccli?label=@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli?activeTab=versions)
 [![npm downloads](https://img.shields.io/npm/dm/@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli)
-[![Node.js](https://img.shields.io/node/v/@botconnector/bccli/next?label=Node.js)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/node/v/@botconnector/bccli?label=Node.js)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Website](https://img.shields.io/badge/website-botconnector.id-06305A)](https://botconnector.id/id/download)
 
@@ -20,8 +20,9 @@ edits files, and runs commands — with your permission.
 curl -fsSL https://raw.githubusercontent.com/farijarifriyanto-debug/bccli/main/install.sh | bash
 
 # or manual, if you already have Node.js 22+
-npm i -g @botconnector/bccli@next    # latest beta, requires Node.js 22+
-bccli login                     # store your BotConnector Cloud API key
+npm i -g @botconnector/bccli        # latest stable, requires Node.js 22+
+npm i -g @botconnector/bccli@next   # …or the next prerelease
+bccli login                         # store your BotConnector Cloud API key
 cd your-project && bccli
 ```
 
@@ -188,7 +189,7 @@ A `.bccli/mcp.json` inside a repo is not executed until you approve it (asked on
 hosts. Requires `bccli login` (or `BOTCONNECTOR_API_KEY`):
 
 ```bash
-claude mcp add botconnector -- npx -y @botconnector/bccli@next mcp serve
+claude mcp add botconnector -- npx -y @botconnector/bccli mcp serve
 ```
 
 ## Subagents
