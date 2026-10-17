@@ -30,7 +30,9 @@ export function createSaveMemoryTool(opts: SaveMemoryOptions): ReturnType<typeof
       scope: z.enum(['project', 'global']).optional().describe('project (default) or global'),
     }),
     kind: 'edit',
-    target: (input) => `${input.scope ?? 'project'} memory`,
+    // The target is what the prompt shows and what the permission model judges: the
+    // global store really lives outside the project, so it must not look like one.
+    target: (input) => (input.scope === 'global' ? join(opts.home, 'BCCLI.md') : 'AGENTS.md'),
     async run(input, ctx: ToolContext) {
       const content = input.content.trim()
       if (!content) return { output: 'Memory content is empty.', isError: true }

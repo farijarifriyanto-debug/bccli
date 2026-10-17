@@ -122,7 +122,10 @@ async function main(): Promise<number> {
   }
   if (args.command === 'pr') {
     const { runPrCommand } = await import('./prCli')
-    return runPrCommand({ subArgs: args.subArgs, cwd }, { out: (s) => console.log(s), err: (s) => console.error(s) })
+    return runPrCommand(
+      { subArgs: args.subArgs, cwd, allowAll: args.allowAll },
+      { out: (s) => console.log(s), err: (s) => console.error(s) },
+    )
   }
   const rt = createRuntime({ cwd, args })
   setTheme(rt.config.theme)

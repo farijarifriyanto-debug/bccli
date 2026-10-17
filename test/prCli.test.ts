@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { runPrCommand } from '../src/prCli'
+import { prTaskArgv, runPrCommand } from '../src/prCli'
 
 function fakeGh(calls: string[][]) {
   return async (argv: string[]): Promise<{ code: number; stdout: string; stderr: string }> => {
@@ -10,7 +10,7 @@ function fakeGh(calls: string[][]) {
   }
 }
 
-test('pr checks out the PR with gh pr checkout', async () => {
+test('pr checks out the PR with gh pr checkout and does not allow every tool', async () => {
   const calls: string[][] = []
   const ran: { prompt?: string; allowAll?: boolean }[] = []
   const code = await runPrCommand(
@@ -28,7 +28,59 @@ test('pr checks out the PR with gh pr checkout', async () => {
   expect(code).toBe(0)
   expect(calls[0]).toEqual(['pr', 'checkout', '42'])
   expect(ran).toHaveLength(1)
+  expect(ran[0].allowAll).toBe(false)
+})
+
+test('pr allows every tool only when the caller asked with --allow-all', async () => {
+  const ran: { prompt?: string; allowAll?: boolean }[] = []
+  const code = await runPrCommand(
+    { subArgs: ['42', 'fix', 'it'], cwd: '/repo', allowAll: true },
+    {
+      out: () => {},
+      err: () => {},
+      gh: fakeGh([]),
+      runTask: async (opts) => {
+        ran.push(opts)
+        return 0
+      },
+    },
+  )
+  expect(code).toBe(0)
   expect(ran[0].allowAll).toBe(true)
+  expect(ran[0].prompt).toBe('fix it')
+})
+
+test('pr warns on stderr when the task runs with every tool allowed', async () => {
+  const errs: string[] = []
+  await runPrCommand(
+    { subArgs: ['42'], cwd: '/repo', allowAll: true },
+    { out: () => {}, err: (l) => errs.push(l), gh: fakeGh([]), runTask: async () => 0 },
+  )
+  expect(errs.join('\n')).toMatch(/allow-all/i)
+})
+
+test('pr stays quiet about allow-all when the safe default is used', async () => {
+  const errs: string[] = []
+  await runPrCommand(
+    { subArgs: ['42'], cwd: '/repo' },
+    { out: () => {}, err: (l) => errs.push(l), gh: fakeGh([]), runTask: async () => 0 },
+  )
+  expect(errs.join('\n')).not.toMatch(/allow-all/i)
+})
+
+test('the pr task argv adds --allow-all only when the task is allowed to use every tool', () => {
+  expect(prTaskArgv('/dist/cli.js', { prompt: 'review this', allowAll: false })).toEqual([
+    '/dist/cli.js',
+    '-p',
+    'review this',
+  ])
+  expect(prTaskArgv('/dist/cli.js', { prompt: 'review this', allowAll: true })).toEqual([
+    '/dist/cli.js',
+    '-p',
+    'review this',
+    '--allow-all',
+  ])
+  expect(prTaskArgv('/dist/cli.js', {})).toEqual(['/dist/cli.js'])
 })
 
 test('pr with --repo passes it to gh', async () => {
