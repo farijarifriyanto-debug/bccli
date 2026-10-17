@@ -80,6 +80,60 @@ test('missing API key surfaces as a ConfigError from createRuntime', () => {
   ).toThrow(/bccli login/)
 })
 
+test('--output-format selects a machine-readable format and validates values', () => {
+  expect(parseCliArgs(['-p', 'go', '--output-format', 'json']).outputFormat).toBe('json')
+  expect(parseCliArgs(['-p', 'go', '--output-format', 'stream-json']).outputFormat).toBe('stream-json')
+  expect(parseCliArgs(['-p', 'go']).outputFormat).toBeUndefined()
+  expect(() => parseCliArgs(['-p', 'go', '--output-format', 'xml'])).toThrow(/--output-format/)
+})
+
+test('json mode writes a single JSON object with status, model, and result to stdout', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-pj-'))
+  writeFileSync(join(cwd, 'a.txt'), 'x')
+  const rt = createRuntime({
+    cwd,
+    args: parseCliArgs(['-p', 'go']),
+    env: env(),
+    provider: provider([{ text: '', toolCalls: [{ id: '1', name: 'read', arguments: '{"path":"a.txt"}' }] }, { text: 'selesai', toolCalls: [] }]),
+  })
+  const o = io()
+  expect(await runPrint(rt, 'go', o.io, { outputFormat: 'json' })).toBe(0)
+  const parsed = JSON.parse(o.out.join(''))
+  expect(parsed).toMatchObject({ status: 'ok', model: rt.modelRef, result: 'selesai' })
+  expect(o.err.join('')).toContain('⎿ Read')
+})
+
+test('json mode reports a failed run as status failed', async () => {
+  const rt = createRuntime({ cwd: mkdtempSync(join(tmpdir(), 'bccli-pjf-')), args: parseCliArgs(['-p', 'go']), env: env(), provider: provider([]) })
+  const o = io()
+  expect(await runPrint(rt, 'go', o.io, { outputFormat: 'json' })).toBe(1)
+  const parsed = JSON.parse(o.out.join(''))
+  expect(parsed.status).toBe('failed')
+})
+
+test('stream-json mode writes JSONL events to stdout', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-ps-'))
+  writeFileSync(join(cwd, 'a.txt'), 'x')
+  const rt = createRuntime({
+    cwd,
+    args: parseCliArgs(['-p', 'go']),
+    env: env(),
+    provider: provider([{ text: '', toolCalls: [{ id: '1', name: 'read', arguments: '{"path":"a.txt"}' }] }, { text: 'selesai', toolCalls: [] }]),
+  })
+  const o = io()
+  expect(await runPrint(rt, 'go', o.io, { outputFormat: 'stream-json' })).toBe(0)
+  const events = o.out
+    .join('')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+  expect(events.find((e) => e.type === 'tool_use')).toMatchObject({ tool: 'read', target: 'a.txt' })
+  expect(events.find((e) => e.type === 'tool_result')).toMatchObject({ tool: 'read', isError: false })
+  expect(events.find((e) => e.type === 'message')?.text).toContain('selesai')
+  expect(events.at(-1)).toMatchObject({ type: 'result', status: 'ok', model: rt.modelRef })
+  expect(o.err.join('')).toContain('⎿ Read')
+})
+
 test('resume switches the session file so new messages extend the resumed history', async () => {
   const e = env()
   const cwd = mkdtempSync(join(tmpdir(), 'bccli-r-'))
@@ -90,4 +144,41 @@ test('resume switches the session file so new messages extend the resumed histor
   await runPrint(second, 'kedua', io().io)
   expect(second.session.file).toBe(first.session.file)
   expect(first.session.load().map((m) => m.content)).toEqual(['pertama', 'satu', 'kedua', 'dua'])
+})
+
+test('print mode runs verifyCommands after edits, feeds failures back, and exits 1 when they keep failing', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-pv-'))
+  const home = mkdtempSync(join(tmpdir(), 'bccli-pvh-'))
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ verifyCommands: ['node -e "process.exit(3)"'] }))
+  const steps: Completion[] = [
+    { text: '', toolCalls: [{ id: '1', name: 'write', arguments: '{"path":"a.txt","content":"NEW"}' }] },
+    { text: 'BERES', toolCalls: [] },
+  ]
+  const rt = createRuntime({
+    cwd,
+    args: parseCliArgs(['-p', 'go', '--allow-all']),
+    env: { BCCLI_HOME: home, BOTCONNECTOR_API_KEY: 'k' },
+    provider: provider(steps),
+  })
+  const o = io()
+  expect(await runPrint(rt, 'go', o.io, { allowAll: true })).toBe(1)
+  expect(steps.length).toBe(0) // follow-up terkirim ke model
+  expect(o.err.join('')).toContain('Memverifikasi')
+  expect(o.err.join('')).toContain('process.exit(3)')
+  expect(o.out.join('')).toContain('BERES')
+})
+
+test('print mode skips verifyCommands when nothing was edited', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-pv2-'))
+  const home = mkdtempSync(join(tmpdir(), 'bccli-pv2h-'))
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ verifyCommands: ['node -e "process.exit(3)"'] }))
+  const rt = createRuntime({
+    cwd,
+    args: parseCliArgs(['-p', 'go']),
+    env: { BCCLI_HOME: home, BOTCONNECTOR_API_KEY: 'k' },
+    provider: provider([{ text: 'TEKS_SAJA', toolCalls: [] }]),
+  })
+  const o = io()
+  expect(await runPrint(rt, 'go', o.io)).toBe(0)
+  expect(o.err.join('')).not.toContain('Memverifikasi')
 })

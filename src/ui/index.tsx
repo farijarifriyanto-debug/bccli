@@ -3,7 +3,7 @@ import type { Runtime } from '../setup'
 import { App } from './App'
 import { locale, t } from '../i18n'
 
-export async function startInteractive(rt: Runtime, opts: { initialPrompt?: string; resume: boolean; version: string }): Promise<number> {
+export async function startInteractive(rt: Runtime, opts: { initialPrompt?: string; resume: boolean; version: string; updateMessage?: string }): Promise<number> {
   if (opts.resume) {
     const { Session } = await import('../session')
     const list = Session.list(rt.home, rt.cwd).slice(0, 20)
@@ -33,8 +33,10 @@ export async function startInteractive(rt: Runtime, opts: { initialPrompt?: stri
     }
     rl.close()
   }
-  void rt.startMcp(plan.start)
-  const instance = render(<App runtime={rt} initialPrompt={opts.initialPrompt} version={opts.version} />, { exitOnCtrlC: true })
+  void rt.startMcp(plan.start).catch((error: unknown) => {
+    console.error(t('Could not start MCP servers: {error}', { error: error instanceof Error ? error.message : String(error) }))
+  })
+  const instance = render(<App runtime={rt} initialPrompt={opts.initialPrompt} version={opts.version} updateMessage={opts.updateMessage} />, { exitOnCtrlC: true })
   await instance.waitUntilExit()
   await rt.mcp.stop()
   return 0

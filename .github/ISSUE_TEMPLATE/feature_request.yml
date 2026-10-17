@@ -1,0 +1,31 @@
+name: Feature request
+description: Usulan fitur atau perbaikan BCCLI
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Masalah
+      description: Apa yang sulit atau tidak bisa dilakukan BCCLI sekarang?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Usulan solusi
+      description: Perilaku yang Anda harapkan, dengan contoh penggunaan bila ada.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Jenis
+      options:
+        - Perintah/UX terminal baru
+        - Integrasi provider/model
+        - Integrasi MCP atau tool
+        - Dokumentasi
+        - Lainnya
+    validations:
+      required: true

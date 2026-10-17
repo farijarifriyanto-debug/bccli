@@ -1,10 +1,12 @@
 import { Box, Text, useInput } from 'ink'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { SLASH_COMMANDS } from '../commands'
 import { completeFile } from './complete'
 import { EditableText } from './EditableText'
 import { isFocusReport } from './focusReport'
+import { isMouseControlInput } from './thinkingMouse'
 import { applyEditKey, insert, type LineState, moveLine } from './lineEdit'
+import { applyVim, type VimMode } from './vim'
 import { color } from './theme'
 import { t } from '../i18n'
 
@@ -14,13 +16,27 @@ export interface PromptInputProps {
   cwd: string
   onSubmit(text: string): void
   extraCommands?: { name: string; description: string }[]
+  /** Text inserted at the cursor from outside (e.g. a pasted clipboard image path); `n` triggers each insert. */
+  injected?: { text: string; n: number }
+  /** Vim editing: Esc enters normal mode (hjkl/w/b/0/$/x/dd/dw/i/a/A/o/O). */
+  vim?: boolean
 }
 
-export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }: PromptInputProps) {
+export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, injected, vim }: PromptInputProps) {
   const [line, setLine] = useState<LineState>({ value: '', cursor: 0 })
   const { value } = line
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
   const [selected, setSelected] = useState(0)
+  const [vimMode, setVimMode] = useState<VimMode>('insert')
+  const [vimPending, setVimPending] = useState<string | undefined>(undefined)
+  const injectedSeen = useState(0)
+  useEffect(() => {
+    if (injected && injected.n !== injectedSeen[0]) {
+      injectedSeen[1](injected.n)
+      setLine((current) => insert(current, injected.text))
+      setSelected(0)
+    }
+  }, [injected, injectedSeen])
 
   const all = [...SLASH_COMMANDS, ...(extraCommands ?? []).filter((c) => !SLASH_COMMANDS.some((b) => b.name === c.name))]
   const suggestions = value.startsWith('/') && !/\s/.test(value) ? all.filter((c) => c.name.startsWith(value.slice(1))).slice(0, 8) : []
@@ -34,6 +50,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }:
 
   useInput(
     (input, key) => {
+      if (isMouseControlInput(input)) return
       // While slash suggestions are open, arrows pick one, Enter runs it, Tab completes it.
       if (suggestions.length) {
         if (key.upArrow) {
@@ -55,6 +72,16 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }:
           return
         }
       }
+      if (vim) {
+        const r = applyVim(line, vimMode, input, key, vimPending)
+        if (r.handled) {
+          setLine(r.state)
+          setVimMode(r.mode)
+          setVimPending(r.pending)
+          setSelected(0)
+          return
+        }
+      }
       if (key.return) {
         // A backslash right before the cursor turns Enter into a line break.
         const before = value.slice(0, line.cursor)
@@ -66,6 +93,8 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }:
         if (!text) return
         edit(typed(''))
         setHistoryIndex(null)
+        setVimMode('insert')
+        setVimPending(undefined)
         onSubmit(text)
         return
       }
@@ -117,6 +146,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands }:
         <Text>
           <Text color={color('green')}>{'> '}</Text>
           <EditableText state={line} showCursor={!disabled} />
+          {vim && vimMode === 'normal' && <Text color={color('green')}> {t('NORMAL')}</Text>}
         </Text>
       </Box>
       {suggestions.map((s, i) => (

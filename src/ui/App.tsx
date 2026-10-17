@@ -1,17 +1,20 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
-import { Box, Static, Text, useApp, useInput } from 'ink'
+import { Box, Static, Text, measureElement, useApp, useInput, useStdin, useStdout, type DOMElement } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentEvent, PermissionAnswer, PermissionAsk } from '../agent'
 import { BUILTIN_AGENTS } from '../agents'
-import { expandCommand, parseSlash, SLASH_COMMANDS } from '../commands'
+import { expandCommand, parseSlash, prReviewPrompt, SLASH_COMMANDS } from '../commands'
 import { removeCredential } from '../config'
+import { runHooks } from '../hooks'
+import { renderBackgroundTasks } from '../tools/bash'
 import { assertReasoningSupported, parseReasoningLevel, REASONING_LEVELS, supportedReasoningLevels, type ReasoningLevel } from '../reasoning'
 import { Session } from '../session'
 import { osc52 } from '../slash/copy'
 import { gitDiff } from '../slash/diff'
+import { worktreeListText } from '../worktree'
 import { doctorText } from '../slash/doctor'
 import { exportMarkdown } from '../slash/export'
 import { agentsText, sessionText, skillsText, statusText } from '../slash/info'
@@ -32,6 +35,7 @@ import { type ProviderEntry, ProviderMenu } from './ProviderMenu'
 import { PermissionPrompt } from './PermissionPrompt'
 import { PromptInput } from './PromptInput'
 import { Spinner } from './Spinner'
+import { clickedThinking, parseThinkingReports } from './thinkingMouse'
 import { StatusBar } from './StatusBar'
 import { ACCENT, color } from './theme'
 import { CATALOG, fillTemplate } from '../mcp/catalog'
@@ -40,20 +44,25 @@ import { McpMenu, type McpMenuItem } from './McpMenu'
 import { PlanApproval } from './PlanApproval'
 import { TodoList } from './TodoList'
 import { ToolBlock } from './ToolBlock'
+import { replayEntries } from './replay'
 import { applyEvent, type Entry, endTurn, entry, type Transcript } from './transcript'
 import { getLanguage, locale, parseLang, setLanguage, t } from '../i18n'
+import { matchKeybind } from '../keybinds'
+import { grabClipboardImage } from '../clipboardImage'
+import { MAX_VERIFY_ROUNDS, runVerify, verifyFollowup } from '../verify'
 
 
 function helpText(runtime: Runtime): string {
   const custom = runtime.commands.filter((c) => !SLASH_COMMANDS.some((b) => b.name === c.name))
+  const kb = runtime.config.keybinds
   return [
     ...SLASH_COMMANDS.map((c) => `/${c.name.padEnd(12)} ${t(c.description)}`),
     ...(custom.length ? ['', t('Custom commands:'), ...custom.map((c) => `/${c.name.padEnd(8)} ${c.description ?? ''}`)] : []),
     ...(runtime.skills.length ? ['', t('Skills:'), ...runtime.skills.map((s) => `/${s.name.padEnd(8)} ${s.description.slice(0, 60)}`)] : []),
     '',
     t('shift+tab  switch permission mode    esc  cancel the turn'),
-    t('ctrl+o     full output of the last tool    \\ + enter  new line'),
-    t('ctrl+t     show/hide the model’s thinking'),
+    t('{bind} full output of the last tool    \\ + enter  new line', { bind: kb.toolOutput.spec.padEnd(10) }),
+    t('{bind} show/hide the model’s thinking', { bind: kb.thinking.spec.padEnd(10) }),
     t('@file + tab  complete file names    ↑↓  input history'),
   ].join('\n')
 }
@@ -63,9 +72,13 @@ const INIT_PROMPT =
 
 const labelFor = (runtime: Runtime, ref: string) => `${ref.slice(ref.indexOf('/') + 1)} · ${runtime.providerLabel()}`
 
-export function App({ runtime, initialPrompt, version }: { runtime: Runtime; initialPrompt?: string; version: string }) {
+export function App({ runtime, initialPrompt, version, updateMessage }: { runtime: Runtime; initialPrompt?: string; version: string; updateMessage?: string }) {
   const { exit } = useApp()
-  const [transcript, setTranscript] = useState<Transcript>(() => ({ done: [entry({ kind: 'header' })], live: [] }))
+  // bccli -c / -r load a saved conversation before the screen exists: show it, not only the header.
+  const [transcript, setTranscript] = useState<Transcript>(() => ({
+    done: [entry({ kind: 'header' }), ...(updateMessage ? [entry({ kind: 'notice', text: updateMessage, tone: 'warn' })] : []), ...(runtime.agent.messages.length ? replayEntries(runtime.session.loadHistory()) : [])],
+    live: [],
+  }))
   const [busy, setBusy] = useState(false)
   const [cancelling, setCancelling] = useState(false) // Esc was pressed; shows that it registered while the turn winds down
   const [startedAt, setStartedAt] = useState(0)
@@ -89,7 +102,16 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   const [planAsk, setPlanAsk] = useState<{ plan: string; resolve(d: PlanDecision): void } | null>(null)
   // Messages typed while the agent works; each runs after the turn before it.
   const [queued, setQueued] = useState<string[]>([])
-  const [showThinking, setShowThinking] = useState(false)
+  const [showThinking, setShowThinking] = useState(runtime.config.thinkingVisible === true)
+  const showThinkingRef = useRef(showThinking)
+  // The last turn summary is a single mutable inspector, never immutable Ink scrollback.
+  const [lastThinking, setLastThinking] = useState('')
+  const hasThinking = !!lastThinking.trim()
+  const { stdin } = useStdin()
+  const { stdout } = useStdout()
+  const liveRootRef = useRef<DOMElement>(null)
+  const thinkingTargetRef = useRef<DOMElement>(null)
+  const [injected, setInjected] = useState<{ text: string; n: number } | undefined>()
   useEffect(() => runtime.todos.subscribe(setTodos), [runtime])
   const extraCommands = [
     ...runtime.commands
@@ -102,6 +124,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   ]
   const lastTool = useRef<{ tool: string; target: string; output: string } | null>(null)
   const toolTargets = useRef(new Map<string, string>())
+  const editedInTurn = useRef(false)
 
   const notice = useCallback((text: string, tone: 'info' | 'warn' | 'error' = 'info') => {
     setTranscript((t) => ({ ...t, done: [...t.done, entry({ kind: 'notice', text, tone })] }))
@@ -111,31 +134,75 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     if (event.type === 'toolStart') toolTargets.current.set(event.id, event.target)
     if (event.type === 'toolEnd') {
       lastTool.current = { tool: event.tool, target: toolTargets.current.get(event.id) ?? '', output: event.output }
+      if ((event.tool === 'edit' || event.tool === 'write') && !event.isError) editedInTurn.current = true
     }
     if (event.type === 'usage') setTokens(event.inputTokens + event.outputTokens)
+    if (event.type === 'thinking' && event.delta) setLastThinking((prev) => prev + event.delta)
+    if (event.type === 'budgetExceeded') {
+      notice(
+        t('Budget exceeded ({kind}): {used} of {limit}. Further model calls are blocked; raise usageCap in ~/.bccli/config.json.', {
+          kind: event.kind,
+          used: Math.round(event.used * 100) / 100,
+          limit: event.limit,
+        }),
+        'warn',
+      )
+    }
     setTranscript((t) => applyEvent(t, event))
-  }, [])
+  }, [notice])
 
   useEffect(() => {
     runtime.agent.onEvent = onEvent
     runtime.agent.askPermission = (request) =>
       new Promise((resolve) => setAsks((q) => [...q, { id: askId.current++, request, resolve }]))
     runtime.interaction.approvePlan = (plan) => new Promise((resolve) => setPlanAsk({ plan, resolve }))
-  }, [runtime, onEvent])
+    // Session hooks are fire-and-forget: a failing hook must never break the UI.
+    runHooks(runtime.config.hooks, 'SessionStart', {}, { env: runtime.env, cwd: runtime.cwd })
+      .then((outcome) => {
+        for (const w of outcome.warnings) notice(w, 'warn')
+      })
+      .catch(() => {})
+    runtime.emitPlugins('SessionStart').catch(() => {})
+  }, [runtime, onEvent, notice])
 
   const runTurn = useCallback(
     async (text: string) => {
       setTranscript((t) => ({ ...t, done: [...t.done, entry({ kind: 'user', text })] }))
       setBusy(true)
+      setLastThinking('')
       setStartedAt(Date.now())
+      editedInTurn.current = false
       controller.current = new AbortController()
-      await runtime.agent.run(text, controller.current.signal)
+      const signal = controller.current.signal
+      await runtime.agent.run(text, signal)
+      const commands = runtime.config.verifyCommands
+      if (editedInTurn.current && commands.length && !signal.aborted) {
+        for (let round = 0; round < MAX_VERIFY_ROUNDS; round++) {
+          notice(t('Verifying edits: {cmds}', { cmds: commands.join(', ') }))
+          const failures = await runVerify(commands, { cwd: runtime.cwd, env: runtime.env, signal })
+          if (!failures.length) {
+            notice(t('Verification passed.'))
+            break
+          }
+          if (round === MAX_VERIFY_ROUNDS - 1 || signal.aborted) {
+            notice(t('Verification still failing after {n} fix round(s). Run the commands manually to see why.', { n: MAX_VERIFY_ROUNDS }), 'warn')
+            break
+          }
+          await runtime.agent.run(verifyFollowup(failures), signal)
+        }
+      }
       controller.current = null
+      runHooks(runtime.config.hooks, 'Stop', {}, { env: runtime.env, cwd: runtime.cwd })
+        .then((outcome) => {
+          for (const w of outcome.warnings) notice(w, 'warn')
+        })
+        .catch(() => {})
+      runtime.emitPlugins('Stop').catch(() => {})
       setTranscript(endTurn)
       setBusy(false)
       setCancelling(false)
     },
-    [runtime],
+    [runtime, notice],
   )
 
   const runSlashCommand = useCallback(
@@ -150,6 +217,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'clear':
           runtime.agent.clear()
           setTokens(0)
+          setLastThinking('')
           notice(t('Conversation cleared.'))
           return
         case 'cost': {
@@ -157,6 +225,9 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
           notice(t('{input} tokens in · {output} tokens out', { input: u.inputTokens.toLocaleString(locale()), output: u.outputTokens.toLocaleString(locale()) }))
           return
         }
+        case 'tasks':
+          notice(renderBackgroundTasks())
+          return
         case 'compact': {
           setBusy(true)
           setStartedAt(Date.now())
@@ -243,6 +314,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'new':
           runtime.newSession()
           setTokens(0)
+          setLastThinking('')
           notice(t('New session started. The previous session stays saved (/resume).'))
           return
         case 'session':
@@ -275,24 +347,8 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
               if (!chosen) return
               runtime.resume(chosen.session)
               setTokens(0)
-              const chat = runtime.agent.messages.filter(
-                (m): m is typeof m & { role: 'user' | 'assistant'; content: string } =>
-                  (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && !!m.content.trim(),
-              )
-              setTranscript({
-                done: [
-                  entry({ kind: 'header' }),
-                  entry({
-                    kind: 'notice',
-                    text: t('Resuming the session ({messages} messages saved · {chat} user/assistant chats shown).', { messages: runtime.agent.messages.length, chat: chat.length }),
-                    tone: 'info',
-                  }),
-                  ...chat.map((m) =>
-                    entry(m.role === 'user' ? { kind: 'user', text: m.content } : { kind: 'assistant', text: m.content }),
-                  ),
-                ],
-                live: [],
-              })
+              setLastThinking('')
+              setTranscript({ done: [entry({ kind: 'header' }), ...replayEntries(chosen.session.loadHistory())], live: [] })
             },
           })
           return
@@ -413,11 +469,6 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
             return
           }
           runtime.setModel(runtime.modelRef) // pick up the new key
-          const envName = runtime.config.providers[id]?.apiKeyEnv
-          if (envName && runtime.env[envName]) {
-            notice(t('Key for {provider} saved, but {env} in the environment takes precedence and is still used.', { provider: runtime.providerLabel(), env: envName }), 'warn')
-            return
-          }
           notice(t('Key for {provider} saved · {n} models.', { provider: runtime.providerLabel(), n: result.models }))
           return
         }
@@ -451,6 +502,12 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         case 'diff':
           notice(await gitDiff(runtime.cwd))
           return
+        case 'worktree':
+          notice(await worktreeListText(runtime.cwd))
+          return
+        case 'pr':
+          void runTurn(prReviewPrompt(args))
+          return
         case 'undo': {
           const result = await runtime.checkpoints.undo()
           if (!result) {
@@ -465,6 +522,46 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
               result.deleted.length ? t('Deleted (new files): {files}', { files: result.deleted.map(rel).join(', ') }) : '',
               result.skipped.length ? t('Too large to back up, left unchanged: {files}', { files: result.skipped.map(rel).join(', ') }) : '',
               t('Note: changes made through bash commands cannot be undone.'),
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          )
+          return
+        }
+        case 'redo': {
+          const result = await runtime.checkpoints.redo()
+          if (!result) {
+            notice(t('No file edits to redo.'))
+            return
+          }
+          const rel = (p: string) => relative(runtime.cwd, p) || p
+          notice(
+            [
+              result.failed.length ? t('Could not restore: {files}', { files: result.failed.map(rel).join(', ') }) : '',
+              result.restored.length ? t('Re-applied: {files}', { files: result.restored.map(rel).join(', ') }) : '',
+              result.deleted.length ? t('Deleted again: {files}', { files: result.deleted.map(rel).join(', ') }) : '',
+              result.skipped.length ? t('Too large to back up, left unchanged: {files}', { files: result.skipped.map(rel).join(', ') }) : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          )
+          return
+        }
+        case 'rewind': {
+          const parsed = Number.parseInt(args.trim(), 10)
+          const result = await runtime.rewindTurns(Number.isFinite(parsed) && parsed > 0 ? parsed : 1)
+          if (!result) {
+            notice(t('Nothing to rewind.'))
+            return
+          }
+          const rel = (p: string) => relative(runtime.cwd, p) || p
+          notice(
+            [
+              result.failed.length ? t('Could not restore: {files}', { files: result.failed.map(rel).join(', ') }) : '',
+              result.restored.length ? t('Restored: {files}', { files: result.restored.map(rel).join(', ') }) : '',
+              result.deleted.length ? t('Deleted (new files): {files}', { files: result.deleted.map(rel).join(', ') }) : '',
+              result.skipped.length ? t('Too large to back up, left unchanged: {files}', { files: result.skipped.map(rel).join(', ') }) : '',
+              t('Rewound {n} turn(s): the conversation continues from before them.', { n: result.turns }),
             ]
               .filter(Boolean)
               .join('\n'),
@@ -573,6 +670,57 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
     }
   }, [initialPrompt, submit])
 
+  const toggleThinking = useCallback(() => {
+    // Keep this callback stable while the mouse reporter is active; the Ink
+    // frame reflows on expansion and React otherwise tears the reporter down.
+    const next = !showThinkingRef.current
+    showThinkingRef.current = next
+    setShowThinking(next)
+    try {
+      writeGlobalConfig({ thinkingVisible: next }, runtime.env)
+    } catch (error) {
+      notice(t('Could not save thinking visibility: {error}', { error: (error as Error).message }), 'warn')
+    }
+    // Do not append to transcript.done: Ink <Static> is write-once scrollback.
+  }, [runtime, notice])
+
+  // Ink has no mouse handler: temporarily enable SGR left-click reports while
+  // Thinking is active. Cursor-position response maps Ink's live layout to
+  // terminal coordinates; historical Static scrollback remains keyboard-only.
+  // Opt-in (thinkingClickCollapse): mouse reporting makes the terminal stop
+  // turning drag into a text selection, so it stays off unless asked for.
+  useEffect(() => {
+    if (!runtime.config.thinkingClickCollapse || (!busy && !hasThinking) || pending || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
+    let click: { x: number; y: number } | undefined
+    let mouseBuffer = ''
+    const onData = (data: Buffer | string) => {
+      // Windows ConPTY can split or combine the SGR mouse and cursor replies.
+      // Keep an incomplete escape sequence across chunks and process both
+      // reports when they arrive in the same chunk.
+      mouseBuffer += String(data)
+      const reports = parseThinkingReports(mouseBuffer)
+      mouseBuffer = reports.rest.slice(-80)
+      for (const report of reports.events) {
+        if (report.type === 'mouse') {
+          click = report.press
+          stdout.write('\x1b[6n')
+        } else if (click && liveRootRef.current && thinkingTargetRef.current) {
+          const current = click
+          click = undefined
+          const root = measureElement(liveRootRef.current)
+          const target = measureElement(thinkingTargetRef.current)
+          if (clickedThinking(current, report.cursor.row, root.height, target)) toggleThinking()
+        }
+      }
+    }
+    stdin.on('data', onData)
+    stdout.write('\x1b[?1000h\x1b[?1006h')
+    return () => {
+      stdin.off('data', onData)
+      stdout.write('\x1b[?1000l\x1b[?1006l')
+    }
+  }, [busy, pending, stdin, stdout, toggleThinking, hasThinking, runtime.config.thinkingClickCollapse])
+
   useInput((input, key) => {
     if (key.tab && key.shift) {
       const next = nextMode(runtime.agent.permissions.mode)
@@ -585,24 +733,19 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
         setQueued([])
         notice(t('{n} queued messages cancelled.', { n: queued.length }), 'warn')
       }
-    } else if (key.ctrl && input === 't') {
-      const next = !showThinking
-      const toggled = next ? t('Thinking shown (ctrl+t to hide).') : t('Thinking hidden (ctrl+t to show).')
-      setShowThinking(next)
-      setTranscript((t) => {
-        // Scrollback is printed once, so an already finished thinking block is reprinted open.
-        const last = [...t.done, ...t.live].findLast((e) => e.kind === 'thinking')
-        const reprint = next && last?.kind === 'thinking' && t.done.includes(last)
-        return {
-          ...t,
-          done: [
-            ...t.done,
-            ...(reprint ? [entry({ kind: 'thinking', text: last.text, open: true })] : []),
-            entry({ kind: 'notice', text: toggled, tone: 'info' }),
-          ],
+    } else if (matchKeybind(runtime.config.keybinds.pasteImage, input, key)) {
+      void (async () => {
+        const path = await grabClipboardImage({ platform: process.platform, tmpdir: tmpdir(), now: new Date() })
+        if (path) {
+          setInjected((prev) => ({ text: `${path} `, n: (prev?.n ?? 0) + 1 }))
+          notice(t('Clipboard image saved to {path} — the path is inserted in the input; the model sees it when you send.', { path }))
+        } else {
+          notice(t('No image on the clipboard.'), 'warn')
         }
-      })
-    } else if (key.ctrl && input === 'o' && lastTool.current) {
+      })()
+    } else if (matchKeybind(runtime.config.keybinds.thinking, input, key)) {
+      toggleThinking()
+    } else if (matchKeybind(runtime.config.keybinds.toolOutput, input, key) && lastTool.current) {
       const t = lastTool.current
       notice(`⎿ ${t.tool} ${t.target}\n${t.output}`)
     }
@@ -704,31 +847,12 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
             <Markdown text={e.text.replace(/^\s+/, '')} />
           </Box>
         )
-      case 'thinking': {
-        const text = e.text.trim()
-        if (!text) return null
-        if (!(e.open ?? showThinking)) {
-          const lines = text.split('\n').length
-          return (
-            <Box key={e.id} marginTop={1}>
-              <Text dimColor>{t('✻ Thinking · {n} lines · ctrl+t to show', { n: lines })}</Text>
-            </Box>
-          )
-        }
-        return (
-          <Box key={e.id} marginTop={1} flexDirection="column">
-            <Text dimColor>{t('✻ Thinking (ctrl+t to hide)')}</Text>
-            <Box paddingLeft={2}>
-              <Text dimColor italic>
-                {text}
-              </Text>
-            </Box>
-          </Box>
-        )
-      }
+      case 'thinking':
+        // Render in the single live inspector below; never write a copy into <Static>.
+        return null
       case 'tool':
         return (
-          <ToolBlock key={e.id} tool={e.tool} target={e.target} output={e.output} display={e.display} isError={e.isError} done={e.done} sub={e.sub} />
+          <ToolBlock key={e.id} tool={e.tool} target={e.target} output={e.output} display={e.display} isError={e.isError} done={e.done} sub={e.sub} moreBind={runtime.config.keybinds.toolOutput.spec} />
         )
       case 'notice':
         return (
@@ -742,12 +866,29 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
   }
 
   return (
-    <Box flexDirection="column">
+    <Box ref={liveRootRef} flexDirection="column">
       <Static items={transcript.done}>{renderEntry}</Static>
       {transcript.live.map(renderEntry)}
-      {busy && !pending && !planAsk ? (
-        <Box marginTop={1}>
-          <Spinner label={cancelling ? t('Cancelling') : t('Thinking')} startedAt={startedAt} />
+      {((busy && !pending && !planAsk) || (!busy && hasThinking)) ? (
+        <Box ref={thinkingTargetRef} marginTop={1} flexDirection="column">
+          <Box flexDirection="row">
+            {busy ? (
+              <Spinner label={cancelling ? t('Cancelling') : t('Thinking')} startedAt={startedAt} />
+            ) : (
+              <Text dimColor>{t('✻ Thinking')}</Text>
+            )}
+            <Text dimColor> · {runtime.config.keybinds.thinking.spec}{runtime.config.thinkingClickCollapse ? ` · ${t('click to toggle')}` : ''}</Text>
+          </Box>
+          {showThinking ? (
+            <Box flexDirection="column" paddingLeft={2}>
+              <Text dimColor>{t('Model: {model} · reasoning: {level}', { model: runtime.modelRef, level: reasoning })}</Text>
+              {lastThinking.trim() ? (
+                <Text dimColor italic>{lastThinking.trim()}</Text>
+              ) : (
+                <Text dimColor>{t('No reasoning summary received yet; tool activity remains visible above.')}</Text>
+              )}
+            </Box>
+          ) : null}
         </Box>
       ) : null}
       {pending ? <PermissionPrompt key={pending.id} request={pending.request} onAnswer={answer} /> : null}
@@ -792,7 +933,7 @@ export function App({ runtime, initialPrompt, version }: { runtime: Runtime; ini
       {queued.map((q, i) => (
         <Text key={`${i}-${q}`} dimColor>{t('  ⏳ queued: {q}', { q })}</Text>
       ))}
-      <PromptInput disabled={!!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu || !!listPicker} history={history} cwd={runtime.cwd} onSubmit={onPrompt} extraCommands={extraCommands} />
+      <PromptInput disabled={!!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu || !!listPicker} history={history} cwd={runtime.cwd} onSubmit={onPrompt} extraCommands={extraCommands} injected={injected} vim={runtime.config.editor === 'vim'} />
       <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} reasoning={reasoning} />
     </Box>
   )

@@ -1,12 +1,15 @@
 import type { PermissionRequest, Permissions } from './permissions'
-import { completionAssistantMessage, hasPendingProgrammaticReplay, type ChatMessage, type Provider, type ToolCall, type Usage } from './provider'
+import { completionAssistantMessage, hasPendingProgrammaticReplay, imageUserMessage, type ChatMessage, type Provider, type ToolCall, type Usage } from './provider'
 import type { ReasoningLevel } from './reasoning'
 import { recoverTextToolCalls } from './textToolCalls'
+import { runHooks, type HookEvent, type HooksConfig } from './hooks'
 import { type ToolDefinition, toolDefinitions } from './tools/index'
-import type { Tool, ToolContext } from './tools/types'
+import type { ImageAttachment, Tool, ToolContext, ToolResult } from './tools/types'
 import { pruneOldFetches, WebBudget } from './webBudget'
 import { ABORTED, raceAbort } from './abort'
 import { t } from './i18n'
+import { budgetStatus, type UsageCap } from './budget'
+import { estimateMessages, estimateTokens, pruneOldToolOutputs, splitKeepRecent, trimToFit } from './tokenBudget'
 
 export type AgentEvent =
   | { type: 'text'; delta: string }
@@ -17,6 +20,7 @@ export type AgentEvent =
   | { type: 'usage'; inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheWriteTokens?: number }
   | { type: 'compacted' }
   | { type: 'stepLimit'; maxSteps: number }
+  | { type: 'budgetExceeded'; kind: 'tokens' | 'usd'; used: number; limit: number }
   | { type: 'aborted' }
   | { type: 'error'; message: string }
   | { type: 'done' }
@@ -25,6 +29,12 @@ export type AgentEvent =
 export type PermissionAnswer = 'yes' | 'session' | 'all' | 'no'
 export type PermissionAsk = PermissionRequest & { preview?: string; sessionRules?: string[]; agent?: string }
 export type AskPermission = (req: PermissionAsk) => Promise<PermissionAnswer>
+
+/** What a tool call returns to the loop: text for the tool message plus optional image attachments. */
+interface ToolOutcome {
+  output: string
+  images?: ImageAttachment[]
+}
 
 export interface AgentOptions {
   provider: Provider
@@ -37,12 +47,24 @@ export interface AgentOptions {
   contextWindow?: number
   onMessage?: (message: ChatMessage) => void
   onReset?: () => void
+  /** Per-turn token usage delta (provider-reported or estimated); the session persists it for stats. */
+  onUsage?: (usage: Usage) => void
   /** Marks the start of a user turn (undo boundary). */
   onTurnStart?: () => void
   checkpoint?: (absPath: string) => Promise<void>
   /** Subagent name, shown on its permission prompts. */
   label?: string
   reasoning?: ReasoningLevel
+  /** Tool/session hooks (global config only). */
+  hooks?: HooksConfig
+  /** In-process plugin observers fired alongside the shell hooks (global config plugins). */
+  pluginEmit?: (event: HookEvent, payload?: { tool?: string; input?: unknown; output?: string }) => Promise<void>
+  /** Base environment handed to hook processes (defaults to the process env at spawn). */
+  env?: NodeJS.ProcessEnv
+  /** Per-session token/USD budget (global config usageCap); blocks model calls once exceeded. */
+  usageCap?: UsageCap
+  /** Model ref used to match usageCap.prices keys. */
+  budgetModel?: string
 }
 
 interface Ticket {
@@ -51,7 +73,6 @@ interface Ticket {
 }
 
 const CANCELLED = 'Cancelled by the user.'
-const estimateTokens = (text: string) => Math.ceil(text.length / 4)
 
 const COMPACT_PROMPT =
   'Summarize the conversation so far for yourself so you can continue the work with no other context. Include: the user goals, decisions made, files touched and their current state, commands run and results, the task in progress and the next step. Be concise but complete.'
@@ -74,8 +95,8 @@ export class Agent {
   private readonly readFiles = new Set<string>()
   private readonly webBudget = new WebBudget()
   private readonly maxSteps?: number
-  // ponytail: one window for every model; read it from /v1/models metadata when providers expose it.
-  private readonly contextWindow: number
+  // One window for every model; resolved from contextWindowFor() (catalog + env override).
+  private contextWindow: number
   private systemPrompt: string
 
   constructor(private readonly opts: AgentOptions) {
@@ -97,6 +118,10 @@ export class Agent {
 
   setSystemPrompt(text: string): void {
     this.systemPrompt = text
+  }
+
+  setContextWindow(window: number): void {
+    this.contextWindow = window
   }
 
   setTools(tools: Tool[]): void {
@@ -125,7 +150,9 @@ export class Agent {
     this.messages = messages
     this.readFiles.clear()
     this.webBudget.reset()
-    this.lastInputTokens = 0
+    // Seed the estimate so a resumed history that is already over the window compacts
+    // before its first real request instead of failing with a provider 400.
+    this.lastInputTokens = estimateMessages(messages) + estimateTokens(this.systemPrompt)
   }
 
   clear(): void {
@@ -137,16 +164,30 @@ export class Agent {
   }
 
   async compact(signal: AbortSignal): Promise<void> {
-    const completion = await this.provider.chat({
-      messages: [{ role: 'system', content: this.systemPrompt }, ...this.messages, { role: 'user', content: COMPACT_PROMPT }],
+    // Stub old tool outputs so both the summary request and the kept tail stay lean.
+    pruneOldToolOutputs(this.messages)
+    // Keep the newest turns (~15k tokens, capped at 10% of the window) beside the summary;
+    // summarize only the older part so the model retains fresh detail.
+    const keepTokens = Math.min(15_000, Math.floor(this.contextWindow * 0.1))
+    const [older, keep] = splitKeepRecent(this.messages, keepTokens)
+    // Even the summary request must fit the window: drop whole oldest turns first when the
+    // history itself is too big to send, then summarize what remains.
+    const history = trimToFit(older, Math.floor(this.contextWindow * 0.8))
+    const pending = this.provider.chat({
+      messages: [{ role: 'system', content: this.systemPrompt }, ...history, { role: 'user', content: COMPACT_PROMPT }],
       // Some gateways reject tool_calls in history when no tools are declared.
       tools: this.definitions,
       signal,
       reasoning: this.reasoning,
     })
+    // A provider may ignore AbortSignal (or never settle). Esc must release the UI.
+    const completion = await raceAbort(pending, signal)
+    if (completion === ABORTED) throw new Error('aborted')
     this.clear()
     this.push({ role: 'user', content: `Summary of the previous conversation:\n${completion.text}` })
     this.push({ role: 'assistant', content: 'OK, I will continue from this summary.' })
+    // Re-attach the recent turns so the model still sees fresh context beside the summary.
+    for (const m of keep) this.push(m)
     this.onEvent({ type: 'compacted' })
   }
 
@@ -167,6 +208,12 @@ export class Agent {
     this.opts.onTurnStart?.()
     this.webBudget.startTurn()
     try {
+      // Budget first: an exhausted cap must block even the auto-compact call.
+      const over0 = this.overBudget()
+      if (over0) {
+        this.onEvent({ type: 'budgetExceeded', ...over0 })
+        return
+      }
       if (this.lastInputTokens > this.contextWindow * 0.8 && !hasPendingProgrammaticReplay(this.messages)) await this.compact(signal)
       this.push({ role: 'user', content: text })
       for (let step = 0; this.maxSteps === undefined || step < this.maxSteps; step++) {
@@ -176,15 +223,27 @@ export class Agent {
           this.push({ role: 'user', content: `Continue this task using the summary above: ${text}` })
         }
         pruneOldFetches(this.messages)
-        let completion = await this.provider.chat({
+        const over = this.overBudget()
+        if (over) {
+          this.onEvent({ type: 'budgetExceeded', ...over })
+          return
+        }
+        const pendingCompletion = this.provider.chat({
           messages: [{ role: 'system', content: this.systemPrompt }, ...this.messages],
           tools: this.turnDefinitions,
           programmaticToolNames: this.turnTools.filter((tool) => tool.programmaticSafe).map((tool) => tool.name),
           signal,
-          onText: (delta) => this.onEvent({ type: 'text', delta }),
-          onThinking: (delta) => this.onEvent({ type: 'thinking', delta }),
+          // Late output from a cancelled provider must not leak into the next turn.
+          onText: (delta) => { if (!signal.aborted) this.onEvent({ type: 'text', delta }) },
+          onThinking: (delta) => { if (!signal.aborted) this.onEvent({ type: 'thinking', delta }) },
           reasoning: this.reasoning,
         })
+        const outcome = await raceAbort(pendingCompletion, signal)
+        if (outcome === ABORTED) {
+          this.onEvent({ type: 'aborted' })
+          return
+        }
+        let completion = outcome
         if (!completion.toolCalls.length && completion.finishReason !== 'repetition') {
           const recovered = recoverTextToolCalls(completion.text, this.turnDefinitions)
           if (recovered) {
@@ -204,6 +263,7 @@ export class Agent {
         this.totalUsage.cacheWriteTokens = (this.totalUsage.cacheWriteTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
         this.lastInputTokens = usage.inputTokens
         this.onEvent({ type: 'usage', ...this.totalUsage })
+        this.opts.onUsage?.(usage)
         this.push(completionAssistantMessage(completion))
         if (completion.finishReason === 'repetition') {
           this.onEvent({ type: 'textReplace', text: completion.text })
@@ -220,6 +280,7 @@ export class Agent {
         }
         const calls = completion.toolCalls
         let i = 0
+        const roundImages: ImageAttachment[] = []
         while (i < calls.length) {
           if (signal.aborted) {
             this.cancelCalls(calls.slice(i))
@@ -246,15 +307,19 @@ export class Agent {
             return
           }
           batch.forEach((c, k) => {
+            roundImages.push(...(outcome[k].images ?? []))
             this.push({
               role: 'tool',
               tool_call_id: c.id,
-              content: outcome[k],
+              content: outcome[k].output,
               ...(c.caller ? { responses_caller: c.caller } : {}),
             })
           })
           i = j
         }
+        // After every tool call of this response is answered, hand the images to the model
+        // as one user message: tool-role array content is not portable across providers.
+        if (roundImages.length) this.push(imageUserMessage(roundImages))
         if (signal.aborted) {
           this.onEvent({ type: 'aborted' })
           return
@@ -275,6 +340,11 @@ export class Agent {
     }
   }
 
+  /** Current cap status; undefined means the budget is not exhausted. */
+  private overBudget(): { kind: 'tokens' | 'usd'; used: number; limit: number } | undefined {
+    return budgetStatus(this.totalUsage, this.opts.usageCap, this.opts.budgetModel ?? '')
+  }
+
   /** Every tool call needs an answer in the history, or the next request to the model is rejected. */
   private cancelCalls(calls: ToolCall[]): void {
     for (const pending of calls)
@@ -286,12 +356,32 @@ export class Agent {
       })
   }
 
-  private async runTool(call: ToolCall, signal: AbortSignal, ticket: Ticket): Promise<string> {
+  /**
+   * Every tool call must resolve with text: a rejected one would leave the assistant tool_calls
+   * without answers, and the next request to the model would be rejected until a restart.
+   */
+  private async runTool(call: ToolCall, signal: AbortSignal, ticket: Ticket): Promise<ToolOutcome> {
+    const emit = (event: AgentEvent) => this.report(ticket, event)
+    try {
+      return await this.executeTool(call, signal, ticket)
+    } catch (error) {
+      const message = `Error: ${(error as Error)?.message || String(error)}`
+      if (ticket.open) {
+        emit({ type: 'toolEnd', id: call.id, tool: call.name, output: message, isError: true })
+      } else {
+        emit({ type: 'toolStart', id: call.id, tool: call.name, target: '' })
+        emit({ type: 'toolEnd', id: call.id, tool: call.name, output: message, isError: true })
+      }
+      return { output: message }
+    }
+  }
+
+  private async executeTool(call: ToolCall, signal: AbortSignal, ticket: Ticket): Promise<ToolOutcome> {
     const emit = (event: AgentEvent) => this.report(ticket, event)
     const fail = (output: string, target = '') => {
       emit({ type: 'toolStart', id: call.id, tool: call.name, target })
       emit({ type: 'toolEnd', id: call.id, tool: call.name, output, isError: true })
-      return output
+      return { output }
     }
     const tool = this.turnTools.find((t) => t.name === call.name)
     if (!tool) return fail(`Tool "${call.name}" does not exist. Available tools: ${this.turnTools.map((t) => t.name).join(', ')}`)
@@ -309,6 +399,10 @@ export class Agent {
     const target = tool.target(input)
     const overBudget = tool.name === 'fetch' ? this.webBudget.take() : undefined
     if (overBudget) return fail(overBudget, target)
+    // PreToolUse runs before validation and permission prompts: a hook exit 2 blocks the call outright.
+    await this.opts.pluginEmit?.('PreToolUse', { tool: tool.name, input })
+    const pre = await runHooks(this.opts.hooks, 'PreToolUse', { tool: tool.name, input }, { env: this.opts.env, cwd: this.opts.cwd })
+    if (pre.blocked) return fail(pre.blocked, target)
     const ctx: ToolContext = {
       cwd: this.opts.cwd,
       signal,
@@ -324,6 +418,7 @@ export class Agent {
         this.totalUsage.cachedInputTokens = (this.totalUsage.cachedInputTokens ?? 0) + (u.cachedInputTokens ?? 0)
         this.totalUsage.cacheWriteTokens = (this.totalUsage.cacheWriteTokens ?? 0) + (u.cacheWriteTokens ?? 0)
         this.onEvent({ type: 'usage', ...this.totalUsage })
+        this.opts.onUsage?.(u)
       },
     }
     emit({ type: 'toolStart', id: call.id, tool: tool.name, target })
@@ -331,7 +426,7 @@ export class Agent {
     const invalid = await tool.validate?.(input, ctx).catch((error: Error) => error.message)
     if (invalid) {
       emit({ type: 'toolEnd', id: call.id, tool: tool.name, output: invalid, isError: true })
-      return invalid
+      return { output: invalid }
     }
     const request: PermissionRequest = { tool: tool.name, kind: tool.kind, target }
     let decision = this.permissions.check(request)
@@ -353,16 +448,24 @@ export class Agent {
           ? 'Denied: plan mode only allows reading and searching. Write the plan for the user without changing anything.'
           : 'The user declined to run this tool. Ask the user what they want, or try another approach.'
       emit({ type: 'toolEnd', id: call.id, tool: tool.name, output, isError: true })
-      return output
+      return { output }
     }
-    let result: { output: string; isError?: boolean; display?: string }
+    let result: ToolResult
     try {
       result = await tool.run(input, ctx)
     } catch (error) {
       result = { output: `Error: ${(error as Error).message}`, isError: true }
     }
     if (tool.name === 'fetch' && !result.isError) this.webBudget.record(result.output.length)
+    // PostToolUse sees the finished output; its exit code never blocks (the tool already ran).
+    await runHooks(
+      this.opts.hooks,
+      'PostToolUse',
+      { tool: tool.name, input, output: result.output },
+      { env: this.opts.env, cwd: this.opts.cwd },
+    )
+    await this.opts.pluginEmit?.('PostToolUse', { tool: tool.name, input, output: result.output })
     emit({ type: 'toolEnd', id: call.id, tool: tool.name, output: result.output, display: result.display, isError: !!result.isError })
-    return result.output
+    return result
   }
 }

@@ -20,6 +20,8 @@ export interface AgentDef {
   model?: string
   prompt: string
   maxSteps?: number
+  /** Run this agent concurrently with sibling task calls even when its tools can write. */
+  parallel?: boolean
 }
 export interface ExtensionRoots {
   cwd: string
@@ -110,6 +112,8 @@ export function loadAgentDefs(r: ExtensionRoots): AgentDef[] {
               .map((s) => s.trim())
               .filter(Boolean)
       if (data.model) def.model = str(data.model)
+      // Frontmatter values are raw strings; only an explicit `parallel: true` opts in.
+      if (str(data.parallel) === 'true') def.parallel = true
       const rawMaxSteps = str(data.maxSteps ?? data['max-steps'])
       if (rawMaxSteps) {
         const maxSteps = Number(rawMaxSteps)

@@ -1,12 +1,12 @@
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { ResponseOutputItem } from 'openai/resources/responses/responses'
 import { expect, test } from 'vitest'
 import { z } from 'zod'
-import type { ResponseOutputItem } from 'openai/resources/responses/responses'
 import { Agent, type AgentEvent } from '../src/agent'
 import { Permissions } from '../src/permissions'
-import { type ChatRequest, type Completion, type Provider, ProviderError } from '../src/provider'
+import { type ChatMessage, type ChatRequest, type Completion, type Provider, ProviderError } from '../src/provider'
 import { ALL_TOOLS } from '../src/tools/index'
 
 function scripted(steps: Completion[]): Provider & { requests: ChatRequest[] } {
@@ -206,6 +206,49 @@ test('a 400 about tools suggests switching model', async () => {
   expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('/model') })
 })
 
+test('Esc cancels a provider that ignores AbortSignal and discards all late deltas', async () => {
+  const { agent, events } = setup([])
+  let resolveFirst: ((v: Completion) => void) | undefined
+  let lateText: ((delta: string) => void) | undefined
+  let lateThinking: ((delta: string) => void) | undefined
+  agent.provider = {
+    chat(req) {
+      lateText = req.onText
+      lateThinking = req.onThinking
+      return new Promise<Completion>((resolve) => { resolveFirst = resolve })
+    },
+    async listModels() { return [] },
+  }
+  const controller = new AbortController()
+  const task = agent.run('please work', controller.signal)
+  expect(resolveFirst).toBeDefined()
+  lateThinking?.('visible before cancel')
+  controller.abort()
+  await task
+  expect(events.at(-1)?.type).toBe('aborted')
+  const count = events.length
+  lateText?.('LATE_TEXT_SHOULD_NEVER_APPEAR')
+  lateThinking?.('LATE_THINKING_SHOULD_NEVER_APPEAR')
+  resolveFirst?.(reply('LATE_COMPLETION'))
+  await Promise.resolve()
+  expect(events).toHaveLength(count)
+  expect(agent.messages.filter((m) => m.role === 'assistant')).toHaveLength(0)
+})
+
+test('abort releases /compact even if the provider never settles', async () => {
+  const { agent } = setup([])
+  agent.messages.push({ role: 'user', content: 'keep this context' })
+  agent.provider = {
+    chat() { return new Promise<Completion>(() => {}) },
+    async listModels() { return [] },
+  }
+  const controller = new AbortController()
+  const task = agent.compact(controller.signal)
+  controller.abort()
+  await expect(task).rejects.toThrow('aborted')
+  expect(agent.messages.at(-1)).toEqual({ role: 'user', content: 'keep this context' })
+})
+
 test('abort before tools answers every pending call and emits aborted', async () => {
   const controller = new AbortController()
   const { agent, events } = setup([{ text: '', toolCalls: [call('glob', { pattern: '*' }, 'a'), call('glob', { pattern: '*' }, 'b')] }])
@@ -372,6 +415,99 @@ test('the compaction request still declares the tools', async () => {
   expect(provider.requests[1].tools?.length).toBe(7)
 })
 
+test('a resumed history bigger than the window compacts before the first real request', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-resume-'))
+  const provider = scripted([reply('RINGKASAN-RESUME'), reply('done')])
+  const agent = new Agent({
+    provider,
+    tools: ALL_TOOLS,
+    permissions: new Permissions('default', [], cwd),
+    systemPrompt: 'SYS',
+    cwd,
+    contextWindow: 500,
+  })
+  agent.load([
+    { role: 'user', content: 'x'.repeat(4000) },
+    { role: 'assistant', content: 'ok' },
+  ])
+  await agent.run('continue the work', new AbortController().signal)
+  expect(provider.requests).toHaveLength(2)
+  const compactRequest = provider.requests[0]
+  expect(compactRequest.messages.at(-1)).toEqual({ role: 'user', content: expect.stringContaining('Summarize the conversation') })
+  const realRequest = provider.requests[1]
+  expect(realRequest.messages.some((m) => m.role === 'user' && String(m.content).includes('Summary of the previous conversation'))).toBe(true)
+  expect(realRequest.messages.at(-1)).toEqual({ role: 'user', content: 'continue the work' })
+})
+
+test('compaction trims history that would overflow even the summary request, at turn boundaries only', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-trim-'))
+  const provider = scripted([reply('RINGKASAN-PENDEK'), reply('done')])
+  const agent = new Agent({
+    provider,
+    tools: ALL_TOOLS,
+    permissions: new Permissions('default', [], cwd),
+    systemPrompt: 'SYS',
+    cwd,
+    contextWindow: 2000,
+  })
+  // Five complete turns, each with a tool exchange, well past the 1600-token compaction budget.
+  const turn = (i: number) =>
+    [
+      { role: 'user', content: `tugas ${i} ${'u'.repeat(2000)}` },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{ id: `c${i}`, type: 'function' as const, function: { name: 'read', arguments: '{}' } }],
+      },
+      { role: 'tool', tool_call_id: `c${i}`, content: 'r'.repeat(1000) },
+      { role: 'assistant', content: `selesai ${i}` },
+    ] as const
+  agent.load([turn(0), turn(1), turn(2), turn(3), turn(4)].flat() as never)
+  await agent.run('lanjut', new AbortController().signal)
+  const compactMessages = provider.requests[0].messages
+  const withoutSystemAndPrompt = compactMessages.slice(1, -1)
+  expect(JSON.stringify(withoutSystemAndPrompt).length / 4).toBeLessThan(1600)
+  // Trimmed at a user boundary: the first message is a user turn, no orphan tool reply.
+  expect(withoutSystemAndPrompt[0].role).toBe('user')
+  const answered = new Set(
+    withoutSystemAndPrompt.flatMap((m) => (m.role === 'assistant' ? (m.tool_calls ?? []).map((c) => c.id) : [])),
+  )
+  for (const m of withoutSystemAndPrompt) {
+    if (m.role === 'tool') expect(answered.has((m as { tool_call_id: string }).tool_call_id)).toBe(true)
+  }
+  // Oldest turns were dropped from the summary request; the newest turn is kept beside the
+  // summary (not re-sent inside the summary request).
+  expect(withoutSystemAndPrompt.some((m) => m.role === 'user' && String(m.content).startsWith('tugas 0'))).toBe(false)
+  expect(agent.messages.some((m) => m.role === 'user' && String(m.content).startsWith('tugas 4'))).toBe(true)
+})
+
+test('a tool that throws outside run() still gets an answer; the turn survives', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-throw-'))
+  const provider = scripted([{ text: '', toolCalls: [call('boom', {}, 'b1')] }, reply('recovered')])
+  const boom = {
+    name: 'boom',
+    description: 'always explodes',
+    schema: z.object({}),
+    kind: 'read' as const,
+    target: () => {
+      throw new Error('target exploded')
+    },
+    async run() {
+      return { output: 'never reached' }
+    },
+  }
+  const events: AgentEvent[] = []
+  const agent = new Agent({ provider, tools: [boom], permissions: new Permissions('default', [], cwd), systemPrompt: 'SYS', cwd })
+  agent.onEvent = (e) => events.push(e)
+  await agent.run('go', new AbortController().signal)
+  expect(provider.requests).toHaveLength(2)
+  const toolMsg = provider.requests[1].messages.find((m) => m.role === 'tool' && m.tool_call_id === 'b1') as
+    | { content: string }
+    | undefined
+  expect(toolMsg?.content).toContain('target exploded')
+  expect(events.at(-1)?.type).toBe('done')
+})
+
 test('a tool list change during a turn applies from the next turn', async () => {
   const { cwd, provider, agent } = setup([{ text: '', toolCalls: [call('read', { path: 'a.txt' })] }, reply('ok'), reply('second')])
   writeFileSync(join(cwd, 'a.txt'), 'hello')
@@ -412,4 +548,142 @@ test('a repetition cut-off is reported and only the clean text is kept', async (
   expect(events.at(-1)).toMatchObject({ type: 'error', message: expect.stringContaining('mengulang') })
   expect(events).toContainEqual({ type: 'textReplace', text: 'Halo' })
   expect(agent.messages.at(-1)).toEqual({ role: 'assistant', content: 'Halo' })
+})
+
+test('images from a tool result are injected as a user parts message', async () => {
+  const { cwd, provider, agent } = setup([
+    { text: '', toolCalls: [call('read', { path: 'logo.png' })] },
+    reply('done'),
+  ])
+  writeFileSync(
+    join(cwd, 'logo.png'),
+    Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 3)]),
+  )
+  await agent.run('lihat logo', new AbortController().signal)
+  const messages = provider.requests[1].messages
+  const toolIndex = messages.findIndex((m) => m.role === 'tool')
+  expect((messages[toolIndex] as unknown as { content: string }).content).toContain('[image attached]')
+  const next = messages[toolIndex + 1] as unknown as {
+    role: string
+    content: { type: string; text?: string; image_url?: { url: string } }[]
+  }
+  expect(next.role).toBe('user')
+  expect(next.content[0]).toEqual({ type: 'text', text: 'Image read from logo.png.' })
+  expect(next.content[1].type).toBe('image_url')
+  expect(next.content[1].image_url?.url).toMatch(/^data:image\/png;base64,/)
+})
+
+test('usageCap.tokens blocks further model calls and emits budgetExceeded', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-'))
+  const provider = scripted([{ ...reply('first'), usage: { inputTokens: 90, outputTokens: 90 } }])
+  const events: AgentEvent[] = []
+  const agent = new Agent({
+    provider, tools: ALL_TOOLS, permissions: new Permissions('default', [], cwd), systemPrompt: 'SYS', cwd,
+    usageCap: { tokens: 100 }, budgetModel: 'bc-cloud/glm-5.3-flash',
+  })
+  agent.onEvent = (e) => events.push(e)
+  await agent.run('satu', new AbortController().signal)
+  expect(provider.requests.length).toBe(1)
+  expect(events.some((e) => e.type === 'budgetExceeded')).toBe(false)
+  await agent.run('dua', new AbortController().signal)
+  expect(provider.requests.length).toBe(1) // model tidak dipanggil lagi
+  expect(events.find((e) => e.type === 'budgetExceeded')).toEqual({ type: 'budgetExceeded', kind: 'tokens', used: 180, limit: 100 })
+})
+
+test('usageCap.usd blocks using prices matched against the model ref', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-'))
+  const provider = scripted([{ ...reply('first'), usage: { inputTokens: 400_000, outputTokens: 100_000 } }])
+  const events: AgentEvent[] = []
+  const agent = new Agent({
+    provider, tools: ALL_TOOLS, permissions: new Permissions('default', [], cwd), systemPrompt: 'SYS', cwd,
+    usageCap: { usd: 1, prices: { glm: { input: 2, output: 8 } } }, budgetModel: 'bc-cloud/glm-5.3-flash',
+  })
+  agent.onEvent = (e) => events.push(e)
+  await agent.run('satu', new AbortController().signal)
+  await agent.run('dua', new AbortController().signal)
+  expect(provider.requests.length).toBe(1)
+  expect(events.find((e) => e.type === 'budgetExceeded')).toEqual({ type: 'budgetExceeded', kind: 'usd', used: 1.6, limit: 1 })
+})
+
+test('onUsage receives per-turn deltas so the session can persist them', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-'))
+  const provider = scripted([
+    { ...reply('one'), usage: { inputTokens: 900, outputTokens: 10 } },
+    { ...reply('two'), usage: { inputTokens: 500, outputTokens: 30, cachedInputTokens: 400, cacheWriteTokens: 50 } },
+  ])
+  const deltas: Array<{ inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheWriteTokens?: number }> = []
+  const agent = new Agent({
+    provider, tools: ALL_TOOLS, permissions: new Permissions('default', [], cwd), systemPrompt: 'SYS', cwd,
+    onUsage: (u) => deltas.push(u),
+  })
+  await agent.run('satu', new AbortController().signal)
+  await agent.run('dua', new AbortController().signal)
+  expect(deltas).toEqual([
+    { inputTokens: 900, outputTokens: 10 },
+    { inputTokens: 500, outputTokens: 30, cachedInputTokens: 400, cacheWriteTokens: 50 },
+  ])
+  expect(agent.totalUsage.inputTokens).toBe(1400)
+})
+
+
+test('compaction keeps recent turns beside the summary', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-keep-'))
+  const provider = scripted([reply('RINGKASAN'), reply('done')])
+  const agent = new Agent({
+    provider,
+    tools: ALL_TOOLS,
+    permissions: new Permissions('default', [], cwd),
+    systemPrompt: 'SYS',
+    cwd,
+    contextWindow: 1000,
+  })
+  agent.load([
+    { role: 'user', content: 't0 ' + 'a'.repeat(800) },
+    { role: 'assistant', content: 'r0' },
+    { role: 'user', content: 't1 ' + 'b'.repeat(800) },
+    { role: 'assistant', content: 'r1' },
+    { role: 'user', content: 't2 TERBARU' },
+    { role: 'assistant', content: 'r2' },
+  ])
+  ;(agent as unknown as { lastInputTokens: number }).lastInputTokens = 900
+  await agent.run('lanjut', new AbortController().signal)
+  // Summary replaces the old turns…
+  expect(agent.messages.some((m) => m.role === 'user' && String(m.content).includes('Summary of the previous conversation'))).toBe(true)
+  expect(agent.messages.some((m) => m.role === 'user' && String(m.content).startsWith('t0 '))).toBe(false)
+  // …but the newest turn is kept verbatim beside it.
+  expect(agent.messages.some((m) => m.role === 'user' && m.content === 't2 TERBARU')).toBe(true)
+  expect(agent.messages.some((m) => m.role === 'assistant' && m.content === 'r2')).toBe(true)
+})
+
+test('compaction stubs old tool outputs in the summary request but keeps recent ones', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-agent-prune-'))
+  const provider = scripted([reply('RINGKASAN'), reply('done')])
+  const agent = new Agent({
+    provider,
+    tools: ALL_TOOLS,
+    permissions: new Permissions('default', [], cwd),
+    systemPrompt: 'SYS',
+    cwd,
+    contextWindow: 200_000,
+  })
+  const big = (id: string, content: string): ChatMessage[] => [
+    { role: 'user', content: 'go ' + id },
+    { role: 'assistant', content: null, tool_calls: [{ id, type: 'function' as const, function: { name: 'read', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: id, content },
+    { role: 'assistant', content: 'ok ' + id },
+  ]
+  agent.load([
+    ...big('c0', 'a'.repeat(200_000)),
+    ...big('c1', 'b'.repeat(200_000)),
+    ...big('c2', 'c'.repeat(60_000)),
+  ])
+  ;(agent as unknown as { lastInputTokens: number }).lastInputTokens = 180_000
+  await agent.run('lanjut', new AbortController().signal)
+  const compactReq = provider.requests[0].messages
+  const toolMsgs = compactReq.filter((m) => m.role === 'tool') as Array<{ content: string }>
+  // Old huge tool outputs are stubs in the summary request…
+  expect(toolMsgs.some((m) => m.content.startsWith('a'.repeat(200)))).toBe(false)
+  expect(toolMsgs.some((m) => /Old tool result content cleared/.test(m.content))).toBe(true)
+  // …and the recent turn's tool output is kept verbatim beside the summary (not only in the summary request).
+  expect(agent.messages.some((m) => m.role === 'tool' && m.tool_call_id === 'c2' && m.content.startsWith('c'.repeat(60_000)))).toBe(true)
 })

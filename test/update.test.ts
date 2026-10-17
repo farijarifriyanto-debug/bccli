@@ -1,0 +1,133 @@
+﻿import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { expect, test } from 'vitest'
+import { ConfigError, loadConfig } from '../src/config'
+import { channelFor, checkForUpdate, compareVersions, dueForCheck, runUpdateCommand, updateNotice, updateSpawnCommand } from '../src/update'
+
+test('compareVersions orders cores numerically and prereleases below releases', () => {
+  expect(compareVersions('0.4.0-beta.38', '0.4.0-beta.39')).toBeLessThan(0)
+  expect(compareVersions('0.4.0-beta.39', '0.4.0')).toBeLessThan(0)
+  expect(compareVersions('0.4.0', '0.4.0')).toBe(0)
+  expect(compareVersions('0.10.0', '0.9.9')).toBeGreaterThan(0)
+  expect(compareVersions('1.0.0', '0.99.99')).toBeGreaterThan(0)
+  expect(compareVersions('0.4.0-beta.3', '0.4.0-beta.10')).toBeLessThan(0)
+})
+
+test('channelFor: prerelease tracks next, release tracks latest', () => {
+  expect(channelFor('0.4.0-beta.38')).toBe('next')
+  expect(channelFor('0.4.0')).toBe('latest')
+})
+
+test('dueForCheck respects the 24h interval and missing cache', () => {
+  const now = new Date('2026-10-07T12:00:00Z')
+  expect(dueForCheck(undefined, now)).toBe(true)
+  expect(dueForCheck({ checkedAt: '2026-10-06T00:00:00Z' }, now)).toBe(true) // 36 jam lalu
+  expect(dueForCheck({ checkedAt: '2026-10-07T06:00:00Z' }, now)).toBe(false) // 6 jam lalu
+  expect(dueForCheck({ checkedAt: 'bukan-tanggal' }, now)).toBe(true)
+})
+
+test('checkForUpdate writes the cache and returns a notice only when newer', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'bccli-upd-'))
+  const fetchOk = (async () => new Response(JSON.stringify({ latest: '9.9.9', next: '9.9.9-beta.1' }))) as typeof fetch
+  const notice = await checkForUpdate({ home, fetch: fetchOk, now: new Date() })
+  // VERSION in tests is 0.0.0-dev -> channel "next"
+  expect(notice).toContain('9.9.9-beta.1')
+  expect(notice).toContain('bccli update')
+  expect(existsSync(join(home, 'update-check.json'))).toBe(true)
+  const cache = JSON.parse(readFileSync(join(home, 'update-check.json'), 'utf8'))
+  expect(cache.latest).toBe('9.9.9-beta.1')
+})
+
+test('notice is displayed once per npm release and returns for the next release', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'bccli-once-'))
+  const release = (v: string) => (async () => new Response(JSON.stringify({ latest: v, next: v }))) as typeof fetch
+  const first = new Date('2026-10-16T00:00:00Z')
+  expect(await checkForUpdate({ home, fetch: release('9.9.9-beta.1'), now: first })).toContain('9.9.9-beta.1')
+  const stored = JSON.parse(readFileSync(join(home, 'update-check.json'), 'utf8'))
+  expect(stored.notified).toBe('9.9.9-beta.1')
+  const neverFetch = (async () => { throw Error('Cache should avoid a second network request') }) as typeof fetch
+  expect(await checkForUpdate({ home, fetch: neverFetch, now: new Date('2026-10-16T01:00:00Z') })).toBeUndefined()
+  expect(await checkForUpdate({ home, fetch: release('9.9.9-beta.1'), now: new Date('2026-10-18T00:00:00Z') })).toBeUndefined()
+  expect(await checkForUpdate({ home, fetch: release('9.9.9-beta.2'), now: new Date('2026-10-20T00:00:00Z') })).toContain('9.9.9-beta.2')
+  expect(await checkForUpdate({ home, fetch: neverFetch, now: new Date('2026-10-20T01:00:00Z') })).toBeUndefined()
+})
+
+test('invalid registry version cannot inject terminal control bytes', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'bccli-reject-ver-'))
+  const malicious = '9.9.9-beta.4\\u001b[2J'.replace('\\u001b', '\\x1b')
+  const fetchUnsafe = (async () => new Response(JSON.stringify({ latest: malicious, next: malicious }))) as typeof fetch
+  expect(await checkForUpdate({ home, fetch: fetchUnsafe, now: new Date() })).toBeUndefined()
+})
+
+test('checkForUpdate reuses a fresh cache without fetching', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'bccli-upd3-'))
+  const now = new Date('2026-10-07T12:00:00Z')
+  const fetchOk = (async () => new Response(JSON.stringify({ latest: '9.9.9' }))) as typeof fetch
+  await checkForUpdate({ home, fetch: fetchOk, now })
+  let called = false
+  const fetchSpy = (async () => {
+    called = true
+    return new Response('{}')
+  }) as typeof fetch
+  await checkForUpdate({ home, fetch: fetchSpy, now: new Date('2026-10-07T13:00:00Z') })
+  expect(called).toBe(false)
+})
+
+test('checkForUpdate never throws on a dead registry', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'bccli-upd2-'))
+  const fetchBad = (async () => {
+    throw new Error('ECONNREFUSED')
+  }) as typeof fetch
+  expect(await checkForUpdate({ home, fetch: fetchBad, now: new Date() })).toBeUndefined()
+})
+
+test('updateNotice is undefined when not newer', () => {
+  expect(updateNotice('9.9.9', '9.9.9')).toBeUndefined()
+  expect(updateNotice('9.9.9', undefined)).toBeUndefined()
+  expect(updateNotice('9.9.9', '0.1.0')).toBeUndefined()
+})
+
+test('Windows Node 24 updater executes npm-cli.js via Node, never npm.cmd or shell', () => {
+  const nodePath = process.execPath
+  const chosen = updateSpawnCommand('0.4.0-beta.53', 'win32', nodePath)
+  expect(chosen.command).toBe(nodePath)
+  expect(chosen.args[0]).toMatch(/npm-cli\.js$/)
+  expect(chosen.args.slice(1)).toEqual(['i', '-g', '@botconnector/bccli@next'])
+  expect(chosen.args.join(' ')).not.toContain('npm.cmd')
+  const stable = updateSpawnCommand('0.4.0', 'win32', nodePath)
+  expect(stable.args).toContain('@botconnector/bccli@latest')
+  const linux = updateSpawnCommand('0.4.0-beta.53', 'linux', nodePath)
+  expect(linux).toEqual({ command: 'npm', args: ['i', '-g', '@botconnector/bccli@next'] })
+})
+
+test('runUpdateCommand pins a verified newer release, never cached dist-tag', async () => {
+  const calls: { cmd: string; args: string[] }[] = []
+  const spawn = ((cmd: string, args: string[]) => {
+    calls.push({ cmd, args })
+    return { status: 0 }
+  }) as never
+  const registry = (version: string) => (async () =>
+    new Response(JSON.stringify({ next: version, latest: version }))) as typeof fetch
+  const env = { BCCLI_VERSION_OVERRIDE: '0.4.0-beta.54' }
+  expect(await runUpdateCommand({ env, platform: 'linux', spawn, fetch: registry('0.4.0-beta.53') })).toBe(0)
+  expect(calls).toHaveLength(0)
+  expect(await runUpdateCommand({ env, platform: 'linux', spawn, fetch: registry('0.4.0-beta.54') })).toBe(0)
+  expect(calls).toHaveLength(0)
+  expect(await runUpdateCommand({ env, platform: 'linux', spawn, fetch: registry('0.4.0-beta.55') })).toBe(0)
+  expect(calls[0]!.args).toContain('@botconnector/bccli@0.4.0-beta.55')
+  expect(await runUpdateCommand({ env, platform: 'linux', spawn, fetch: (async () => { throw Error('offline') }) as typeof fetch })).toBe(1)
+  expect(calls).toHaveLength(1)
+})
+
+test('updateCheck config accepts "on"/"off" only, from the global config', () => {
+  const load = (global: object) => {
+    const h = mkdtempSync(join(tmpdir(), 'bccli-uc-'))
+    writeFileSync(join(h, 'config.json'), JSON.stringify(global))
+    return loadConfig(mkdtempSync(join(tmpdir(), 'bccli-ucc-')), { BCCLI_HOME: h })
+  }
+  expect(load({}).updateCheck).toBeUndefined()
+  expect(load({ updateCheck: 'off' }).updateCheck).toBe('off')
+  expect(load({ updateCheck: 'on' }).updateCheck).toBe('on')
+  expect(() => load({ updateCheck: 'maybe' })).toThrow(ConfigError)
+})

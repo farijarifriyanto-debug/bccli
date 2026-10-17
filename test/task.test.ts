@@ -283,3 +283,121 @@ test('subagent system prompt reports its own model override', async () => {
   expect(system).toContain('MODEL bc-cloud/mimo-v2.6-flash')
   expect(system).not.toContain('MODEL parent')
 })
+
+test('builtin agents declare step caps', () => {
+  expect(BUILTIN_AGENTS.map((a) => ({ name: a.name, maxSteps: a.maxSteps }))).toEqual([
+    { name: 'explore', maxSteps: 30 },
+    { name: 'general', maxSteps: 50 },
+  ])
+})
+
+test('a subagent without its own maxSteps stops at the builtin cap', async () => {
+  const forever = Array.from({ length: 35 }, (_, i) => ({ text: '', toolCalls: [call('grep', { pattern: `p${i}` }, `g${i}`)] }) as Completion)
+  const { agent, events } = setup({
+    PARENT: [
+      { text: '', toolCalls: [call('task', { agent: 'explore', description: 'loop', prompt: 'scan' }, 't1')] },
+      { text: 'ok', toolCalls: [] },
+    ],
+    'read-only research agent': forever,
+  })
+  await agent.run('go', new AbortController().signal)
+  const limit = events.find((e) => e.type === 'subagent' && e.event.type === 'stepLimit')
+  expect(limit).toBeDefined()
+  expect((limit as { event: { maxSteps: number } }).event.maxSteps).toBe(30)
+})
+
+test('a custom agent with no maxSteps gets the default subagent cap', async () => {
+  const forever = Array.from({ length: 55 }, (_, i) => ({ text: '', toolCalls: [call('grep', { pattern: `p${i}` }, `g${i}`)] }) as Completion)
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-task-cap-'))
+  const requests: ChatRequest[] = []
+  const provider = router(
+    {
+      PARENT: [
+        { text: '', toolCalls: [call('task', { agent: 'crawler', description: 'loop', prompt: 'scan' }, 't1')] },
+        { text: 'ok', toolCalls: [] },
+      ],
+      'custom role': forever,
+    },
+    requests,
+  )
+  const task = createTaskTool({
+    agents: [{ name: 'crawler', description: 'c', tools: ['grep'], prompt: 'custom role' }],
+    baseTools: () => ALL_TOOLS,
+    permissions: new Permissions('default', [], cwd),
+    provider: () => provider,
+    providerFor: () => provider,
+    systemPrompt: 'S',
+    cwd,
+  })
+  const events: AgentEvent[] = []
+  const agent = new Agent({ provider, tools: [...ALL_TOOLS, task], permissions: new Permissions('default', [], cwd), systemPrompt: 'S', cwd })
+  agent.onEvent = (e) => events.push(e)
+  await agent.run('go', new AbortController().signal)
+  const limit = events.find((e) => e.type === 'subagent' && e.event.type === 'stepLimit')
+  expect(limit).toBeDefined()
+  expect((limit as { event: { maxSteps: number } }).event.maxSteps).toBe(50)
+})
+
+test('parallel: true lets a write-capable agent run concurrently with its sibling', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-parflag-'))
+  const permissions = new Permissions('default', [], cwd)
+  const provider = router({})
+  const task = createTaskTool({
+    agents: [
+      ...BUILTIN_AGENTS,
+      { name: 'writer', description: 'writes files', prompt: 'p', tools: ['write', 'bash'], parallel: true },
+    ],
+    baseTools: () => ALL_TOOLS,
+    permissions,
+    provider: () => provider,
+    providerFor: () => provider,
+    systemPrompt: 'S',
+    cwd,
+  })
+  expect(task.parallelSafe?.({ agent: 'writer', description: 'a', prompt: 'a' })).toBe(true)
+  expect(task.parallelSafe?.({ agent: 'general', description: 'a', prompt: 'a' })).toBe(false)
+})
+
+test('concurrent write subagents queue their permission prompts one at a time', async () => {
+  const { agent } = setup(
+    {
+      PARENT: [
+        {
+          text: '',
+          toolCalls: [
+            call('task', { agent: 'writerA', description: 'a', prompt: 'write task a' }, 't1'),
+            call('task', { agent: 'writerB', description: 'b', prompt: 'write task b' }, 't2'),
+          ],
+        },
+        { text: 'ok', toolCalls: [] },
+      ],
+      'write task a': [
+        { text: '', toolCalls: [call('write', { path: 'a.txt', content: 'A' }, 'w1')] },
+        { text: 'done a', toolCalls: [] },
+      ],
+      'write task b': [
+        { text: '', toolCalls: [call('write', { path: 'b.txt', content: 'B' }, 'w2')] },
+        { text: 'done b', toolCalls: [] },
+      ],
+    },
+    [
+      { name: 'writerA', description: 'a', prompt: 'write task a', tools: ['write'], parallel: true },
+      { name: 'writerB', description: 'b', prompt: 'write task b', tools: ['write'], parallel: true },
+    ],
+  )
+  let active = 0
+  let maxActive = 0
+  let asks = 0
+  agent.askPermission = async () => {
+    asks++
+    active++
+    maxActive = Math.max(maxActive, active)
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    active--
+    return 'yes'
+  }
+  await agent.run('do both', new AbortController().signal)
+  expect(asks).toBe(2)
+  expect(maxActive).toBe(1)
+  expect(agent.messages.filter((m) => m.role === 'tool').map((m) => (m as { tool_call_id: string }).tool_call_id)).toEqual(['t1', 't2'])
+})

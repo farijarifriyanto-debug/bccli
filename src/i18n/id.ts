@@ -24,12 +24,16 @@ export const ID: Record<string, string> = {
   '   enter save · esc cancel': '   enter simpan · esc batal',
   'shift+tab switch mode': 'shift+tab ganti mode',
   '{n} tokens': '{n} token',
+  '✻ Thinking': '✻ Berpikir',
+  'click to toggle': 'klik untuk buka/tutup',
+  'Model: {model} · reasoning: {level}': 'Model: {model} · penalaran: {level}',
+  'No reasoning summary received yet; tool activity remains visible above.': 'Belum ada ringkasan penalaran dari model; aktivitas tool tetap terlihat di atas.',
   'esc to cancel': 'esc batal',
   '/ for commands': '/ perintah',
   '… {n} earlier steps': '… {n} langkah sebelumnya',
   '✗ failed': '✗ gagal',
   '✓ done': '✓ selesai',
-  '… {n} more lines (ctrl+o)': '… {n} baris lagi (ctrl+o)',
+  '… {n} more lines ({bind})': '… {n} baris lagi ({bind})',
   'No sessions in this folder yet; starting a new one.': 'Belum ada sesi di folder ini; memulai sesi baru.',
   'Session number (enter = new): ': 'Nomor sesi (enter = baru): ',
   'This repo wants to run the MCP server "{name}" ({what}). Allow? [y/N] ': 'Repo ini ingin menjalankan server MCP "{name}" ({what}). Izinkan? [y/N] ',
@@ -53,6 +57,17 @@ export const ID: Record<string, string> = {
   'File: {file}': 'File: {file}',
   'git is not installed or not on PATH, so /diff cannot be used.': 'git tidak terpasang atau tidak ada di PATH, jadi /diff tidak bisa dipakai.',
   'This folder is not a git repository, so there is no diff.': 'Folder ini bukan repository git, jadi tidak ada diff.',
+  'git is not installed or not on PATH, so /worktree cannot be used.': 'git tidak terpasang atau tidak ada di PATH, jadi /worktree tidak bisa dipakai.',
+  'git is not installed or not on PATH, so -w cannot be used.': 'git tidak terpasang atau tidak ada di PATH, jadi -w tidak bisa dipakai.',
+  'This folder is not a git repository, so -w cannot create a worktree.': 'Folder ini bukan repository git, jadi -w tidak bisa membuat worktree.',
+  'Invalid worktree name "{name}": use letters, digits, dot, dash, or underscore (no slashes).':
+    'Nama worktree "{name}" tidak valid: pakai huruf, angka, titik, strip, atau garis bawah (tanpa slash).',
+  'Worktree path {path} already exists but is not a registered worktree; remove or rename it first.':
+    'Path worktree {path} sudah ada tapi bukan worktree terdaftar; hapus atau ganti nama dulu.',
+  'Git worktrees:': 'Git worktree:',
+  'Create one with: bccli -w <name>': 'Buat dengan: bccli -w <nama>',
+  'Remove with: git worktree remove <path>': 'Hapus dengan: git worktree remove <path>',
+  'list git worktrees; create one with bccli -w <name>': 'daftar git worktree; buat dengan bccli -w <nama>',
   'No uncommitted changes.': 'Tidak ada perubahan yang belum di-commit.',
   '… {n} more lines': '… {n} baris lagi',
   'New files (untracked): {files}': 'File baru (belum di-track): {files}',
@@ -71,6 +86,7 @@ export const ID: Record<string, string> = {
   'version, model, permission mode, MCP, context': 'versi, model, mode izin, MCP, konteks',
   'view/revoke permissions': 'lihat/cabut izin',
   'undo the file edits of the last turn': 'batalkan edit file giliran terakhir',
+  're-apply the file edits that /undo just reverted': 'terapkan ulang edit file yang baru dibatalkan /undo',
   'git diff of the project': 'git diff project',
   'copy the last answer': 'salin jawaban terakhir',
   'save the conversation as markdown': 'simpan percakapan ke markdown',
@@ -91,10 +107,21 @@ export const ID: Record<string, string> = {
 Usage:
   bccli [task]                  interactive mode (optionally start with a task)
   bccli -p "task"               run one task without interaction (scripts/CI)
-  bccli login [provider]        save an API key (default: bc-cloud)
-  bccli models                  list models from the active provider
+  bccli login [provider]        OAuth login (or --key paste API key, --logout remove)
+  bccli models [provider]       list models (default: the active provider)
+  bccli update                  install the newest bccli from npm
+  bccli acp                     run as an ACP agent for editors (Zed, ...)
+  bccli serve [--port N]        serve sessions over HTTP+WS for IDEs/bots
+  bccli plugins               list, install, remove, or update plugins
+  bccli gh-bot [serve]         GitHub comment bot (off-by-default; needs config)
   bccli provider list|add <id>|remove <id>   manage providers (custom: --url <url> [--name N] [--key-env ENV])
-  bccli mcp list|add <name>|remove <name>    manage MCP servers (catalog, or --url <url>)
+  bccli mcp list|add <name>|remove <name>|auth <name>|logout <name>|serve [--base-url <url>]    manage MCP servers, or serve this account's tools over stdio
+  bccli completion <shell>     print a shell completion script (bash, zsh, fish, powershell)
+  bccli stats [--days N] [--tools N] [--models [N|all]] [--project slug]
+                                     show token usage from local sessions (default: last 7 days)
+  bccli export [session] [file]  copy a session JSONL to a file (default: last session here)
+  bccli import <file>          import a session JSONL into the current project
+  bccli pr <number> [--repo owner/name] [task]   check out a GitHub PR and run a task on it
   bccli integrations             show the status of external agent integrations
   bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible, openclaw, hermes
   bccli disconnect <agent>       remove an integration and restore the previous config
@@ -106,6 +133,8 @@ Options:
   -r, --resume                  pick a session to continue
       --allow-all               run all tools without asking for permission
       --allowed-tools <a,b>     tools allowed without asking: bash, edit, fetch
+  -w, --worktree <name>        run in git worktree ../<repo>.worktrees/<name> (created, or reused if it exists)
+      --output-format <fmt>     text | json | stream-json for -p (machine-readable output)
       --permission-mode <mode>  default | acceptEdits | plan | allowAll
       --lang <en|id>            interface language (default: en; or BCCLI_LANG, or "language" in config)
   -v, --version                 version
@@ -114,10 +143,15 @@ Options:
 Pemakaian:
   bccli [tugas]                 mode interaktif (opsional langsung dengan tugas)
   bccli -p "tugas"              jalankan satu tugas tanpa interaksi (skrip/CI)
-  bccli login [provider]        simpan API key (default: bc-cloud)
-  bccli models                  daftar model dari provider aktif
+  bccli login [provider]        login OAuth (atau --key tempel API key, --logout hapus)
+  bccli models [provider]       daftar model (default: provider aktif)
+  bccli update                  pasang bccli terbaru dari npm
+  bccli acp                     jalankan sebagai agen ACP untuk editor (Zed, ...)
+  bccli serve [--port N]        sajikan sesi lewat HTTP+WS untuk IDE/bot
+  bccli plugins               daftar, install, remove, atau perbarui plugin
+  bccli gh-bot [serve]         bot komentar GitHub (nonaktif default; butuh config)
   bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
-  bccli mcp list|add <nama>|remove <nama>    kelola server MCP (katalog, atau --url <url>)
+  bccli mcp list|add <nama>|remove <nama>|auth <nama>|logout <nama>|serve [--base-url <url>]    kelola server MCP, atau layani tools akun ini lewat stdio
   bccli integrations             lihat status integrasi agent eksternal
   bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible, openclaw, hermes
   bccli disconnect <agent>       lepas integrasi dan pulihkan config sebelumnya
@@ -129,18 +163,155 @@ Opsi:
   -r, --resume                  pilih sesi untuk dilanjutkan
       --allow-all               jalankan semua alat tanpa minta izin
       --allowed-tools <a,b>     alat yang boleh tanpa izin: bash, edit, fetch
+  -w, --worktree <name>        jalankan di git worktree ../<repo>.worktrees/<name> (dibuat, atau dipakai ulang jika ada)
+      --output-format <fmt>     text | json | stream-json untuk -p (output mesin)
       --permission-mode <mode>  default | acceptEdits | plan | allowAll
       --lang <en|id>            bahasa tampilan (default: en; atau BCCLI_LANG, atau "language" di config)
   -v, --version                 versi
   -h, --help                    bantuan ini`,
   '--reasoning must be one of: {levels}': '--reasoning harus salah satu dari: {levels}',
+  '--port must be a number between 0 and 65535': '--port harus angka antara 0 dan 65535',
+  'serve only accepts loopback --host (127.0.0.1, localhost, ::1)':
+    'serve hanya menerima --host loopback (127.0.0.1, localhost, ::1)',
+  'networkPolicy must be "allow" or "offline".': 'networkPolicy harus "allow" atau "offline".',
+  'plugins must be an array of strings.': 'plugins harus berupa array of string.',
+  'verifyCommands must be an array of non-empty strings.': 'verifyCommands harus berupa array of string tidak kosong.',
+  'usageCap must be an object, e.g. { "tokens": 2000000 }.': 'usageCap harus berupa objek, mis. { "tokens": 2000000 }.',
+  'usageCap.tokens must be a number greater than 0.': 'usageCap.tokens harus angka lebih dari 0.',
+  'usageCap.usd must be a number greater than 0.': 'usageCap.usd harus angka lebih dari 0.',
+  'usageCap.usd requires usageCap.prices (USD per 1M tokens).': 'usageCap.usd memerlukan usageCap.prices (USD per 1 juta token).',
+  'usageCap.prices["{key}"] must have numeric input and output (USD per 1M tokens).': 'usageCap.prices["{key}"] harus punya input dan output numerik (USD per 1 juta token).',
+  'usageCap needs at least one of: tokens, usd.': 'usageCap memerlukan setidaknya salah satu dari: tokens, usd.',
+  'updateCheck must be "on" or "off".': 'updateCheck harus "on" atau "off".',
+  'repoMap must be true or false.': 'repoMap harus true atau false.',
+  'theme must be one of: {themes}.': 'theme harus salah satu dari: {themes}.',
+  'editor must be "emacs" or "vim".': 'editor harus "emacs" atau "vim".',
+  'sandbox must be "off" or "on".': 'sandbox harus "off" atau "on".',
+  'lsp must be an object with a "servers" array.': 'lsp harus berupa objek dengan array "servers".',
+  'Each lsp server needs { "extensions": [".ts"], "command": "...", "args": ["..."] }.':
+    'Setiap server lsp butuh { "extensions": [".ts"], "command": "...", "args": ["..."] }.',
+  'No LSP server is configured for {ext} files.': 'Tidak ada server LSP yang dikonfigurasi untuk file {ext}.',
+  NORMAL: '-- NORMAL --',
+  'A new bccli is available: {latest} (you have {current}). Run: bccli update': 'bccli versi baru tersedia: {latest} (kamu punya {current}). Jalankan: bccli update',
+  'Clipboard image saved to {path} — the path is inserted in the input; the model sees it when you send.':
+    'Gambar clipboard disimpan ke {path} — path disisipkan ke input; model melihatnya saat kamu kirim.',
+  'No image on the clipboard.': 'Tidak ada gambar di clipboard.',
+  'githubBot secret env {env} is empty — set it before enabling the bot.':
+    'secret env githubBot {env} kosong — setel sebelum mengaktifkan bot.',
+  'githubBot.{name} must be an array of strings.': 'githubBot.{name} harus berupa array of string.',
+  'githubBot.{name} must be a positive integer.': 'githubBot.{name} harus bilangan bulat positif.',
+  'githubBot.enabled must be a boolean.': 'githubBot.enabled harus boolean.',
+  'githubBot.path must be an absolute path like /github.': 'githubBot.path harus path absolut seperti /github.',
+  'githubBot.secretEnv must be a non-empty string.': 'githubBot.secretEnv harus string tidak kosong.',
+  'Ignored empty command in delivery {id}.': 'Mengabaikan perintah kosong di delivery {id}.',
+  'Unknown action: {action}. Use serve.': 'Aksi tidak dikenal: {action}. Gunakan serve.',
+  'gh CLI not found (exit {code}) — install GitHub CLI before enabling gh-bot.':
+    'gh CLI tidak ditemukan (exit {code}) — pasang GitHub CLI sebelum mengaktifkan gh-bot.',
+  'Unknown action: {action}. Use list, install <spec>, remove <name>, or update [name].':
+    'Aksi tidak dikenal: {action}. Gunakan list, install <spec>, remove <nama>, atau update [nama].',
+  'Cannot read the plugin config while running {action}: {reason} at {path} — no changes were made; fix the config, then retry.':
+    'Tidak bisa membaca config plugin saat menjalankan {action}: {reason} di {path} — tidak ada perubahan; perbaiki config, lalu coba lagi.',
+  'npm install failed ({code}): {stderr}': 'npm install gagal ({code}): {stderr}',
+  'install requires a package spec: bccli plugins install <spec>':
+    'install butuh spesifikasi paket: bccli plugins install <spec>',
+  'Invalid npm package spec: {spec}. Use a name, @scope/name, name@version, or name@tag — URLs, git, paths, and flags are not accepted.':
+    'Spesifikasi paket npm tidak valid: {spec}. Pakai nama, @scope/nama, nama@versi, atau nama@tag — URL, git, path, dan flag tidak diterima.',
+  'npm finished but the config could not be read: {reason} — the entry list is unchanged; fix {path}, then rerun the same command (safe to repeat).':
+    'npm selesai tetapi config gagal dibaca: {reason} — daftar entry tidak berubah; perbaiki {path}, lalu jalankan ulang perintah yang sama (aman diulang).',
+  'npm finished but the config update failed: {reason}. {name} stays enabled through its existing entry {entry}; the package files may already be new. Fix the config error at {path} — no entry change was required.':
+    'npm selesai tetapi pembaruan config gagal: {reason}. {name} tetap aktif lewat entry lama {entry}; file paket mungkin sudah baru. Perbaiki error config di {path} — tidak ada perubahan entry yang diperlukan.',
+  'npm finished but the config update failed: {reason}. {name} is installed but NOT enabled — fix the config error, then run "bccli plugins install {name}" again (safe to repeat), or add {entry} to {path} manually.':
+    'npm selesai tetapi pembaruan config gagal: {reason}. {name} terpasang tetapi TIDAK aktif — perbaiki error config, lalu jalankan lagi "bccli plugins install {name}" (aman diulang), atau tambahkan {entry} ke {path} secara manual.',
+  '{name} is already enabled.': '{name} sudah aktif.',
+  '{name} installed and enabled.': '{name} terpasang dan aktif.',
+  'Malformed managed entry: {entry} — fix it manually in {path}; bccli will not pass it to npm.':
+    'Entry terelola rusak: {entry} — perbaiki manual di {path}; bccli tidak akan meneruskannya ke npm.',
+  '{entry} is a manual plugin entry — edit the global config.json directly to remove it.':
+    '{entry} adalah entry plugin manual — edit config.json global langsung untuk menghapusnya.',
+  '{name} is not an installed managed plugin.': '{name} bukan plugin terelola yang terpasang.',
+  'Unknown plugin: {arg}.': 'Plugin tidak dikenal: {arg}.',
+  'remove requires a plugin name: bccli plugins remove <name>':
+    'remove butuh nama plugin: bccli plugins remove <nama>',
+  'npm removed the files of {name} but the plugin config could not be read: {reason} — the entry list is unchanged; fix {path}, then run "bccli plugins remove {name}" again (safe to repeat).':
+    'npm sudah menghapus file {name} tetapi config plugin gagal dibaca: {reason} — daftar entry tidak berubah; perbaiki {path}, lalu jalankan lagi "bccli plugins remove {name}" (aman diulang).',
+  'npm removed the files of {name} but the config entry {entry} remains: {reason}. bccli will refuse to start while that entry is listed — fix the config error at {path}, then run "bccli plugins remove {name}" again (safe to repeat), or delete the entry manually.':
+    'npm sudah menghapus file {name} tetapi entry config {entry} tertinggal: {reason}. bccli menolak start selama entry itu terdaftar — perbaiki error config di {path}, lalu jalankan lagi "bccli plugins remove {name}" (aman diulang), atau hapus entry secara manual.',
+  'Skipping malformed entry: {entry} — fix it manually in {path}.':
+    'Melewatkan entry rusak: {entry} — perbaiki manual di {path}.',
+  'No managed plugins to update.': 'Tidak ada plugin terelola untuk diperbarui.',
+  'update requires a plugin name or no argument: bccli plugins update [name]':
+    'update butuh nama plugin atau tanpa argumen: bccli plugins update [nama]',
+  '{name} updated to latest.': '{name} diperbarui ke versi terbaru.',
+  'Use either --key or --logout, not both.': 'Pakai --key atau --logout, jangan keduanya.',
+  'Logout is not supported for {id}; use bccli provider remove {id} to delete its stored key and config.':
+    'Logout tidak didukung untuk {id}; pakai bccli provider remove {id} untuk menghapus key dan config tersimpan.',
+  'bccli login openrouter needs a terminal. Use --key to paste an API key instead.':
+    'bccli login openrouter butuh terminal. Pakai --key untuk menempel API key.',
+  'Could not open the browser automatically — open this URL manually: {url}':
+    'Tidak bisa membuka browser otomatis — buka URL ini manual: {url}',
+  'Paste the authorization code from the browser: ': 'Tempel kode otorisasi dari browser: ',
+  'Failed to read the authorization code: {reason}. Your stored credential was not changed.':
+    'Gagal membaca kode otorisasi: {reason}. Credential tersimpan tidak berubah.',
+  'Authorization code is empty. Run bccli login openrouter again.':
+    'Kode otorisasi kosong. Jalankan bccli login openrouter lagi.',
+  'Login cancelled.': 'Login dibatalkan.',
+  'The exchange with OpenRouter timed out after {seconds}s. Your stored credential was not changed.':
+    'Pertukaran dengan OpenRouter habis waktu setelah {seconds} dtk. Credential tersimpan tidak berubah.',
+  'Could not reach OpenRouter: {reason}. Your stored credential was not changed.':
+    'Tidak bisa menghubungi OpenRouter: {reason}. Credential tersimpan tidak berubah.',
+  'Authorization code expired — codes are valid for 10 minutes. Run bccli login openrouter again.':
+    'Kode otorisasi kedaluwarsa — kode berlaku 10 menit. Jalankan bccli login openrouter lagi.',
+  'OpenRouter rejected the authorization code (403): {detail}. Run bccli login openrouter again.':
+    'OpenRouter menolak kode otorisasi (403): {detail}. Jalankan bccli login openrouter lagi.',
+  'OpenRouter did not return an API key in the expected format. Your stored credential was not changed.':
+    'OpenRouter tidak mengembalikan API key dengan format yang diharapkan. Credential tersimpan tidak berubah.',
+  'OpenRouter exchange failed ({status}): {detail}. Your stored credential was not changed.':
+    'Pertukaran OpenRouter gagal ({status}): {detail}. Credential tersimpan tidak berubah.',
+  'The key was created on your OpenRouter account but could not be saved locally ({reason}). Manage it (copy or revoke) at {dashboard}, then run bccli login openrouter again.':
+    'Key sudah dibuat di akun OpenRouter kamu tetapi gagal disimpan lokal ({reason}). Kelola (salin atau cabut) di {dashboard}, lalu jalankan bccli login openrouter lagi.',
+  'Logged in: openrouter credential saved.': 'Login berhasil: credential openrouter tersimpan.',
+  'Note: {env} is also set in the environment; the stored credential takes priority and {env} is only the fallback.':
+    'Catatan: {env} juga ter-set di environment; credential tersimpan lebih diutamakan dan {env} hanya cadangan.',
+  'Verify with: bccli models openrouter (your key is never printed).':
+    'Verifikasi dengan: bccli models openrouter (key kamu tidak pernah dicetak).',
+  'openrouter credential removed.': 'credential openrouter dihapus.',
+  'openrouter credential was not stored.': 'credential openrouter tidak tersimpan.',
+  'Note: {env} is still set in the environment and will keep being used.':
+    'Catatan: {env} masih ter-set di environment dan akan terus dipakai.',
+  'To revoke keys on your account, open {dashboard}.':
+    'Untuk mencabut key akun kamu, buka {dashboard}.',
+  'Budget exceeded ({kind}): {used} of {limit}. Further model calls are blocked; raise usageCap in ~/.bccli/config.json.':
+    'Anggaran terlampaui ({kind}): {used} dari {limit}. Panggilan model selanjutnya diblokir; naikkan usageCap di ~/.bccli/config.json.',
+  'Could not save thinking visibility: {error}': 'Gagal menyimpan pengaturan tampilan Thinking: {error}',
+  'Verifying edits: {cmds}': 'Memverifikasi edit: {cmds}',
+  'Verification passed.': 'Verifikasi lulus.',
+  'Verification still failing after {n} fix round(s). Run the commands manually to see why.':
+    'Verifikasi masih gagal setelah {n} ronde perbaikan. Jalankan perintahnya secara manual untuk melihat penyebabnya.',
+  'Automatic verification after your edits failed. Fix the problems so these commands pass, then stop.\n\n{blocks}':
+    'Verifikasi otomatis setelah editmu gagal. Perbaiki masalahnya agar perintah-perintah ini lulus, lalu berhenti.\n\n{blocks}',
+  'keybinds must be an object mapping action to binding.': 'keybinds harus berupa objek yang memetakan aksi ke binding.',
+  'Keybind for "{action}" must be a string like "ctrl+t".': 'Keybind untuk "{action}" harus string seperti "ctrl+t".',
+  'Keybind "{spec}" for "{action}" is invalid: use ctrl or alt plus one letter, e.g. "ctrl+t".': 'Keybind "{spec}" untuk "{action}" tidak valid: gunakan ctrl atau alt plus satu huruf, mis. "ctrl+t".',
+  'Unknown keybind action "{action}". Known actions: {list}.': 'Aksi keybind "{action}" tidak dikenal. Aksi yang dikenal: {list}.',
+  'Plugin not found: {spec}': 'Plugin tidak ditemukan: {spec}',
+  'Plugin failed to load: {spec}: {reason}': 'Plugin gagal dimuat: {spec}: {reason}',
+  'Plugin {spec} registered a tool name that is already in use: {name}':
+    'Plugin {spec} mendaftarkan nama tool yang sudah terpakai: {name}',
   '--permission-mode must be one of: {modes}': '--permission-mode harus salah satu dari: {modes}',
   'Plan needs approval; run with --allow-all.': 'Rencana butuh persetujuan; jalankan dengan --allow-all.',
   'Step limit reached.': 'Batas langkah tercapai.',
   'Needs permission for {tool}. Run with --allow-all or --allowed-tools {kind}.': 'Butuh izin untuk {tool}. Jalankan dengan --allow-all atau --allowed-tools {kind}.',
   '--lang must be one of: en, id': '--lang harus salah satu dari: en, id',
+  '--output-format must be one of: {formats}': '--output-format harus salah satu dari: {formats}',
   'Invalid config: {path} ({error})': 'Config tidak valid: {path} ({error})',
   'maxSteps must be a positive number, or 0/null to disable the limit.': 'maxSteps harus berupa angka positif, atau 0/null untuk menonaktifkan batas.',
+  'sessionRetentionDays must be a positive number of days, or 0/null to keep sessions.': 'sessionRetentionDays harus berupa jumlah hari positif, atau 0/null untuk menyimpan sesi.',
+  'Hook {event} failed: {reason}': 'Hook {event} gagal: {reason}',
+  'list background tasks': 'daftar tugas latar belakang',
+  'Nothing to rewind.': 'Tidak ada yang bisa di-rewind.',
+  'Rewound {n} turn(s): the conversation continues from before them.': '{n} giliran di-rewind: percakapan dilanjutkan dari sebelum giliran itu.',
+  'step back turns: conversation and file edits (/rewind 2)': 'mundur beberapa giliran: percakapan + edit file (/rewind 2)',
+  'review a pull request (/pr <n|url|branch>)': 'review pull request (/pr <n|url|branch>)',
   'Model must be in provider/model format, e.g. bc-cloud/glm-5.3-flash (got: {ref})': 'Model harus berformat provider/model, contoh bc-cloud/glm-5.3-flash (dapat: {ref})',
   'Provider "{id}" is not in the config. Available: {list}': 'Provider "{id}" tidak ada di config. Tersedia: {list}',
   'No API key for {id} yet. Run `bccli login` or set the env var {env}.': 'API key untuk {id} belum ada. Jalankan `bccli login` atau set env {env}.',
@@ -157,6 +328,15 @@ Opsi:
   'Usage: bccli provider {action} <id>': 'Pemakaian: bccli provider {action} <id>',
   '{id} removed.': '{id} dihapus.',
   'Unknown action: {action}. Use list, add, or remove.': 'Aksi tidak dikenal: {action}. Pakai list, add, atau remove.',
+  'Unknown action: {action}. Use list, add, remove, auth, logout, or serve.':
+    'Aksi tidak dikenal: {action}. Pakai list, add, remove, auth, logout, atau serve.',
+  'OAuth required for {name}: run bccli mcp auth {name}': 'OAuth diperlukan untuk {name}: jalankan bccli mcp auth {name}',
+  '{name} is not an installed HTTP MCP server. Add it first with: bccli mcp add {name} --url <url>':
+    '{name} bukan server MCP HTTP yang terpasang. Tambahkan dulu: bccli mcp add {name} --url <url>',
+  '{name} authorized. Active in the next bccli session.': '{name} terautorisasi. Aktif di sesi bccli berikutnya.',
+  'OAuth login failed for {name}: {reason}': 'Login OAuth gagal untuk {name}: {reason}',
+  '{name} logged out.': '{name} telah logout.',
+  '{name} has no stored OAuth tokens.': '{name} tidak menyimpan token OAuth.',
   '{id} is not a preset. For a custom provider add --url <OpenAI-compatible base URL>.': '{id} bukan preset. Untuk provider custom tambahkan --url <base URL OpenAI-compatible>.',
   'API key for {id} (leave empty if not needed): ': 'API key untuk {id} (kosongkan bila tidak perlu): ',
   '{id} is ready. {n} models available.': '{id} siap. {n} model tersedia.',
@@ -220,8 +400,8 @@ Opsi:
   'Custom commands:': 'Perintah custom:',
   'Skills:': 'Skill:',
   'shift+tab  switch permission mode    esc  cancel the turn': 'shift+tab  ganti mode izin    esc  batalkan giliran',
-  'ctrl+o     full output of the last tool    \\ + enter  new line': 'ctrl+o     output alat terakhir lengkap    \\ + enter  baris baru',
-  'ctrl+t     show/hide the model’s thinking': 'ctrl+t     buka/tutup thinking model',
+  '{bind} full output of the last tool    \\ + enter  new line': '{bind} output alat terakhir lengkap    \\ + enter  baris baru',
+  '{bind} show/hide the model’s thinking': '{bind} buka/tutup thinking model',
   '@file + tab  complete file names    ↑↓  input history': '@file + tab  lengkapi nama file    ↑↓  riwayat input',
   'custom command': 'perintah custom',
   'skill · {description}': 'skill · {description}',
@@ -249,13 +429,15 @@ Opsi:
   'Could not write {file}: {error}': 'Gagal menulis {file}: {error}',
   'Added to {file}.': 'Ditambahkan ke {file}.',
   'API key for {provider}': 'API key untuk {provider}',
-  'Key for {provider} saved, but {env} in the environment takes precedence and is still used.': 'Key {provider} tersimpan, tapi {env} di environment lebih diutamakan dan tetap dipakai.',
   'Key for {provider} saved · {n} models.': 'Key {provider} tersimpan · {n} model.',
   'Stored key deleted, but {env} is still set in the environment and is still used.': 'Key tersimpan dihapus, tapi {env} masih ada di environment dan tetap dipakai.',
   'No stored key; {env} is still set in the environment and is still used.': 'Tidak ada key tersimpan; {env} masih ada di environment dan tetap dipakai.',
   'No stored key for {provider}.': 'Tidak ada key tersimpan untuk {provider}.',
   'Key for {provider} deleted. Use /login or /provider to add one again.': 'Key {provider} dihapus. Pakai /login atau /provider untuk menambah lagi.',
   'No file edits to undo.': 'Tidak ada edit file yang bisa dibatalkan.',
+  'No file edits to redo.': 'Tidak ada edit file yang bisa di-redo.',
+  'Re-applied: {files}': 'Diterapkan ulang: {files}',
+  'Deleted again: {files}': 'Dihapus lagi: {files}',
   'Could not restore: {files}': 'Gagal dikembalikan: {files}',
   'Restored: {files}': 'Dikembalikan: {files}',
   'Deleted (new files): {files}': 'Dihapus (file baru): {files}',
@@ -270,15 +452,11 @@ Opsi:
   'Unknown command: /{name}. Type /help.': 'Perintah tidak dikenal: /{name}. Ketik /help.',
   'Skill {name} cannot be read: {error}': 'Skill {name} tidak bisa dibaca: {error}',
   '{n} queued messages cancelled.': '{n} pesan antrian dibatalkan.',
-  'Thinking shown (ctrl+t to hide).': 'Thinking ditampilkan (ctrl+t untuk menutup).',
-  'Thinking hidden (ctrl+t to show).': 'Thinking disembunyikan (ctrl+t untuk membuka).',
   'MCP {name} removed.': 'MCP {name} dihapus.',
   'MCP {name} installed, connecting…': 'MCP {name} dipasang, menghubungkan…',
   'MCP {name} active · {n} tools.': 'MCP {name} aktif · {n} alat.',
   'MCP {name} failed: {error}': 'MCP {name} gagal: {error}',
   'unknown': 'tidak diketahui',
-  '✻ Thinking · {n} lines · ctrl+t to show': '✻ Berpikir · {n} baris · ctrl+t buka',
-  '✻ Thinking (ctrl+t to hide)': '✻ Berpikir (ctrl+t tutup)',
   '  ⏳ queued: {q}': '  ⏳ antri: {q}',
   'Thinking': 'Berpikir',
   'Cancelling': 'Membatalkan',
@@ -302,4 +480,24 @@ Opsi:
   '{input} tokens in · {output} tokens out': '{input} token masuk · {output} token keluar',
   'Run: dsh web': 'Jalankan: dsh web',
   'timeout after {n} seconds': 'timeout {n} detik',
+  'Could not start MCP servers: {error}': 'Tidak bisa menjalankan server MCP: {error}',
+  'Blocked: {host} resolves to a private address ({addr}). Fetching an internal host through a public DNS name is not allowed.': 'Diblokir: {host} mengarah ke alamat privat ({addr}). Mengambil host internal lewat nama DNS publik tidak diizinkan.',
+  'usage: bccli completion <{shells}>': 'pakai: bccli completion <{shells}>',
+  '--days must be a positive integer': '--days harus bilangan bulat positif',
+  '--tools must be a positive integer': '--tools harus bilangan bulat positif',
+  '--models must be a positive integer or "all"': '--models harus bilangan bulat positif atau "all"',
+  'no sessions in the last {days} day(s)': 'tidak ada sesi dalam {days} hari terakhir',
+  'sessions (last {days} day(s)):': 'sesi ({days} hari terakhir):',
+  'session(s)': 'sesi',
+  'message(s)': 'pesan',
+  'no session to export in this folder': 'tidak ada sesi untuk diekspor di folder ini',
+  'exported {file}': 'diekspor ke {file}',
+  'file not found: {file}': 'file tidak ditemukan: {file}',
+  'invalid session file (non-JSON line): {file}': 'file sesi tidak valid (baris bukan JSON): {file}',
+  'imported {n} record(s) into {file}': 'impor {n} rekaman ke {file}',
+  'usage: bccli pr <number> [--repo owner/name] [task]': 'pakai: bccli pr <nomor> [--repo owner/name] [tugas]',
+  'gh is not available ({error}); install GitHub CLI first': 'gh tidak tersedia ({error}); pasang GitHub CLI dulu',
+  'gh pr checkout {n} failed (exit {code})': 'gh pr checkout {n} gagal (exit {code})',
+  'checked out PR #{n}': 'checkout PR #{n} selesai',
+'--allow-all: the PR task runs every tool without asking': '--allow-all: tugas PR menjalankan semua alat tanpa bertanya',
 }

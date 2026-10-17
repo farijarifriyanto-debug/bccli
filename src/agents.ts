@@ -11,10 +11,12 @@ export const BUILTIN_AGENTS: AgentDef[] = [
     description: 'Read-only: search and read code to answer a question (fast, safe, can run in parallel).',
     tools: ['read', 'grep', 'glob'],
     prompt: EXPLORE_PROMPT,
+    maxSteps: 30,
   },
   {
     name: 'general',
     description: 'Full tools: carry out a self-contained sub-task (edits and commands still need user permission).',
     prompt: GENERAL_PROMPT,
+    maxSteps: 50,
   },
 ]

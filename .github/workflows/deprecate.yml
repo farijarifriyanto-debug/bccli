@@ -1,0 +1,71 @@
+name: deprecate
+
+# Maintenance tool: mark (or unmark) a published version range as deprecated, e.g. the
+# legacy 0.1.x launcher line. Uses the same npm credential as the release workflow, so no
+# token ever has to leave GitHub.
+#
+#   gh workflow run deprecate.yml -f range='0.1.0-beta.1' -f message='why it is deprecated'
+#   gh workflow run deprecate.yml -f range='0.2.0-beta.1' -f message=''   # un-deprecate
+#   gh workflow run deprecate.yml -f range='0.1.0-beta.1 - 0.1.0-beta.4' -f message='...'
+#
+# Notes, both learned the hard way:
+# - prefer an explicit range ("0.1.0-beta.1 - 0.1.0-beta.4") over a plain "less than" range;
+#   "<0.2.0" also matches 0.2.0-beta.1, which is a beta of the current line, not the legacy one.
+# - the registry propagates a deprecation asynchronously (its own notices say "may take a few
+#   minutes"), so the verify step polls instead of comparing once and filing a false failure.
+on:
+  workflow_dispatch:
+    inputs:
+      range:
+        description: 'Version or range to deprecate, for example 0.1.0-beta.1 or <0.2.0'
+        required: true
+      message:
+        description: 'Deprecation message; leave empty to un-deprecate'
+        required: false
+        default: ''
+
+jobs:
+  deprecate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      # One reader for both snapshots: version<TAB>message, so a message-only change counts.
+      - name: Read the deprecated set
+        id: snapshot
+        run: |
+          cat > "$RUNNER_TEMP/read-deprecated.mjs" <<'EOF'
+          const res = await fetch(`https://registry.npmjs.org/@botconnector%2Fbccli?t=${Date.now()}`);
+          const json = await res.json();
+          const lines = Object.keys(json.versions)
+            .filter((v) => json.versions[v].deprecated)
+            .map((v) => `${v}\t${json.versions[v].deprecated}`)
+            .sort();
+          console.log(lines.join('\n'));
+          EOF
+          node "$RUNNER_TEMP/read-deprecated.mjs" > "$RUNNER_TEMP/deprecated-before.txt"
+          echo "--- before ---"; cat "$RUNNER_TEMP/deprecated-before.txt"
+      - name: npm deprecate
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BBCLI || secrets.NPM_TOKEN }}
+          RANGE: ${{ inputs.range }}
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          [ -n "$NODE_AUTH_TOKEN" ] || { echo "::error::no npm token secret is configured"; exit 1; }
+          npm deprecate "@botconnector/bccli@$RANGE" "$MESSAGE"
+      - name: Verify the registry actually changed (it propagates asynchronously, so poll)
+        run: |
+          for attempt in $(seq 1 12); do
+            node "$RUNNER_TEMP/read-deprecated.mjs" > "$RUNNER_TEMP/deprecated-after.txt"
+            if ! diff -q "$RUNNER_TEMP/deprecated-before.txt" "$RUNNER_TEMP/deprecated-after.txt" > /dev/null; then
+              echo "--- after (attempt $attempt) ---"; cat "$RUNNER_TEMP/deprecated-after.txt"
+              echo "The deprecated set changed, so the range matched something."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "--- after ---"; cat "$RUNNER_TEMP/deprecated-after.txt"
+          echo "::error::the deprecated set did not change in 120s; check that the range matched something the token may touch"
+          exit 1

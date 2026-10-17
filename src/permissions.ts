@@ -16,11 +16,59 @@ export function nextMode(mode: PermissionMode): PermissionMode {
   return MODE_ORDER[(MODE_ORDER.indexOf(mode) + 1) % MODE_ORDER.length]
 }
 
-const TWO_WORD = new Set(['npm', 'npx', 'pnpm', 'yarn', 'bun', 'git', 'cargo', 'go', 'docker', 'python', 'python3', 'uv', 'make'])
+// First word that must never be granted for a session, whatever the arguments.
+const ALWAYS_ASK_COMMANDS = new Set(['sudo', 'sh', 'bash', 'zsh', 'su'])
+
+/**
+ * A segment that may hide destructive effects behind an otherwise harmless name;
+ * `rulesFor` returns undefined for requests containing one, so they are always asked.
+ */
+function isAlwaysAsk(segment: string): boolean {
+  const words = segment.trim().split(/\s+/)
+  const first = words[0] ?? ''
+  if (ALWAYS_ASK_COMMANDS.has(first)) return true
+  const flags = words.slice(1).filter((w) => w.startsWith('-'))
+  if (first === 'rm' && flags.some((w) => w.includes('r'))) return true // -r, -rf, -fr, --recursive
+  if (first === 'chmod' && flags.some((w) => w.includes('R'))) return true // -R, -Rf
+  if (first === 'kill' && words.slice(1).includes('-9')) return true
+  if (first === 'git' && words[1] === 'push') {
+    return words.slice(2).some((w) => w === '-f' || w === '--force' || w.startsWith('--force='))
+  }
+  return false
+}
+
+// Runners execute whatever script or entry point they are pointed at, so the grant key
+// must include it: approving `npm run build` must not cover a later `npm run deploy`, or
+// a script added to package.json after the approval (TOCTOU).
+const RUNNER_COMMANDS = new Set([
+  'npm', 'npx', 'pnpm', 'pnpx', 'yarn', 'bun', 'bunx', 'deno', 'node', 'tsx', 'ts-node',
+  'python', 'python3', 'py', 'uv', 'uvx', 'pip', 'pip3', 'pipx', 'pytest',
+  'make', 'cargo', 'go', 'dotnet', 'java', 'ruby', 'bundle', 'rake', 'gradle', 'mvn', 'php', 'composer',
+])
 
 function commandKey(segment: string): string {
   const words = segment.trim().split(/\s+/)
-  return TWO_WORD.has(words[0]) && words[1] ? `${words[0]} ${words[1]}` : words[0]
+  // The third word is the script/entry point; flags (`npm test -- auth`) are not part of the key.
+  if (RUNNER_COMMANDS.has(words[0] ?? '') && words[2] && !words[2].startsWith('-')) return words.slice(0, 3).join(' ')
+  return words[1] ? `${words[0]} ${words[1]}` : words[0]
+}
+
+// P1 opt-in execution gate: model output and configured blanket grants do
+// not substitute for human approval for destructive/exfiltrating operations.
+export function requiresSensitiveToolApproval(req: PermissionRequest): boolean {
+  const target = req.target.trim()
+  if (req.kind === 'read' || req.kind === 'edit') {
+    return /(?:^|[/\\])(?:\.env(?:\..*)?|\.ssh|\.aws|\.config\/gcloud|secrets?|credentials?)(?:[/\\]|$)/i.test(target)
+      || /(?:id_rsa|id_ed25519|\.pem|\.p12|\.key)$/i.test(target)
+  }
+  if (req.kind === 'bash') {
+    return /\b(?:rm\s+-[a-z]*r[a-z]*f[a-z]*\s|rm\s+-[a-z]*f[a-z]*r[a-z]*\s|mkfs(?:\.|\s)|wipefs\b|shred\s|git\s+push\s+(?:--force|-f)\b|docker\s+(?:system\s+prune|volume\s+rm)|kubectl\s+delete\b|drop\s+(?:database|table)|npm\s+publish\b)/i.test(target)
+      || /\b(?:deploy-service\.sh|aws\s+secretsmanager|cat\s+[^;&|]*\.env\b)/i.test(target)
+  }
+  if (req.kind === 'mcp') {
+    return /(?:delete|remove|revoke|transfer|send_email|publish|deploy|execute_command|run_command|read_secret)/i.test(req.tool)
+  }
+  return false
 }
 
 export class Permissions {
@@ -45,6 +93,9 @@ export class Permissions {
 
   /** Rules that "[a] allow for this session" would add; undefined when it must always be asked. */
   rulesFor(req: PermissionRequest): string[] | undefined {
+    // Secret files are never grantable, the same way destructive commands are not.
+    if (requiresSensitiveToolApproval(req) && (req.kind === 'read' || process.env.BC_TOOL_POLICY_ENFORCE === 'true'))
+      return undefined
     if (req.kind === 'edit') return this.editInProject(req.target) ? ['edit(project)'] : undefined
     if (req.kind === 'fetch') {
       try {
@@ -61,6 +112,7 @@ export class Permissions {
         .map((s) => s.trim())
         .filter(Boolean)
       if (!segments.length) return undefined
+      if (segments.some(isAlwaysAsk)) return undefined
       return [...new Set(segments.map((s) => `bash(${commandKey(s)})`))]
     }
     if (req.kind === 'mcp') return [`mcp(${req.tool})`]
@@ -68,6 +120,11 @@ export class Permissions {
   }
 
   check(req: PermissionRequest): Decision {
+    if (this.mode === 'plan' && req.kind !== 'read') return 'deny'
+    // A secret file is not read silently: the blank "reads are allowed" default does not
+    // cover it, and allowAll (an explicit user choice) is the only mode without prompts.
+    if (req.kind === 'read' && this.mode !== 'allowAll' && requiresSensitiveToolApproval(req)) return 'ask'
+    if (process.env.BC_TOOL_POLICY_ENFORCE === 'true' && requiresSensitiveToolApproval(req)) return 'ask'
     if (req.kind === 'read') return 'allow'
     if (this.mode === 'allowAll') return 'allow'
     if (this.mode === 'plan') return 'deny'

@@ -33,8 +33,8 @@ export async function listAllModels(
       const provider = config.providers[id]
       const apiKey =
         (opts.keyOverride && id === opts.only ? opts.keyOverride : undefined) ||
-        (provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined) ||
         readCredentials(env)[id] ||
+        (provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined) ||
         undefined
       const local = !provider.apiKeyEnv
       const timedFetch = ((input: string | URL | Request, init?: RequestInit) =>

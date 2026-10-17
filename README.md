@@ -1,11 +1,31 @@
 # BCCLI
 
-Agent AI coding dari BotConnector yang bekerja di terminal: membaca kode, mengedit file,
+**Bahasa Indonesia** · [English](README.en.md)
+
+[![npm](https://img.shields.io/npm/v/@botconnector/bccli?label=@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli?activeTab=versions)
+[![npm downloads](https://img.shields.io/npm/dm/@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli)
+[![Node.js](https://img.shields.io/node/v/@botconnector/bccli?label=Node.js)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Website](https://img.shields.io/badge/website-botconnector.id-06305A)](https://botconnector.id/id/download)
+
+Agent AI coding dari [BotConnector](https://botconnector.id/) yang bekerja di terminal: membaca kode, mengedit file,
 dan menjalankan perintah — dengan izin kamu.
 
+![BCCLI membuat hello.js dan menjalankannya dengan node](docs/demo.gif)
+
+*Rekaman sesi asli: BCCLI membuat file `hello.js` lalu menjalankannya dengan `node`.*
+
 ```bash
-npm i -g @botconnector/bccli@next    # beta terbaru, butuh Node.js 22+
-bccli login                     # simpan API key BotConnector Cloud
+# install satu baris (macOS / Linux / WSL2) — pasang Node portable bila perlu, tanpa sudo
+curl -fsSL https://raw.githubusercontent.com/farijarifriyanto-debug/bccli/main/install.sh | bash
+
+# Windows (PowerShell 5.1+) — butuh Node.js 22+ terpasang lebih dulu
+irm https://raw.githubusercontent.com/farijarifriyanto-debug/bccli/main/install.ps1 | iex
+
+# atau manual, bila Node.js 22+ sudah terpasang
+npm i -g @botconnector/bccli        # rilis stabil terbaru, butuh Node.js 22+
+npm i -g @botconnector/bccli@next   # …atau pra-rilis berikutnya
+bccli login                         # simpan API key BotConnector Cloud
 cd project-kamu && bccli
 ```
 
@@ -15,6 +35,7 @@ cd project-kamu && bccli
 |---|---|
 | `bccli` | mode interaktif |
 | `bccli -p "tugas"` | satu tugas tanpa interaksi (skrip/CI) |
+| `bccli -p "tugas" --output-format json` | hasil akhir sebagai satu objek JSON; `stream-json` = event JSONL per tahap (tool_use/tool_result/message/result) untuk CI |
 | `bccli -c` / `bccli -r` | lanjutkan sesi terakhir / pilih sesi |
 | `bccli -m provider/model` | pilih model |
 | `bccli --reasoning <auto|off|low|medium|high|max>` | pilih level reasoning untuk invocation ini |
@@ -35,13 +56,18 @@ Perintah di dalam sesi (ketik `/` untuk saran, ↑↓ pilih, Enter jalankan):
 | `/session` | info sesi ini |
 | `/status` | versi, model, mode izin, MCP, konteks |
 | `/permissions` | lihat/cabut izin |
+| `/pr` | review pull request (`/pr <n\|url\|branch>`) |
+| `/worktree` | daftar git worktree; buat dengan `bccli -w <nama>` |
 | `/undo` | batalkan edit file giliran terakhir |
+| `/redo` | terapkan ulang edit file yang baru dibatalkan `/undo` |
+| `/rewind` | mundur beberapa giliran: percakapan + edit file (`/rewind 2`) |
 | `/diff` | git diff project |
 | `/copy` | salin jawaban terakhir |
 | `/export` | simpan percakapan ke markdown |
 | `/memory` | instruksi project (/memory <teks>, /memory global <teks>) |
 | `/init` | buat/perbarui AGENTS.md untuk project ini |
 | `/agents` | daftar subagent |
+| `/tasks` | daftar tugas latar belakang |
 | `/skills` | daftar skill dan perintah custom |
 | `/doctor` | cek kesehatan instalasi |
 | `/login` | simpan API key provider aktif |
@@ -53,6 +79,10 @@ Perintah di dalam sesi (ketik `/` untuk saran, ↑↓ pilih, Enter jalankan):
 
 `/undo` hanya membatalkan perubahan lewat alat edit/tulis (bukan perintah bash), per giliran, sampai 20 giliran ke belakang.
 Shift+Tab ganti mode izin: `default` → `acceptEdits` → `plan` → `allowAll`.
+
+Membaca file rahasia (`.env`, `.ssh`, `.aws`, `id_rsa`, `*.pem`, `*.key`, `secret*`,
+`credential*`) selalu meminta izin; `allowAll` satu-satunya mode yang tidak bertanya, dan
+izin itu tidak bisa diberikan "untuk sesi ini".
 
 Mode `-p` tidak pernah bertanya: alat yang butuh izin ditolak, kecuali memakai
 `--allow-all` atau `--allowed-tools bash,edit,fetch`.
@@ -101,6 +131,8 @@ mendukungnya; level yang tidak didukung menghasilkan error yang jelas dan tidak 
 preference `reasoning` hanya dibaca dari config user `~/.bccli/config.json`, bukan dari repo yang di-clone —
 izin (`permissionMode`, `allow`) dan provider yang sudah ada hanya diatur dari `~/.bccli/config.json`,
 supaya repo yang kamu clone tidak bisa memberi dirinya izin penuh atau mencuri API key.
+
+Daftar lengkap kunci `~/.bccli/config.json` beserta nilai dan cakupannya: [`docs/config.md`](docs/config.md).
 
 ## Integrasi agent eksternal
 
@@ -159,6 +191,14 @@ seperti Claude Code). Semua alat MCP selalu minta izin.
 
 `.bccli/mcp.json` di dalam repo tidak dijalankan sebelum kamu setujui (ditanya sekali per folder).
 
+`bccli mcp serve` menjalankan MCP server stdio dengan tools BotConnector milikmu
+(`bc_search`, `bc_fetch`, `bc_models`, `bc_chat`) untuk dipakai Claude Code, Cursor,
+opencode, dan host MCP lain. Butuh `bccli login` (atau `BOTCONNECTOR_API_KEY`):
+
+```bash
+claude mcp add botconnector -- npx -y @botconnector/bccli mcp serve
+```
+
 ## Subagent
 
 Agent bisa mendelegasikan pekerjaan lewat alat `task`:
@@ -195,8 +235,16 @@ Instruksi project dibaca dari `AGENTS.md` dan `BCCLI.md`.
 ```bash
 npm install
 npm test && npm run typecheck && npm run lint && npm run build
+npm run coverage   # gerbang coverage (juga dijalankan di CI Linux)
 ```
 
-CI (`ci.yml`) menjalankan hal yang sama di Linux, macOS, dan Windows.
+CI (`ci.yml`) menjalankan hal yang sama di Linux, macOS, dan Windows, plus gerbang coverage di Linux.
 Rilis: naikkan `version` di `package.json`, lalu push tag `v<version>` — `release.yml`
 menjalankan test, smoke test ke BotConnector Cloud, dan `npm publish --provenance`.
+
+## Pelajari lebih lanjut
+
+- [Unduh & panduan BCCLI](https://botconnector.id/id/download)
+- [Developer API BotConnector](https://botconnector.id/id/developers/api) — endpoint kompatibel OpenAI SDK
+- [Switchboard](https://github.com/farijarifriyanto-debug/switchboard) — harness agent open source dari BotConnector
+- [Berkontribusi](CONTRIBUTING.md)

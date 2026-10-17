@@ -1,5 +1,8 @@
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { z } from 'zod'
+import { sandboxArgv } from './sandbox'
+import { type ShellDeps, type ShellSpec, defaultShell, resolveShell } from './shell'
 import { defineTool } from './types'
 
 const HALF = 15_000
@@ -36,6 +39,105 @@ let exitHookInstalled = false
 
 export function killAllCommands(): void {
   for (const kill of active) kill()
+  for (const task of backgrounds.values()) if (task.status === 'running') task.kill()
+}
+
+interface BackgroundTask {
+  id: number
+  command: string
+  startedAt: number
+  status: 'running' | 'exited'
+  killed: boolean
+  exitCode: number | null
+  head: string
+  tail: string
+  dropped: number
+  kill: () => void
+}
+
+const backgrounds = new Map<number, BackgroundTask>()
+let nextBackgroundId = 1
+
+function startBackground(command: string | string[], cwd: string, env?: NodeJS.ProcessEnv, shell?: ShellSpec): BackgroundTask {
+  const child = spawnChild(command, cwd, env, shell)
+  const task: BackgroundTask = {
+    id: nextBackgroundId++,
+    command: Array.isArray(command) ? command.join(' ') : command,
+    startedAt: Date.now(),
+    status: 'running',
+    killed: false,
+    exitCode: null,
+    head: '',
+    tail: '',
+    dropped: 0,
+    kill: () => {},
+  }
+  task.kill = () => {
+    if (task.status !== 'running') return
+    task.killed = true
+    if (child.pid !== undefined) killProcessTree(child.pid)
+  }
+  backgrounds.set(task.id, task)
+  const onData = (data: string) => {
+    let s = data
+    if (task.head.length < HALF) {
+      const take = s.slice(0, HALF - task.head.length)
+      task.head += take
+      s = s.slice(take.length)
+    }
+    if (s) {
+      task.tail += s
+      if (task.tail.length > HALF) {
+        task.dropped += task.tail.length - HALF
+        task.tail = task.tail.slice(-HALF)
+      }
+    }
+  }
+  child.stdout?.setEncoding('utf8')
+  child.stderr?.setEncoding('utf8')
+  child.stdout?.on('data', onData)
+  child.stderr?.on('data', onData)
+  child.on('error', (error) => {
+    task.status = 'exited'
+    task.head += `${task.head ? '\n' : ''}${error.message}`
+  })
+  child.on('close', (code) => {
+    task.status = 'exited'
+    task.exitCode = code
+  })
+  return task
+}
+
+function backgroundStatus(task: BackgroundTask): string {
+  // A kill request is reported at once: the 'close' event can lag behind (on Windows the
+  // grandchild may still hold the stdio pipes after the shell is taken down).
+  if (task.killed) return '[killed]'
+  if (task.status === 'running') return `[running ${Math.round((Date.now() - task.startedAt) / 1000)}s]`
+  return `[exit code ${task.exitCode}]`
+}
+
+function backgroundOutput(task: BackgroundTask): string {
+  const body = task.dropped
+    ? `${task.head}\n… [${task.dropped} characters truncated] …\n${task.tail}`
+    : task.head + task.tail
+  return `${body.trimEnd()}\n${backgroundStatus(task)}`.trimStart()
+}
+
+/** Human-readable list for the /tasks slash command. */
+export function renderBackgroundTasks(): string {
+  if (!backgrounds.size) return 'No background tasks.'
+  const lines = [...backgrounds.values()].sort((a, b) => a.id - b.id).flatMap((task) => {
+    const output = backgroundOutput(task)
+    const tailLines = output.split('\n').slice(-6)
+    return [`#${task.id} ${backgroundStatus(task)}  ${task.command}`, ...tailLines.map((line) => `    ${line}`)]
+  })
+  return `Background tasks:\n${lines.join('\n')}`
+}
+
+/** Test/exit helper: stop every background task and forget them. */
+export function resetBackgroundTasks(): void {
+  for (const task of backgrounds.values()) if (task.status === 'running') task.kill()
+  backgrounds.clear()
 }
 
 export interface CommandResult {
@@ -45,17 +147,63 @@ export interface CommandResult {
   aborted: boolean
 }
 
+/**
+ * One place that spawns: a string runs through the shell (Git Bash / PowerShell on Windows,
+ * sh elsewhere), an argv array runs directly (sandbox wrappers).
+ */
+function spawnChild(command: string | string[], cwd: string, env?: NodeJS.ProcessEnv, shell?: ShellSpec) {
+  if (Array.isArray(command)) {
+    return spawn(command[0], command.slice(1), { cwd, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] as const, env })
+  }
+  if (shell) {
+    return spawn(shell.file, shell.args(command), { cwd, shell: false, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] as const, env })
+  }
+  return spawn(command, { cwd, shell: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] as const, env })
+}
+
+/** Best-effort detection of commands that reach the internet (networkPolicy "offline"). */
+const NETWORK_PATTERNS: RegExp[] = [
+  /\b(curl|wget|ftp|scp|sftp|rsync|lynx|telnet)\b/i,
+  /\bssh\b/i,
+  /\b(Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b/i,
+  /\bgit\s+(clone|fetch|pull|push|remote|ls-remote|submodule|request-pull)\b/i,
+  /\b(npm|pnpm|yarn|bun)\s+(install|ci|add|update|upgrade|publish|dist-tag)\b/i,
+  /\b(pip3?|pipx)\s+install\b/i,
+  /\b(uv|poetry|conda)\s+(pip\s+)?(install|add|update|upgrade)\b/i,
+  /\bcargo\s+(install|publish|search)\b/i,
+  /\bgo\s+(get|install|mod\s+download)\b/i,
+  /\b(docker|podman)\s+(pull|push)\b/i,
+  /\bgh\s+(pr|repo|release|run|api|auth|browse|search|issue|gist|status)\b/i,
+  /\b(apt|apt-get|yum|dnf|pacman|brew|choco|winget|scoop)\s+(install|update|upgrade|add)\b/i,
+  /\bterraform\s+(init|get)\b/i,
+]
+
+export function needsNetwork(command: string): boolean {
+  return NETWORK_PATTERNS.some((pattern) => pattern.test(command))
+}
+
+/** Proxy env pointing at a dead local port: tools that honour proxy vars fail fast offline. */
+export function offlineEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const dead = 'http://127.0.0.1:9'
+  return {
+    ...env,
+    HTTP_PROXY: dead,
+    HTTPS_PROXY: dead,
+    ALL_PROXY: dead,
+    NO_PROXY: '',
+    http_proxy: dead,
+    https_proxy: dead,
+    all_proxy: dead,
+    no_proxy: '',
+  }
+}
+
 export function runCommand(
-  command: string,
-  opts: { cwd: string; timeoutMs: number; signal: AbortSignal },
+  command: string | string[],
+  opts: { cwd: string; timeoutMs: number; signal: AbortSignal; env?: NodeJS.ProcessEnv; shell?: ShellSpec },
 ): Promise<CommandResult> {
   return new Promise((resolve) => {
-    const child = spawn(command, {
-      cwd: opts.cwd,
-      shell: true,
-      detached: process.platform !== 'win32',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
+    const child = spawnChild(command, opts.cwd, opts.env, opts.shell ?? defaultShell())
     if (!exitHookInstalled) {
       process.on('exit', killAllCommands)
       exitHookInstalled = true
@@ -114,23 +262,111 @@ export function runCommand(
   })
 }
 
-export const bashTool = defineTool({
-  name: 'bash',
-  description:
-    'Run a shell command in the project directory. No interactive input. Default timeout 2 minutes (max 10). Use for tests, builds, git, and other CLI tasks.',
-  schema: z.object({
-    command: z.string().describe('The shell command to run'),
-    timeout_ms: z.number().int().min(1000).max(600000).optional().describe('Timeout in milliseconds'),
-  }),
-  kind: 'bash',
-  target: (input) => input.command,
-  async run(input, ctx) {
-    const r = await runCommand(input.command, { cwd: ctx.cwd, timeoutMs: input.timeout_ms ?? 120_000, signal: ctx.signal })
-    const status = r.timedOut
-      ? `[stopped: timeout after ${Math.round((input.timeout_ms ?? 120_000) / 1000)} seconds]`
-      : r.aborted
-        ? '[cancelled by the user]'
-        : `[exit code ${r.exitCode}]`
-    return { output: `${r.output.trimEnd()}\n${status}`.trimStart(), isError: r.exitCode !== 0 }
-  },
+const BASH_DESCRIPTION =
+  'Run a shell command in the project directory. No interactive input. Default timeout 2 minutes (max 10). Use for tests, builds, git, and other CLI tasks. Set background: true for long-running jobs, then poll with task_id (stop with kill: true) or use the /tasks command.'
+
+const BASH_SCHEMA = z.object({
+  command: z.string().optional().describe('The shell command to run (required unless task_id is set)'),
+  timeout_ms: z.number().int().min(1000).max(600000).optional().describe('Timeout in milliseconds'),
+  background: z
+    .boolean()
+    .optional()
+    .describe('Start the command in the background and return its task id immediately'),
+  task_id: z
+    .number()
+    .int()
+    .optional()
+    .describe('Poll a background task started with background: true (omit command)'),
+  kill: z.boolean().optional().describe('With task_id: stop the background task'),
 })
+
+export interface BashToolOptions {
+  /** "offline" blocks known network commands and points proxy env at a dead local port. */
+  networkPolicy?: 'allow' | 'offline'
+  /** Run every command inside the OS sandbox (sandbox-exec on macOS, bwrap on Linux). */
+  sandbox?: boolean
+  /** Test hook: pretend to be another platform. */
+  platform?: NodeJS.Platform
+  /** Test hook: fake environment / file lookup used to pick the Windows shell. */
+  shellDeps?: Partial<ShellDeps>
+}
+
+const SHELL_NOTE: Record<ShellSpec['name'], string> = {
+  bash: 'Shell: Git Bash. Unix tools such as tail, grep, ls, sed and head are available.',
+  powershell:
+    'Shell: Windows PowerShell 5.1. Unix tools such as tail, grep, ls, sed and head are NOT installed; use PowerShell equivalents (Select-Object -Last 40, Select-String, Get-ChildItem, Get-Content).',
+}
+
+export function createBashTool(options: BashToolOptions = {}) {
+  const offline = options.networkPolicy === 'offline'
+  const sandbox = options.sandbox === true
+  const platform = options.platform ?? process.platform
+  const shell = resolveShell({ platform, env: process.env, exists: existsSync, ...options.shellDeps })
+  const childEnv = offline ? offlineEnv() : undefined
+  const shellNote = shell ? `\n${SHELL_NOTE[shell.name]}` : ''
+  const description = `${offline ? `${BASH_DESCRIPTION}\nNetwork access is off (networkPolicy "offline"): internet commands such as curl, wget, git fetch/push/clone, package installs (npm, pip, ...), gh, and docker pull are blocked.` : BASH_DESCRIPTION}${sandbox ? '\nCommands run inside an OS sandbox: file writes are limited to the working directory and temp areas.' : ''}${shellNote}`
+  return defineTool({
+    name: 'bash',
+    description,
+    schema: BASH_SCHEMA,
+    kind: 'bash',
+    target: (input: z.infer<typeof BASH_SCHEMA>) => input.command ?? (input.task_id !== undefined ? `#${input.task_id}` : '(no command)'),
+    async run(input: z.infer<typeof BASH_SCHEMA>, ctx) {
+      if (input.task_id !== undefined) {
+        const task = backgrounds.get(input.task_id)
+        if (!task) return { output: `No background task #${input.task_id}. Start one with {background: true}.`, isError: true }
+        if (input.kill) {
+          if (task.status !== 'running') return { output: `Background task #${task.id} already finished ${backgroundStatus(task)}.` }
+          task.kill()
+          return { output: `Killed background task #${task.id}.` }
+        }
+        return {
+          output: backgroundOutput(task),
+          isError: task.status === 'exited' && !task.killed && task.exitCode !== 0,
+        }
+      }
+      if (input.command && offline && needsNetwork(input.command)) {
+        return {
+          output: `Blocked by networkPolicy "offline": "${input.command.slice(0, 120)}" needs the network. Set "networkPolicy": "allow" in ~/.bccli/config.json to enable network commands.`,
+          isError: true,
+        }
+      }
+      let exec: string | string[] = input.command ?? ''
+      if (input.command && sandbox) {
+        const argv = sandboxArgv(input.command, { platform, cwd: ctx.cwd, network: !offline })
+        if (!argv) {
+          return {
+            output: `The bash sandbox is not supported on ${platform}; disable "sandbox" in ~/.bccli/config.json or run on macOS (sandbox-exec) / Linux (bwrap).`,
+            isError: true,
+          }
+        }
+        exec = argv
+      }
+      if (input.background) {
+        if (!input.command) return { output: 'The "command" argument is required to start a background task.', isError: true }
+        const task = startBackground(exec, ctx.cwd, childEnv, shell)
+        return {
+          output: `Background task #${task.id} started: ${input.command}\nPoll it with {task_id: ${task.id}}; stop it with {task_id: ${task.id}, kill: true}.`,
+        }
+      }
+      if (!input.command) {
+        return { output: 'The "command" argument is required (or set task_id to poll a background task).', isError: true }
+      }
+      const r = await runCommand(exec, {
+        cwd: ctx.cwd,
+        timeoutMs: input.timeout_ms ?? 120_000,
+        signal: ctx.signal,
+        env: childEnv,
+        shell,
+      })
+      const status = r.timedOut
+        ? `[stopped: timeout after ${Math.round((input.timeout_ms ?? 120_000) / 1000)} seconds]`
+        : r.aborted
+          ? '[cancelled by the user]'
+          : `[exit code ${r.exitCode}]`
+      return { output: `${r.output.trimEnd()}\n${status}`.trimStart(), isError: r.exitCode !== 0 }
+    },
+  })
+}
+
+export const bashTool = createBashTool()

@@ -1,6 +1,6 @@
 {
   "name": "@botconnector/bccli",
-  "version": "0.4.0-beta.36",
+  "version": "0.4.0",
   "description": "BCCLI — BotConnector AI coding agent for the terminal",
   "type": "module",
   "bin": {
@@ -18,17 +18,19 @@
   },
   "license": "MIT",
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "lint": "biome lint src test",
-    "test": "vitest run"
+    "lint": "biome lint --error-on-warnings src test",
+    "test": "vitest run",
+    "coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "diff": "^9.0.0",
     "ink": "^7.1.1",
     "openai": "^7.27.0",
     "react": "^19.3.0",
+    "undici": "^8.12.1",
     "ws": "^8.22.0",
     "yaml": "^2.9.1",
     "zod": "^4.6.5"
@@ -38,21 +40,36 @@
     "@types/node": "^26.6.3",
     "@types/react": "^19.3.0",
     "@types/ws": "^8.18.2",
+    "@vitest/coverage-v8": "^5.0.5",
     "ink-testing-library": "^4.0.0",
-    "tsup": "^8.5.1",
+    "tsup": "^9.0.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.2"
   },
   "overrides": {
     "esbuild": "0.28.2"
   },
-  "main": "index.js",
-  "directories": {
-    "doc": "docs",
-    "test": "test"
+  "main": "dist/sdk.js",
+  "types": "dist/sdk.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/sdk.d.ts",
+      "default": "./dist/sdk.js"
+    }
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "bccli",
+    "ai",
+    "coding-agent",
+    "agent",
+    "cli",
+    "tui",
+    "terminal",
+    "mcp",
+    "openai",
+    "indonesia"
+  ],
+  "author": "BotConnector (https://botconnector.id)",
   "bugs": {
     "url": "https://github.com/farijarifriyanto-debug/bccli/issues"
   },

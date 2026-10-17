@@ -31,6 +31,19 @@ test('groups models per provider with a key, BotConnector first, skips unreachab
   ])
 })
 
+test('duplicate ids from one provider are deduped in its group only', async () => {
+  const groups = await listAllModels(config, env, {
+    fetch: fakeFetch({
+      'https://api.botconnector.id/v1/models': models('glm-5.3-flash', 'glm-5.3-flash', 'kimi-k3'),
+      'https://openrouter.ai/api/v1/models': models('qwen/qwen3-coder', 'qwen/qwen3-coder'),
+    }),
+  })
+  expect(groups).toEqual([
+    { providerId: 'bc-cloud', providerName: 'BotConnector Cloud', models: ['glm-5.3-flash', 'kimi-k3'] },
+    { providerId: 'openrouter', providerName: 'OpenRouter', models: ['qwen/qwen3-coder'] },
+  ])
+})
+
 test('a slow or failing remote provider becomes an error group instead of blocking', async () => {
   const groups = await listAllModels(config, env, {
     timeoutMs: 100,

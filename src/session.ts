@@ -1,9 +1,12 @@
 import { randomBytes } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ChatMessage } from './provider'
+import { contentText, type ChatMessage, type Usage } from './provider'
 
-type SessionRecord = { t: 'msg'; m: ChatMessage } | { t: 'reset' }
+type SessionRecord =
+  | { t: 'msg'; m: ChatMessage }
+  | { t: 'reset' }
+  | { t: 'usage'; inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheWriteTokens?: number; model?: string }
 
 function projectDir(home: string, cwd: string): string {
   const slug =
@@ -44,7 +47,7 @@ export class Session {
       .map((f) => {
         const session = new Session(join(dir, f))
         const first = session.load().find((m) => m.role === 'user')
-        return { session, mtime: statSync(session.file).mtime, preview: first ? String(first.content).slice(0, 80) : '' }
+        return { session, mtime: statSync(session.file).mtime, preview: first ? contentText(first.content).slice(0, 80) : '' }
       })
       .sort((a, b) => b.mtime.getTime() - a.mtime.getTime() || b.session.file.localeCompare(a.session.file))
   }
@@ -61,26 +64,87 @@ export class Session {
     this.write({ t: 'msg', m: message })
   }
 
+  appendUsage(usage: Usage & { model?: string }): void {
+    this.write({ t: 'usage', ...usage })
+  }
+
   reset(): void {
     this.write({ t: 'reset' })
   }
 
-  load(): ChatMessage[] {
+  private records(): SessionRecord[] {
     if (!existsSync(this.file)) return []
-    let messages: ChatMessage[] = []
+    const out: SessionRecord[] = []
     for (const line of readFileSync(this.file, 'utf8').split('\n')) {
       if (!line.trim()) continue
-      let record: SessionRecord
       try {
-        record = JSON.parse(line)
+        out.push(JSON.parse(line))
       } catch {
-        continue
+        // a torn line must not hide the rest of the log
       }
+    }
+    return out
+  }
+
+  /** What the model continues from: everything after the last reset (after a compaction that is the summary and the recent turns). */
+  load(): ChatMessage[] {
+    let messages: ChatMessage[] = []
+    for (const record of this.records()) {
       if (record.t === 'reset') messages = []
       else if (record.t === 'msg') messages.push(record.m)
     }
     return repairTail(messages)
   }
+
+  /**
+   * What the user sees on resume: the whole conversation. Compaction only shrinks what the model is sent, so
+   * its reset does not hide the older turns here. A real reset (/clear, rewind) still starts over, the
+   * synthetic summary pair is never shown, and the recent turns a compaction re-writes are not shown twice.
+   */
+  loadHistory(): ChatMessage[] {
+    const segments: ChatMessage[][] = [[]]
+    for (const record of this.records()) {
+      if (record.t === 'reset') segments.push([])
+      else if (record.t === 'msg') segments[segments.length - 1].push(record.m)
+    }
+    let shown: ChatMessage[] = segments[0]
+    for (const segment of segments.slice(1)) {
+      if (!isCompactionSummary(segment[0])) {
+        shown = segment
+        continue
+      }
+      const kept = segment.slice(2)
+      let at = 0
+      while (at <= shown.length && !endsWithPrefixOf(shown, at, kept)) at++
+      shown = [...shown, ...kept.slice(shown.length - at)]
+    }
+    return repairTail(shown.filter((m) => !isCompactionSummary(m) && !isCompactionAck(m)))
+  }
+}
+
+const SUMMARY_PREFIX = 'Summary of the previous conversation:'
+const SUMMARY_ACK = 'OK, I will continue from this summary.'
+
+function isCompactionSummary(m: ChatMessage | undefined): boolean {
+  return m?.role === 'user' && typeof m.content === 'string' && m.content.startsWith(SUMMARY_PREFIX)
+}
+
+function isCompactionAck(m: ChatMessage): boolean {
+  return m.role === 'assistant' && m.content === SUMMARY_ACK
+}
+
+function sameMessage(a: ChatMessage, b: ChatMessage): boolean {
+  if (a.role !== b.role) return false
+  if (a.role === 'tool' && b.role === 'tool') return a.tool_call_id === b.tool_call_id
+  return JSON.stringify(a.content) === JSON.stringify(b.content) && JSON.stringify('tool_calls' in a && a.tool_calls) === JSON.stringify('tool_calls' in b && b.tool_calls)
+}
+
+/** True when shown[at..] is exactly the start of kept: the tail a compaction wrote again. */
+function endsWithPrefixOf(shown: ChatMessage[], at: number, kept: ChatMessage[]): boolean {
+  const n = shown.length - at
+  if (n > kept.length) return false
+  for (let j = 0; j < n; j++) if (!sameMessage(shown[at + j], kept[j])) return false
+  return true
 }
 
 export function pruneSessions(home: string, now = Date.now(), maxAgeDays = 30): number {
