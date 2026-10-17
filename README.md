@@ -19,6 +19,9 @@ dan menjalankan perintah — dengan izin kamu.
 # install satu baris (macOS / Linux / WSL2) — pasang Node portable bila perlu, tanpa sudo
 curl -fsSL https://raw.githubusercontent.com/farijarifriyanto-debug/bccli/main/install.sh | bash
 
+# Windows (PowerShell 5.1+) — butuh Node.js 22+ terpasang lebih dulu
+irm https://raw.githubusercontent.com/farijarifriyanto-debug/bccli/main/install.ps1 | iex
+
 # atau manual, bila Node.js 22+ sudah terpasang
 npm i -g @botconnector/bccli        # rilis stabil terbaru, butuh Node.js 22+
 npm i -g @botconnector/bccli@next   # …atau pra-rilis berikutnya
@@ -53,13 +56,18 @@ Perintah di dalam sesi (ketik `/` untuk saran, ↑↓ pilih, Enter jalankan):
 | `/session` | info sesi ini |
 | `/status` | versi, model, mode izin, MCP, konteks |
 | `/permissions` | lihat/cabut izin |
+| `/pr` | review pull request (`/pr <n\|url\|branch>`) |
+| `/worktree` | daftar git worktree; buat dengan `bccli -w <nama>` |
 | `/undo` | batalkan edit file giliran terakhir |
+| `/redo` | terapkan ulang edit file yang baru dibatalkan `/undo` |
+| `/rewind` | mundur beberapa giliran: percakapan + edit file (`/rewind 2`) |
 | `/diff` | git diff project |
 | `/copy` | salin jawaban terakhir |
 | `/export` | simpan percakapan ke markdown |
 | `/memory` | instruksi project (/memory <teks>, /memory global <teks>) |
 | `/init` | buat/perbarui AGENTS.md untuk project ini |
 | `/agents` | daftar subagent |
+| `/tasks` | daftar tugas latar belakang |
 | `/skills` | daftar skill dan perintah custom |
 | `/doctor` | cek kesehatan instalasi |
 | `/login` | simpan API key provider aktif |
@@ -123,6 +131,8 @@ mendukungnya; level yang tidak didukung menghasilkan error yang jelas dan tidak 
 preference `reasoning` hanya dibaca dari config user `~/.bccli/config.json`, bukan dari repo yang di-clone —
 izin (`permissionMode`, `allow`) dan provider yang sudah ada hanya diatur dari `~/.bccli/config.json`,
 supaya repo yang kamu clone tidak bisa memberi dirinya izin penuh atau mencuri API key.
+
+Daftar lengkap kunci `~/.bccli/config.json` beserta nilai dan cakupannya: [`docs/config.md`](docs/config.md).
 
 ## Integrasi agent eksternal
 

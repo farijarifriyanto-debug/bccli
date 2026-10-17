@@ -2,7 +2,9 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { SkillDef } from './extensions'
 
-const FILES = ['AGENTS.md', 'BCCLI.md']
+// AGENTS.md is the cross-agent standard, CLAUDE.md keeps projects that already target
+// Claude Code working, and BCCLI.md stays the strongest file in a folder (our own).
+const FILES = ['AGENTS.md', 'CLAUDE.md', 'BCCLI.md']
 
 function readIf(path: string): string | undefined {
   try {
