@@ -322,11 +322,12 @@ export function readGlobalPlugins(env: NodeJS.ProcessEnv = process.env): string[
   return value as string[]
 }
 
-function writeFileAtomic(path: string, data: string): void {
+export function writeFileAtomic(path: string, data: string, mode?: number): void {
   const tmp = `${path}.tmp-${process.pid}-${Date.now()}`
   try {
-    writeFileSync(tmp, data)
+    writeFileSync(tmp, data, mode === undefined ? undefined : { mode })
     renameSync(tmp, path)
+    if (mode !== undefined) chmodSync(path, mode)
   } catch (error) {
     try {
       rmSync(tmp, { force: true })
@@ -335,6 +336,24 @@ function writeFileAtomic(path: string, data: string): void {
     }
     throw error
   }
+}
+
+/**
+ * A corrupt JSON file must never be silently treated as empty: the next write would
+ * wipe whatever the user had. Move it aside in place (timestamped, same folder) so
+ * the data stays recoverable, and warn on stderr. Returns the backup path.
+ */
+export function quarantineCorruptFile(path: string, error: unknown): string | undefined {
+  const stamp = Date.now()
+  let dest = `${path}.corrupt-${stamp}`
+  for (let n = 1; existsSync(dest); n++) dest = `${path}.corrupt-${stamp}-${n}`
+  try {
+    renameSync(path, dest)
+  } catch {
+    return undefined
+  }
+  console.error(`${path} is not valid JSON (${(error as Error).message}); moved it to ${dest} instead of overwriting it.`)
+  return dest
 }
 
 /**
@@ -358,7 +377,9 @@ export function readCredentials(env: NodeJS.ProcessEnv = process.env): Record<st
   if (!existsSync(path)) return {}
   try {
     return JSON.parse(readFileSync(path, 'utf8'))
-  } catch {
+  } catch (error) {
+    // Never start from {} silently: the next save would drop every key in the file.
+    quarantineCorruptFile(path, error)
     return {}
   }
 }
@@ -366,9 +387,7 @@ export function readCredentials(env: NodeJS.ProcessEnv = process.env): Record<st
 export function saveCredential(providerId: string, key: string, env: NodeJS.ProcessEnv = process.env): void {
   const home = bccliHome(env)
   mkdirSync(home, { recursive: true })
-  const path = join(home, 'credentials')
-  writeFileSync(path, JSON.stringify({ ...readCredentials(env), [providerId]: key }, null, 2), { mode: 0o600 })
-  chmodSync(path, 0o600)
+  writeFileAtomic(join(home, 'credentials'), JSON.stringify({ ...readCredentials(env), [providerId]: key }, null, 2), 0o600)
 }
 
 export function resolveModel(config: Config, modelRef: string, env: NodeJS.ProcessEnv = process.env): ResolvedModel {
@@ -394,8 +413,6 @@ export function removeCredential(providerId: string, env: NodeJS.ProcessEnv = pr
   const creds = readCredentials(env)
   if (!(providerId in creds)) return false
   delete creds[providerId]
-  const path = join(bccliHome(env), 'credentials')
-  writeFileSync(path, JSON.stringify(creds, null, 2), { mode: 0o600 })
-  chmodSync(path, 0o600)
+  writeFileAtomic(join(bccliHome(env), 'credentials'), JSON.stringify(creds, null, 2), 0o600)
   return true
 }

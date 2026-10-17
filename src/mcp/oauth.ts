@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { dirname, join } from 'node:path'
 import { auth, type OAuthClientProvider, type OAuthDiscoveryState } from '@modelcontextprotocol/sdk/client/auth.js'
 import type { OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js'
 import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js'
+import { quarantineCorruptFile, writeFileAtomic } from '../config'
 import type { McpServerConfig } from './config'
 
 export interface OAuthStorage {
@@ -23,7 +24,10 @@ function readStore(home: string): OAuthStore {
   if (!existsSync(path)) return {}
   try {
     return JSON.parse(readFileSync(path, 'utf8')) as OAuthStore
-  } catch {
+  } catch (error) {
+    // Tokens are not disposable: keep the unreadable file (quarantined) rather than
+    // starting from {} and overwriting it on the next save.
+    quarantineCorruptFile(path, error)
     return {}
   }
 }
@@ -31,9 +35,8 @@ function readStore(home: string): OAuthStore {
 function writeStore(home: string, store: OAuthStore): void {
   const path = oauthStorePath(home)
   mkdirSync(dirname(path), { recursive: true })
-  // Tokens are credentials: owner-only, same rule as trusted-mcp.json.
-  writeFileSync(path, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 })
-  chmodSync(path, 0o600)
+  // Tokens are credentials: owner-only and written atomically, same rule as trusted-mcp.json.
+  writeFileAtomic(path, `${JSON.stringify(store, null, 2)}\n`, 0o600)
 }
 
 export function hasStoredTokens(home: string, serverUrl: string): boolean {
@@ -49,13 +52,23 @@ export function clearTokens(home: string, serverUrl: string): boolean {
   return true
 }
 
+/**
+ * The browser is opened through a direct argv hand-off: on Windows `cmd /c start` re-parses
+ * its own command line, so an authorization URL from the MCP server could smuggle a second
+ * command with `&`. rundll32 plus `shell: false` never gives the URL to a shell, and only
+ * http(s) is ever opened (no `file:`/custom protocol handlers).
+ */
+export function openCommand(url: URL, platform: NodeJS.Platform): { command: string; args: string[] } | undefined {
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined
+  if (platform === 'win32') return { command: 'rundll32.exe', args: ['url.dll,FileProtocolHandler', url.href] }
+  return { command: platform === 'darwin' ? 'open' : 'xdg-open', args: [url.href] }
+}
+
 /** Opens a URL in the user's browser (best effort; callers should also print the URL). */
-export function defaultOpen(url: URL): void {
-  const target = url.href
-  const child =
-    process.platform === 'win32'
-      ? spawn('cmd', ['/c', 'start', '', target], { detached: true, stdio: 'ignore' })
-      : spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [target], { detached: true, stdio: 'ignore' })
+export function defaultOpen(url: URL, deps: { platform?: NodeJS.Platform; spawn?: typeof spawn } = {}): void {
+  const plan = openCommand(url, deps.platform ?? process.platform)
+  if (!plan) return
+  const child = (deps.spawn ?? spawn)(plan.command, plan.args, { detached: true, stdio: 'ignore' })
   child.unref()
   child.on('error', () => {})
 }
