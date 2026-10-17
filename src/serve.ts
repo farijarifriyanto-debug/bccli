@@ -88,6 +88,16 @@ function sendFrame(ws: WebSocket, frame: ServerFrame): void {
 }
 
 /**
+ * One-line terminal banner for `bccli serve`. A token the user supplied (`--token` or
+ * `BCCLI_SERVE_TOKEN`) is left out so it cannot leak into logs; a token BCCLI generated
+ * itself must be printed or nobody could connect.
+ */
+export function serveBanner(handle: { url: string; token: string }, opts: { token?: string; env?: NodeJS.ProcessEnv } = {}): string {
+  const supplied = opts.token !== undefined || (opts.env ?? process.env).BCCLI_SERVE_TOKEN !== undefined
+  return `bccli serve ${handle.url}${supplied ? '' : ` — Authorization: Bearer ${handle.token}`}\n`
+}
+
+/**
  * Starts the loopback session server (HTTP unary + WS mux at /v1/mux). Refuses
  * non-loopback bind addresses; every request passes the DSH-style trust fence
  * (403) and, except /health, the bearer-token check (401).
