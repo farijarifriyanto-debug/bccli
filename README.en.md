@@ -2,9 +2,9 @@
 
 [English](README.en.md) · **Bahasa Indonesia**
 
-[![npm](https://img.shields.io/npm/v/@botconnector/bccli?label=@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli)
+[![npm](https://img.shields.io/npm/v/@botconnector/bccli/next?label=@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli?activeTab=versions)
 [![npm downloads](https://img.shields.io/npm/dm/@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli)
-[![Node.js](https://img.shields.io/node/v/@botconnector/bccli)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/node/v/@botconnector/bccli/next?label=Node.js)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Website](https://img.shields.io/badge/website-botconnector.id-06305A)](https://botconnector.id/id/download)
 
@@ -70,6 +70,10 @@ In-session commands (type `/` for suggestions, ↑↓ to select, Enter to run):
 
 `/undo` only reverts file edit/write tool changes (not bash commands), one turn at a time, up to 20 turns back.
 Shift+Tab cycles permission modes: `default` → `acceptEdits` → `plan` → `allowAll`.
+
+Reading a secret file (`.env`, `.ssh`, `.aws`, `id_rsa`, `*.pem`, `*.key`, `secret*`,
+`credential*`) always asks for approval; `allowAll` is the only mode that does not, and the
+approval cannot be granted "for this session".
 
 `-p` mode never prompts: permission-requiring tools are refused unless you pass
 `--allow-all` or `--allowed-tools bash,edit,fetch`.
@@ -184,7 +188,7 @@ A `.bccli/mcp.json` inside a repo is not executed until you approve it (asked on
 hosts. Requires `bccli login` (or `BOTCONNECTOR_API_KEY`):
 
 ```bash
-claude mcp add botconnector -- npx -y @botconnector/bccli mcp serve
+claude mcp add botconnector -- npx -y @botconnector/bccli@next mcp serve
 ```
 
 ## Subagents
