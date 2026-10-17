@@ -2,9 +2,9 @@
 
 **Bahasa Indonesia** · [English](README.en.md)
 
-[![npm](https://img.shields.io/npm/v/@botconnector/bccli/next?label=@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli?activeTab=versions)
+[![npm](https://img.shields.io/npm/v/@botconnector/bccli?label=@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli?activeTab=versions)
 [![npm downloads](https://img.shields.io/npm/dm/@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli)
-[![Node.js](https://img.shields.io/node/v/@botconnector/bccli/next?label=Node.js)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/node/v/@botconnector/bccli?label=Node.js)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Website](https://img.shields.io/badge/website-botconnector.id-06305A)](https://botconnector.id/id/download)
 
@@ -20,8 +20,9 @@ dan menjalankan perintah — dengan izin kamu.
 curl -fsSL https://raw.githubusercontent.com/farijarifriyanto-debug/bccli/main/install.sh | bash
 
 # atau manual, bila Node.js 22+ sudah terpasang
-npm i -g @botconnector/bccli@next    # beta terbaru, butuh Node.js 22+
-bccli login                     # simpan API key BotConnector Cloud
+npm i -g @botconnector/bccli        # rilis stabil terbaru, butuh Node.js 22+
+npm i -g @botconnector/bccli@next   # …atau pra-rilis berikutnya
+bccli login                         # simpan API key BotConnector Cloud
 cd project-kamu && bccli
 ```
 
@@ -185,7 +186,7 @@ seperti Claude Code). Semua alat MCP selalu minta izin.
 opencode, dan host MCP lain. Butuh `bccli login` (atau `BOTCONNECTOR_API_KEY`):
 
 ```bash
-claude mcp add botconnector -- npx -y @botconnector/bccli@next mcp serve
+claude mcp add botconnector -- npx -y @botconnector/bccli mcp serve
 ```
 
 ## Subagent
