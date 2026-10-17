@@ -81,6 +81,15 @@ test('gh-bot: subcommand + subArgs', () => {
   expect(parseCliArgs(['gh-bot']).subArgs).toEqual([])
 })
 
+test('pr: the task stays in subArgs and --allow-all stays a flag', () => {
+  expect(parseCliArgs(['pr', '42', 'fix', 'it', '--allow-all'])).toMatchObject({
+    command: 'pr',
+    allowAll: true,
+    subArgs: ['42', 'fix', 'it'],
+  })
+  expect(parseCliArgs(['pr', '42', 'fix', 'it'])).toMatchObject({ allowAll: false, subArgs: ['42', 'fix', 'it'] })
+})
+
 test('login flags: --key dan --logout', () => {
   expect(parseCliArgs(['login', 'openrouter', '--key'])).toMatchObject({
     command: 'login',

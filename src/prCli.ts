@@ -4,6 +4,8 @@ import { t } from './i18n'
 export interface PrCliArgs {
   subArgs: string[]
   cwd: string
+  /** Set only when the user asked for `bccli pr … --allow-all`. */
+  allowAll?: boolean
 }
 
 export interface PrDeps {
@@ -31,13 +33,18 @@ function defaultGh(argv: string[]): Promise<{ code: number; stdout: string; stde
   })
 }
 
+/** argv for the child running the PR task; `--allow-all` only when the user asked for it. */
+export function prTaskArgv(entry: string, opts: { prompt?: string; allowAll?: boolean }): string[] {
+  return [entry, ...(opts.prompt ? ['-p', opts.prompt] : []), ...(opts.allowAll ? ['--allow-all'] : [])]
+}
+
 async function defaultRunTask(opts: { prompt?: string; allowAll: boolean; cwd: string }): Promise<number> {
   // process.argv[1] is the actual entry being executed (dist/cli.js via the npm
   // shim); import.meta.url points at a tsup chunk, so ../cli.js would be wrong.
   const entry = process.argv[1]
   if (!entry) return 1
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [entry, ...(opts.prompt ? ['-p', opts.prompt] : []), '--allow-all'], {
+    const child = spawn(process.execPath, prTaskArgv(entry, opts), {
       shell: false,
       stdio: 'inherit',
       cwd: opts.cwd,
@@ -84,5 +91,7 @@ export async function runPrCommand(args: PrCliArgs, deps: PrDeps): Promise<numbe
   }
   deps.out(t('checked out PR #{n}', { n: number }))
   const runTask = deps.runTask ?? defaultRunTask
-  return runTask({ prompt: task, allowAll: true, cwd: args.cwd })
+  const allowAll = args.allowAll === true
+  if (allowAll) deps.err?.(t('--allow-all: the PR task runs every tool without asking'))
+  return runTask({ prompt: task, allowAll, cwd: args.cwd })
 }

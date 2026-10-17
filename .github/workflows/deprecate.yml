@@ -1,0 +1,36 @@
+name: deprecate
+
+# Maintenance tool: mark a published version range as deprecated, e.g. the legacy
+# 0.1.x launcher line. Uses the same npm credential as the release workflow, so no
+# token ever has to leave GitHub.
+on:
+  workflow_dispatch:
+    inputs:
+      range:
+        description: 'Version range to deprecate, for example <0.2.0'
+        required: true
+      message:
+        description: 'Deprecation message shown to anyone installing that range'
+        required: true
+
+jobs:
+  deprecate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: npm deprecate
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BBCLI || secrets.NPM_TOKEN }}
+          RANGE: ${{ inputs.range }}
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          [ -n "$NODE_AUTH_TOKEN" ] || { echo "::error::no npm token secret is configured"; exit 1; }
+          npm deprecate "@botconnector/bccli@$RANGE" "$MESSAGE"
+      - name: Verify the deprecation is live
+        env:
+          RANGE: ${{ inputs.range }}
+        run: |
+          npm view "@botconnector/bccli@$RANGE" deprecated --json

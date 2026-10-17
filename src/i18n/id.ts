@@ -499,4 +499,5 @@ Opsi:
   'gh is not available ({error}); install GitHub CLI first': 'gh tidak tersedia ({error}); pasang GitHub CLI dulu',
   'gh pr checkout {n} failed (exit {code})': 'gh pr checkout {n} gagal (exit {code})',
   'checked out PR #{n}': 'checkout PR #{n} selesai',
+'--allow-all: the PR task runs every tool without asking': '--allow-all: tugas PR menjalankan semua alat tanpa bertanya',
 }

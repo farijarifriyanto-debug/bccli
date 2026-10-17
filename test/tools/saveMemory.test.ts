@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
+import { Permissions } from '../../src/permissions'
 import { createSaveMemoryTool } from '../../src/tools/memory'
 
 const home = mkdtempSync(join(tmpdir(), 'bccli-mem-home-'))
@@ -62,4 +63,26 @@ test('overlong content fails the schema', () => {
 
 test('kind is edit so the default permission mode asks', () => {
   expect(createSaveMemoryTool({ home }).kind).toBe('edit')
+})
+
+test('a global memory write is asked for, not auto-allowed as a project edit', () => {
+  const tool = createSaveMemoryTool({ home: '/home/u/.bccli' })
+  const req = (scope: 'project' | 'global') => ({
+    tool: 'save_memory',
+    kind: 'edit' as const,
+    target: tool.target({ content: 'x', scope }),
+  })
+  const accept = new Permissions('acceptEdits', [], '/work/app')
+  expect(accept.rulesFor(req('global'))).toBeUndefined()
+  expect(accept.check(req('global'))).toBe('ask')
+  // The prompt shows the file that is really written, not the word "global memory".
+  expect(req('global').target).toContain('BCCLI.md')
+})
+
+test('a project memory write stays an ordinary in-project edit', () => {
+  const tool = createSaveMemoryTool({ home: '/home/u/.bccli' })
+  const req = { tool: 'save_memory', kind: 'edit' as const, target: tool.target({ content: 'x', scope: 'project' }) }
+  const accept = new Permissions('acceptEdits', [], '/work/app')
+  expect(accept.rulesFor(req)).toEqual(['edit(project)'])
+  expect(accept.check(req)).toBe('allow')
 })

@@ -2,9 +2,9 @@
 
 **Bahasa Indonesia** · [English](README.en.md)
 
-[![npm](https://img.shields.io/npm/v/@botconnector/bccli?label=@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli)
+[![npm](https://img.shields.io/npm/v/@botconnector/bccli/next?label=@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli?activeTab=versions)
 [![npm downloads](https://img.shields.io/npm/dm/@botconnector/bccli)](https://www.npmjs.com/package/@botconnector/bccli)
-[![Node.js](https://img.shields.io/node/v/@botconnector/bccli)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/node/v/@botconnector/bccli/next?label=Node.js)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Website](https://img.shields.io/badge/website-botconnector.id-06305A)](https://botconnector.id/id/download)
 
@@ -70,6 +70,10 @@ Perintah di dalam sesi (ketik `/` untuk saran, ↑↓ pilih, Enter jalankan):
 
 `/undo` hanya membatalkan perubahan lewat alat edit/tulis (bukan perintah bash), per giliran, sampai 20 giliran ke belakang.
 Shift+Tab ganti mode izin: `default` → `acceptEdits` → `plan` → `allowAll`.
+
+Membaca file rahasia (`.env`, `.ssh`, `.aws`, `id_rsa`, `*.pem`, `*.key`, `secret*`,
+`credential*`) selalu meminta izin; `allowAll` satu-satunya mode yang tidak bertanya, dan
+izin itu tidak bisa diberikan "untuk sesi ini".
 
 Mode `-p` tidak pernah bertanya: alat yang butuh izin ditolak, kecuali memakai
 `--allow-all` atau `--allowed-tools bash,edit,fetch`.
@@ -181,7 +185,7 @@ seperti Claude Code). Semua alat MCP selalu minta izin.
 opencode, dan host MCP lain. Butuh `bccli login` (atau `BOTCONNECTOR_API_KEY`):
 
 ```bash
-claude mcp add botconnector -- npx -y @botconnector/bccli mcp serve
+claude mcp add botconnector -- npx -y @botconnector/bccli@next mcp serve
 ```
 
 ## Subagent
