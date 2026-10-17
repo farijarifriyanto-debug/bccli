@@ -238,9 +238,10 @@ Project instructions are read from `AGENTS.md` and `BCCLI.md`.
 ```bash
 npm install
 npm test && npm run typecheck && npm run lint && npm run build
+npm run coverage   # coverage gate (also enforced on Linux CI)
 ```
 
-CI (`ci.yml`) runs the same on Linux, macOS, and Windows.
+CI (`ci.yml`) runs the same on Linux, macOS, and Windows, plus the coverage gate on Linux.
 Releases: bump `version` in `package.json`, then push a `v<version>` tag — `release.yml`
 runs tests, a smoke test against BotConnector Cloud, and `npm publish --provenance`.
 
