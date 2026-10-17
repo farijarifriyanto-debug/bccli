@@ -1,8 +1,9 @@
 # BCCLI installer for Windows (PowerShell)
 # Usage:
 #   irm https://raw.githubusercontent.com/farijarifriyanto-debug/bccli/main/install.ps1 | iex
+# Set BCCLI_VERSION=next to follow prereleases instead of the latest stable release.
 $ErrorActionPreference = "Stop"
-$tag = if ($env:BCCLI_VERSION) { $env:BCCLI_VERSION } else { "next" }
+$tag = if ($env:BCCLI_VERSION) { $env:BCCLI_VERSION } else { "latest" }
 
 $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) {

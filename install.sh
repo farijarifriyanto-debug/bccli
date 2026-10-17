@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # BCCLI installer — https://github.com/farijarifriyanto-debug/bccli
-# Installs @botconnector/bccli@next for the current user (no sudo).
+# Installs @botconnector/bccli (the latest stable release) for the current user (no sudo).
+# Set BCCLI_VERSION=next to follow prereleases instead.
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/farijarifriyanto-debug/bccli/main/install.sh | bash
 # Flags (when run from a checkout): --version vX.Y.Z, --prefix DIR, --no-modify-path, --help
 set -euo pipefail
 
-BCCLI_VERSION="${BCCLI_VERSION:-next}"          # npm dist-tag or exact version
+BCCLI_VERSION="${BCCLI_VERSION:-latest}"          # npm dist-tag or exact version
 NODE_VERSION="v24.21.0"                         # portable Node used when system Node is missing/old
 MIN_NODE_MAJOR=22
 INSTALL_PREFIX="${BCCLI_PREFIX:-$HOME/.local}"

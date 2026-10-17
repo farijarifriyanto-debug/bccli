@@ -1,17 +1,24 @@
 name: deprecate
 
-# Maintenance tool: mark a published version range as deprecated, e.g. the legacy
-# 0.1.x launcher line. Uses the same npm credential as the release workflow, so no
+# Maintenance tool: mark (or unmark) a published version range as deprecated, e.g. the
+# legacy 0.1.x launcher line. Uses the same npm credential as the release workflow, so no
 # token ever has to leave GitHub.
+#
+#   gh workflow run deprecate.yml -f range='0.1.0-beta.1' -f message='why it is deprecated'
+#   gh workflow run deprecate.yml -f range='0.2.0-beta.1' -f message=''   # un-deprecate
+#
+# Note: expect ranges, not plain "less than" ranges, to decide exactly what is touched -
+# "<0.2.0" also matches 0.2.0-beta.1, which is a beta of the current line, not the legacy one.
 on:
   workflow_dispatch:
     inputs:
       range:
-        description: 'Version range to deprecate, for example <0.2.0'
+        description: 'Version or range to deprecate, for example 0.1.0-beta.1 or <0.2.0'
         required: true
       message:
-        description: 'Deprecation message shown to anyone installing that range'
-        required: true
+        description: 'Deprecation message; leave empty to un-deprecate'
+        required: false
+        default: ''
 
 jobs:
   deprecate:
@@ -21,6 +28,15 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      - name: Deprecated versions before
+        run: |
+          node --input-type=module -e "
+            const res = await fetch('https://registry.npmjs.org/@botconnector%2Fbccli');
+            const json = await res.json();
+            const deprecated = Object.keys(json.versions).filter((v) => json.versions[v].deprecated);
+            console.log(deprecated.sort().join('\n'));
+          " > "$RUNNER_TEMP/deprecated-before.txt"
+          echo "--- before ---"; cat "$RUNNER_TEMP/deprecated-before.txt"
       - name: npm deprecate
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_BBCLI || secrets.NPM_TOKEN }}
@@ -29,8 +45,16 @@ jobs:
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || { echo "::error::no npm token secret is configured"; exit 1; }
           npm deprecate "@botconnector/bccli@$RANGE" "$MESSAGE"
-      - name: Verify the deprecation is live
-        env:
-          RANGE: ${{ inputs.range }}
+      - name: Verify the registry changed
         run: |
-          npm view "@botconnector/bccli@$RANGE" deprecated --json
+          node --input-type=module -e "
+            const res = await fetch('https://registry.npmjs.org/@botconnector%2Fbccli');
+            const json = await res.json();
+            const deprecated = Object.keys(json.versions).filter((v) => json.versions[v].deprecated);
+            console.log(deprecated.sort().join('\n'));
+          " > "$RUNNER_TEMP/deprecated-after.txt"
+          echo "--- after ---"; cat "$RUNNER_TEMP/deprecated-after.txt"
+          if diff -q "$RUNNER_TEMP/deprecated-before.txt" "$RUNNER_TEMP/deprecated-after.txt" > /dev/null; then
+            echo "::error::the deprecated list did not change; check that the range matched something"
+            exit 1
+          fi
