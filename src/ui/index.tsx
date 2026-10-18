@@ -16,6 +16,9 @@ export async function startInteractive(rt: Runtime, opts: { initialPrompt?: stri
       const rl = createInterface({ input: process.stdin, output: process.stdout })
       const answer = Number(await rl.question(t('Session number (enter = new): ')))
       rl.close()
+      // rl.close() meninggalkan stdin TTY dalam keadaan read-stop (pause); tanpa resume,
+      // Ink tidak menahan event loop dan `bccli -r` keluar sendiri ~1 dtk setelah mount.
+      process.stdin.resume()
       const chosen = list[answer - 1]
       if (chosen) rt.resume(chosen.session)
     }
@@ -32,6 +35,8 @@ export async function startInteractive(rt: Runtime, opts: { initialPrompt?: stri
       if (answer === 'y') plan.start.push(s)
     }
     rl.close()
+    // Sama seperti jalur resume: aktifkan lagi stdin sebelum Ink dipasang (lihat catatan r4 t8).
+    process.stdin.resume()
   }
   void rt.startMcp(plan.start).catch((error: unknown) => {
     console.error(t('Could not start MCP servers: {error}', { error: error instanceof Error ? error.message : String(error) }))
