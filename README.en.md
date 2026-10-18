@@ -231,7 +231,7 @@ Tasks with ≥ 3 steps show a checklist above the input box. In plan mode (Shift
 the agent only reads and then proposes a plan; `[a]` approves with automatic edits,
 `[y]` approves asking at each step, `[n]` asks for revisions.
 
-Project instructions are read from `AGENTS.md` and `BCCLI.md`.
+Project instructions are read from `AGENTS.md`, `CLAUDE.md`, and `BCCLI.md`.
 
 ## Development
 

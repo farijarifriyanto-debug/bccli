@@ -228,7 +228,7 @@ Tugas ≥ 3 langkah menampilkan checklist di atas kotak input. Di mode plan (Shi
 agent hanya membaca lalu mengajukan rencana; `[a]` setujui dengan edit otomatis,
 `[y]` setujui dengan tanya tiap langkah, `[n]` minta perbaikan.
 
-Instruksi project dibaca dari `AGENTS.md` dan `BCCLI.md`.
+Instruksi project dibaca dari `AGENTS.md`, `CLAUDE.md`, dan `BCCLI.md`.
 
 ## Pengembangan
 
