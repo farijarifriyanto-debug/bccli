@@ -473,11 +473,15 @@ export async function startServe(opts: ServeOptions = {}): Promise<ServeHandle> 
     return registerSession(buildRuntime(forCwd, permissionMode, model), forCwd, permissionMode)
   }
 
-  /** Attaches an on-disk session (from an earlier serve process); permissionMode resets to 'ask'. */
+  /**
+   * Attaches an on-disk session (from an earlier serve process); permissionMode resets to 'ask' and the
+   * session's own model (last recorded usage) continues; config.model is only the fallback for a log
+   * without usage yet.
+   */
   function attachSession(id: string, forCwd: string): ServedSession | undefined {
     const found = findSessionFile(id, forCwd)
     if (!found) return undefined
-    const rt = buildRuntime(found.cwd, 'ask')
+    const rt = buildRuntime(found.cwd, 'ask', found.session.lastModel())
     rt.resume(found.session)
     return registerSession(rt, found.cwd, 'ask', id)
   }

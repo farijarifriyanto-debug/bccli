@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
@@ -198,6 +198,56 @@ test('attach lintas-restart: serve instance kedua melampirkan sesi dari JSONL (r
     }
     expect(JSON.stringify(get2.messages)).toContain('satu')
     mux2.ws.close()
+  } finally {
+    await h2.close()
+  }
+})
+
+test('attach lintas-restart: turn lanjutan memakai model sesi dari JSONL, bukan config.model host', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'bccli-serve-'))
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-serve-cwd-'))
+  const env = { BCCLI_HOME: home, BOTCONNECTOR_API_KEY: 'k' } as NodeJS.ProcessEnv
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ model: 'bc-cloud/model-a' }))
+  const h1 = await startServe({ port: 0, cwd, provider: scripted(['pertama']), env })
+  const base1 = `http://127.0.0.1:${h1.port}`
+  const created = (await (await api(base1, h1.token, '/v1/sessions', {})).json()) as { id: string }
+  const mux1 = await connectMux(h1)
+  mux1.send({ type: 'open', streamId: 's', target: `session:${created.id}` })
+  await mux1.wait(isItem('ready'))
+  await api(base1, h1.token, `/v1/sessions/${created.id}/messages`, { prompt: 'satu' })
+  await mux1.wait(isItem('result'))
+  mux1.ws.close()
+  await h1.close()
+
+  // Host serve berubah model; sesi yang di-attach harus tetap memakai model yang tercatat di lognya.
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ model: 'bc-cloud/model-b' }))
+  const h2 = await startServe({ port: 0, cwd, provider: scripted(['kedua']), env })
+  try {
+    const base2 = `http://127.0.0.1:${h2.port}`
+    const mux2 = await connectMux(h2)
+    mux2.send({ type: 'open', streamId: 's2', target: `session:${created.id}` })
+    await mux2.wait(isItem('ready'))
+    expect((await api(base2, h2.token, `/v1/sessions/${created.id}/messages`, { prompt: 'lanjut' })).status).toBe(202)
+    const result = await mux2.wait(isItem('result'))
+    expect((result as { value: { text: string } }).value.text).toContain('kedua')
+    mux2.ws.close()
+
+    const usageModels = (): (string | undefined)[] => {
+      const dir = readdirSync(join(home, 'sessions'))[0]
+      return readFileSync(join(home, 'sessions', dir, `${created.id}.jsonl`), 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { t: string; model?: string })
+        .filter((record) => record.t === 'usage')
+        .map((record) => record.model)
+    }
+    let models = usageModels()
+    for (let i = 0; i < 100 && models.length < 2; i++) {
+      await new Promise((r) => setTimeout(r, 20))
+      models = usageModels()
+    }
+    expect(models.length).toBeGreaterThanOrEqual(2)
+    expect(models.at(-1)).toBe('bc-cloud/model-a')
   } finally {
     await h2.close()
   }

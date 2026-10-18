@@ -22,6 +22,16 @@ test('append/load round trip; reset starts over; partial lines are skipped', () 
   ])
 })
 
+test('lastModel: usage terakhir yang punya model; record lama tanpa model dilewati; tanpa usage → undefined', () => {
+  const s = Session.create(home(), '/w')
+  expect(s.lastModel()).toBeUndefined()
+  s.appendUsage({ inputTokens: 1, outputTokens: 1 })
+  s.appendUsage({ inputTokens: 2, outputTokens: 2, model: 'bc-cloud/a' })
+  s.append({ role: 'user', content: 'lanjut' })
+  s.appendUsage({ inputTokens: 3, outputTokens: 3, model: 'bc-cloud/b' })
+  expect(s.lastModel()).toBe('bc-cloud/b')
+})
+
 test('session preserves Luna PTC replay metadata for resume', () => {
   const s = Session.create(home(), '/w')
   const caller = { type: 'program' as const, caller_id: 'call_prog_1' }

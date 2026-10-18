@@ -96,6 +96,16 @@ export class Session {
     return repairTail(messages)
   }
 
+  /** Model of the most recent turn that recorded usage — serve attach continues a session with its own model. */
+  lastModel(): string | undefined {
+    const records = this.records()
+    for (let i = records.length - 1; i >= 0; i--) {
+      const record = records[i]
+      if (record.t === 'usage' && record.model) return record.model
+    }
+    return undefined
+  }
+
   /**
    * What the user sees on resume: the whole conversation. Compaction only shrinks what the model is sent, so
    * its reset does not hide the older turns here. A real reset (/clear, rewind) still starts over, the
