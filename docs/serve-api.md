@@ -70,7 +70,7 @@ socket yang tidak balas pong sebelum interval berikutnya di-terminate.
 
 ```jsonc
 → { "type": "open", "streamId": "s1", "target": "session:2026-10-07T…-ab12cd" }
-← { "type": "item", "streamId": "s1", "value": { "type": "ready", "sessionId": "…", "host": { "home": "…", "version": "0.4.0" } } }
+← { "type": "item", "streamId": "s1", "value": { "type": "ready", "sessionId": "…", "host": { "home": "…", "version": "0.4.1" } } }
 // POST /v1/sessions/:id/messages { "prompt": "…" } → 202 { turnId }
 ← { "type": "item", "streamId": "s1", "value": { "type": "text", "delta": "Halo" } }
 ← { "type": "item", "streamId": "s1", "value": { "type": "result", "text": "Halo", "toolCalls": [], "usage": { "inputTokens": 12, "outputTokens": 4 }, "stopReason": "done" } }

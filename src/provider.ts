@@ -976,7 +976,7 @@ export function createProvider(options: ProviderOptions): Provider {
   const isBotConnectorCloud = /^https:\/\/api\.botconnector\.id\/v1\/?$/.test(baseURL) && apiKey?.startsWith('bc_live_')
   if (isBotConnectorCloud) {
     headers['x-botconnector-client'] = 'bccli'
-    headers['x-botconnector-client-version'] = '0.4.0'
+    headers['x-botconnector-client-version'] = '0.4.1'
   }
   const useNativeResponses = isBotConnectorCloud && providerId === 'bc-cloud' && model === 'gpt-6-luna'
   const useResponsesWebSocket =
@@ -1010,7 +1010,7 @@ export function createProvider(options: ProviderOptions): Provider {
         baseURL: baseURL.replace(/\/+$/, ''),
         defaultHeaders: {
           'x-botconnector-client': 'bccli',
-          'x-botconnector-client-version': '0.4.0',
+          'x-botconnector-client-version': '0.4.1',
         },
       })
       lunaWs = responsesWebSocketFactory ? responsesWebSocketFactory(client) : new ResponsesWS(client, { reconnect: null })

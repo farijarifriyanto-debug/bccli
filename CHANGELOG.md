@@ -3,6 +3,14 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## 0.4.1 - 2026-10-18
+
+Patch release: two fixes found by directed runtime testing (rounds 3-4 on Windows).
+
+### Fixed
+- `bccli -r` no longer quits ~1 second after the TUI mounts (`exit 0`, session list and replay rendered but input dead). `rl.close()` from `node:readline/promises` leaves a TTY stdin read-stopped, and Ink only attaches `readable` listeners without resuming, so the event loop loses its last ref; the UI startup path now re-resumes `process.stdin` after closing the readline prompt. The same early-exit affected the first `bccli` run in a repo with untrusted MCP servers.
+- `bccli serve` attach now resumes a session with the model recorded in the session's own usage log (`Session.lastModel()`) instead of silently switching it to the serving host's `config.model` across a server restart.
+
 ## 0.4.0 - 2026-10-18
 
 First stable release of the current BCCLI line (the `0.4.0-beta.1` … `beta.55` series, which
