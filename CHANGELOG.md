@@ -3,6 +3,33 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## 0.4.2 - 2026-10-19
+
+Security hardening, bug fixes, and feature upgrades across core tools, TUI/Vim, SDK/ACP/CLI, LSP, MCP, and providers.
+
+### Security
+- Secret-file detection (`requiresSensitiveToolApproval`) now matches extension-bearing filenames (`credentials.json`, `secrets.json`, `.npmrc`, `.netrc`, `.git-credentials`), and `grep` includes `input.path` in its permission target so searching inside secret paths requires approval.
+- `Permissions.rulesFor()` blocks session grants (`[a]`) when any command segment starts a subshell (`(...)` or `{...}`), and `editInProject()` checks `.git` path segments case-insensitively.
+- `collectGhContext()` escapes closing `</untrusted-github>` tags inside untrusted GitHub issue/PR/comment text, `authorizeMcpServer()` HTML-escapes OAuth callback error descriptions, and `trustFence()` accepts `Host: [::1]` on port 80.
+
+### Added
+- `edit` tool now supports multi-level fuzzy matching (stripping `read` line-number prefixes, normalizing typographic quotes/dashes and trailing whitespace), atomic multi-edit arrays (`edits: [...]`), and external file modification detection (`mtimeMs`).
+- `read` tool now lists directory entries when given a directory path; `glob` sorts matches by modification time (`mtime` newest first) and walks up to the project root `.gitignore` when searching inside subdirectories.
+- `grep` tool now supports searching a single file path, literal matching (`literal: true`), context lines (`context: N`), and `output_mode: 'content' | 'files_with_matches' | 'count'`.
+- `bash` tool saves full truncated output (`>30,000` chars) to a temporary log file (`; full output saved to ...`).
+- Automatic model fallback (`--fallback-model <ref>` and `fallbackModels` in config) via `withFallbackProvider` on HTTP 429/5xx or connection errors, plus `Retry-After` header support.
+- `task` subagents now synthesize a final summary when reaching `maxSteps`, isolate provider instances across parallel subagents, and support `session_id` continuation.
+- TUI & Vim: grapheme-aware Vim cursor motions (`Intl.Segmenter`) for emoji/surrogate pairs plus `D`, `C`, `cc`, `cw`, `I`, `e`; `Esc` to dismiss slash suggestions; `Alt+Enter` / `Ctrl+J` newline insertion; deep `@file` completion and automatic file pre-attachment (`expandAtFileMentions`); interactive `/config` slash command; dynamic model `contextWindow` in `/status`.
+- Piped `stdin` support in `-p` print mode (combined with the `-p` prompt argument), plus `session_id`, `usage`, and `duration_ms` in `--output-format json` and `stream-json`.
+- `lsp` maps 30+ file extensions to their official LSP `languageId` (`languageIdFor`) and automatically enables `shell: true` for `.cmd` language server wrappers on Windows; `McpManager` extracts image attachments (`type: 'image'`) and embedded resource text (`type: 'resource'`).
+
+### Fixed
+- `CheckpointStore.beginTurn()` now tracks every turn with an `offset` counter so `/rewind` after read-only turns no longer desynchronizes from file snapshots, and `/undo` works after `/redo`.
+- `estimateMessages()` bounds base64 `image_url` token estimates (`1,000` tokens/image) and `trimToFit()` / `splitKeepRecent()` no longer split mid-turn on image attachment messages.
+- `runTask()` / `streamTask()` surface provider errors with `stopReason: 'error'` and abort the running agent when a `streamTask` consumer exits early.
+- `acp` rejects concurrent `session/prompt` calls on a busy session (`-32000`), aborts active turns on stream close, and forwards `embeddedContext` / `resource` prompt blocks and reasoning summaries.
+- `bccli pr` forwards `--repo`, `-m`, `--reasoning`, `--permission-mode`, and `--allowed-tools`; `bccli stats --project` works as a bare flag; `bccli export <file>` overwrites existing destination files cleanly; `parseFrontmatter()` parses multi-line YAML lists.
+
 ## 0.4.1 - 2026-10-18
 
 Patch release: two fixes found by directed runtime testing (rounds 3-4 on Windows).
