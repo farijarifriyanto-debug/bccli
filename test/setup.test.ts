@@ -45,3 +45,21 @@ test('switching model rebuilds the system prompt with the active runtime model',
   expect(system).toContain('- Model: bc-cloud/mimo-v2.6-flash')
   expect(system).not.toContain('- Model: bc-cloud/glm-5.3-flash')
 })
+
+test('resume restores the session totalUsage and lastModel when no CLI model override was given', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-setup-res-'))
+  const home = mkdtempSync(join(tmpdir(), 'bccli-setup-resh-'))
+  const env = { BCCLI_HOME: home, BOTCONNECTOR_API_KEY: 'test-key' }
+  const first = createRuntime({ cwd, args: parseCliArgs([]), env })
+  first.session.append({ role: 'user', content: 'halo' })
+  first.session.appendUsage({ inputTokens: 120, outputTokens: 30, model: 'bc-cloud/gpt-oss-120b' })
+
+  const second = createRuntime({ cwd, args: parseCliArgs([]), env })
+  second.resume(first.session)
+  expect(second.modelRef).toBe('bc-cloud/gpt-oss-120b')
+  expect(first.session.totalUsage()).toMatchObject({ inputTokens: 120, outputTokens: 30 })
+
+  second.setModel('bc-cloud/mimo-v2.6-flash')
+  expect(second.agent.getBudgetModel()).toBe('bc-cloud/mimo-v2.6-flash')
+  expect(second.agent.getContextWindow()).toBeGreaterThan(0)
+})

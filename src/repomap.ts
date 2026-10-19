@@ -7,11 +7,14 @@ const SKIP_DIRS = new Set([
   '.git',
   'dist',
   'build',
+  'out',
   'coverage',
   '.next',
+  '.turbo',
   'target',
   'vendor',
   '__pycache__',
+  'venv',
   '.venv',
   '.cache',
 ])
@@ -37,23 +40,24 @@ const CODE_EXTS = new Set([
   '.ps1',
 ])
 const MAX_FILES = 400
+const MAX_SCAN_FILES = 5_000
 const MAX_FILE_BYTES = 200_000
 const MAX_SYMBOLS_PER_FILE = 12
 
 const FAMILY: Record<string, RegExp[]> = {
   ts: [
-    /^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function|class|interface|type|enum)\s+([A-Za-z0-9_$]+)/,
+    /^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:public\s+|private\s+|protected\s+|internal\s+)?(?:static\s+)?(?:abstract\s+|final\s+|sealed\s+)?(?:async\s+)?(?:function|class|interface|type|enum)\s+([A-Za-z0-9_$]+)/,
     /^\s*export\s+(?:const|let)\s+([A-Za-z0-9_$]+)/,
   ],
-  py: [/^\s*(?:async\s+)?def\s+(\w+)/, /^\s*class\s+(\w+)/],
+  py: [/^\s*(?:async\s+)?def\s+(\w+)/, /^\s*(?:module|class)\s+(\w+)/],
   go: [/^func\s+(?:\([^)]*\)\s*)?(\w+)/, /^type\s+(\w+)/],
   rs: [/^\s*(?:pub(?:\([^)]*\))?\s+)?(?:unsafe\s+)?(?:async\s+)?(?:fn|struct|enum|trait|type)\s+(\w+)/],
   c: [/^\s*(?:static\s+|inline\s+|extern\s+)*[A-Za-z_][A-Za-z0-9_\s*]*\b(\w+)\s*\([^;]*\)\s*\{?\s*$/],
 }
 
 function familyFor(ext: string): RegExp[] {
-  if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.java', '.cs', '.php', '.rb'].includes(ext)) return FAMILY.ts
-  if (ext === '.py' || ext === '.sh' || ext === '.ps1') return FAMILY.py
+  if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.java', '.cs', '.php'].includes(ext)) return FAMILY.ts
+  if (ext === '.py' || ext === '.rb' || ext === '.sh' || ext === '.ps1') return FAMILY.py
   if (ext === '.go') return FAMILY.go
   if (ext === '.rs') return FAMILY.rs
   return FAMILY.c
@@ -76,7 +80,7 @@ export function extractSymbols(text: string, ext: string): string[] {
 }
 
 function walk(dir: string, root: string, files: string[]): void {
-  if (files.length >= MAX_FILES) return
+  if (files.length >= MAX_SCAN_FILES) return
   let entries: import('node:fs').Dirent[]
   try {
     entries = readdirSync(dir, { withFileTypes: true })
@@ -84,7 +88,7 @@ function walk(dir: string, root: string, files: string[]): void {
     return
   }
   for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (files.length >= MAX_FILES) return
+    if (files.length >= MAX_SCAN_FILES) return
     const full = join(dir, e.name)
     if (e.isDirectory()) {
       if (SKIP_DIRS.has(e.name) || (e.name.startsWith('.') && full !== root)) continue
@@ -102,12 +106,13 @@ function walk(dir: string, root: string, files: string[]): void {
  */
 export function buildRepoMapSync(cwd: string, opts: { maxTokens?: number } = {}): string {
   const maxTokens = opts.maxTokens ?? 2048
-  const files: string[] = []
-  walk(cwd, cwd, files)
-  files.sort(
+  const scanned: string[] = []
+  walk(cwd, cwd, scanned)
+  scanned.sort(
     (a, b) =>
       relative(cwd, a).split(sep).length - relative(cwd, b).split(sep).length || a.localeCompare(b),
   )
+  const files = scanned.slice(0, MAX_FILES)
   const lines: string[] = []
   let used = 0
   let truncated = false

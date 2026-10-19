@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, expect, test } from 'vitest'
@@ -6,6 +6,7 @@ import { editTool } from '../../src/tools/edit'
 import { readTool } from '../../src/tools/read'
 import type { ToolContext } from '../../src/tools/types'
 import { writeTool } from '../../src/tools/write'
+import { expandAtFileMentions } from '../../src/ui/complete'
 
 let ctx: ToolContext
 beforeEach(() => {
@@ -91,4 +92,61 @@ test('edit works in the LF part of a file with mixed line endings', async () => 
   const r = await editTool.run({ path: 'm.txt', old_string: 'b\nc', new_string: 'B\nC' }, ctx)
   expect(r.isError).toBeFalsy()
   expect(readFileSync(file('m.txt'), 'utf8')).toBe('a\r\nB\nC\n')
+})
+
+test('edit supports fuzzy matching (trailing spaces, curly quotes, line-number prefixes) and multi-edit array', async () => {
+  writeFileSync(file('fuzzy.ts'), 'const msg = "hello"   \nconst count = 1\n')
+  await readTool.run({ path: 'fuzzy.ts' }, ctx)
+  // Trailing spaces + typographic quotes + accidental read line-number prefix
+  const r1 = await editTool.run(
+    {
+      path: 'fuzzy.ts',
+      old_string: '     1\tconst msg = “hello”\n     2\tconst count = 1',
+      new_string: 'const msg = "world"\nconst count = 2',
+    },
+    ctx,
+  )
+  expect(r1.isError).toBeFalsy()
+  expect(readFileSync(file('fuzzy.ts'), 'utf8')).toBe('const msg = "world"\nconst count = 2\n')
+
+  // Multi-edit in a single call
+  const r2 = await editTool.run(
+    {
+      path: 'fuzzy.ts',
+      edits: [
+        { old_string: 'const msg = "world"', new_string: 'const msg = "done"' },
+        { old_string: 'const count = 2', new_string: 'const count = 99' },
+      ],
+    },
+    ctx,
+  )
+  expect(r2.isError).toBeFalsy()
+  expect(readFileSync(file('fuzzy.ts'), 'utf8')).toBe('const msg = "done"\nconst count = 99\n')
+})
+
+test('read lists directory entries when given a directory path', async () => {
+  writeFileSync(file('alpha.txt'), '1')
+  writeFileSync(file('beta.txt'), '2')
+  const r = await readTool.run({ path: '.' }, ctx)
+  expect(r.isError).toBeFalsy()
+  expect(r.output).toContain('alpha.txt')
+  expect(r.output).toContain('beta.txt')
+})
+
+test('edit rejects modifying a file that changed on disk after it was read, and expandAtFileMentions pre-attaches @file context', async () => {
+  const target = file('stale.ts')
+  writeFileSync(target, 'const v = 1\n')
+  await readTool.run({ path: 'stale.ts' }, ctx)
+  writeFileSync(target, 'const v = 1 // modified externally\n')
+  const future = new Date(Date.now() + 5000)
+  utimesSync(target, future, future)
+
+  const staleRes = await editTool.run({ path: 'stale.ts', old_string: 'const v = 1', new_string: 'const v = 2' }, ctx)
+  expect(staleRes.isError).toBe(true)
+  expect(staleRes.output).toMatch(/modified|changed/i)
+
+  writeFileSync(file('note.ts'), 'export const NOTE = 42\n')
+  const expanded = expandAtFileMentions('check @note.ts please', ctx.cwd, ctx.readFiles)
+  expect(expanded).toContain('export const NOTE = 42')
+  expect(ctx.readFiles.has(file('note.ts'))).toBe(true)
 })

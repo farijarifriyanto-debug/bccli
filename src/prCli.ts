@@ -6,6 +6,11 @@ export interface PrCliArgs {
   cwd: string
   /** Set only when the user asked for `bccli pr … --allow-all`. */
   allowAll?: boolean
+  repo?: string
+  model?: string
+  reasoning?: string
+  permissionMode?: string
+  allowedTools?: string[]
 }
 
 export interface PrDeps {
@@ -14,7 +19,15 @@ export interface PrDeps {
   /** gh argv runner (no shell). Defaults to `gh` on PATH. */
   gh?(argv: string[]): Promise<{ code: number; stdout: string; stderr: string }>
   /** Run the agent task after checkout (injectable for tests). */
-  runTask?(opts: { prompt?: string; allowAll: boolean; cwd: string }): Promise<number>
+  runTask?(opts: {
+    prompt?: string
+    allowAll: boolean
+    cwd: string
+    model?: string
+    reasoning?: string
+    permissionMode?: string
+    allowedTools?: string[]
+  }): Promise<number>
 }
 
 function defaultGh(argv: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -34,11 +47,37 @@ function defaultGh(argv: string[]): Promise<{ code: number; stdout: string; stde
 }
 
 /** argv for the child running the PR task; `--allow-all` only when the user asked for it. */
-export function prTaskArgv(entry: string, opts: { prompt?: string; allowAll?: boolean }): string[] {
-  return [entry, ...(opts.prompt ? ['-p', opts.prompt] : []), ...(opts.allowAll ? ['--allow-all'] : [])]
+export function prTaskArgv(
+  entry: string,
+  opts: {
+    prompt?: string
+    allowAll?: boolean
+    model?: string
+    reasoning?: string
+    permissionMode?: string
+    allowedTools?: string[]
+  },
+): string[] {
+  return [
+    entry,
+    ...(opts.prompt ? ['-p', opts.prompt] : []),
+    ...(opts.model ? ['-m', opts.model] : []),
+    ...(opts.reasoning ? ['--reasoning', opts.reasoning] : []),
+    ...(opts.permissionMode ? ['--permission-mode', opts.permissionMode] : []),
+    ...(opts.allowedTools?.length ? ['--allowed-tools', opts.allowedTools.join(',')] : []),
+    ...(opts.allowAll ? ['--allow-all'] : []),
+  ]
 }
 
-async function defaultRunTask(opts: { prompt?: string; allowAll: boolean; cwd: string }): Promise<number> {
+async function defaultRunTask(opts: {
+  prompt?: string
+  allowAll: boolean
+  cwd: string
+  model?: string
+  reasoning?: string
+  permissionMode?: string
+  allowedTools?: string[]
+}): Promise<number> {
   // process.argv[1] is the actual entry being executed (dist/cli.js via the npm
   // shim); import.meta.url points at a tsup chunk, so ../cli.js would be wrong.
   const entry = process.argv[1]
@@ -61,7 +100,7 @@ async function defaultRunTask(opts: { prompt?: string; allowAll: boolean; cwd: s
  */
 export async function runPrCommand(args: PrCliArgs, deps: PrDeps): Promise<number> {
   const rest = [...args.subArgs]
-  let repo: string | undefined
+  let repo: string | undefined = args.repo
   const words: string[] = []
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === '--repo') {
@@ -93,5 +132,13 @@ export async function runPrCommand(args: PrCliArgs, deps: PrDeps): Promise<numbe
   const runTask = deps.runTask ?? defaultRunTask
   const allowAll = args.allowAll === true
   if (allowAll) deps.err?.(t('--allow-all: the PR task runs every tool without asking'))
-  return runTask({ prompt: task, allowAll, cwd: args.cwd })
+  return runTask({
+    prompt: task,
+    allowAll,
+    cwd: args.cwd,
+    ...(args.model ? { model: args.model } : {}),
+    ...(args.reasoning ? { reasoning: args.reasoning } : {}),
+    ...(args.permissionMode ? { permissionMode: args.permissionMode } : {}),
+    ...(args.allowedTools?.length ? { allowedTools: args.allowedTools } : {}),
+  })
 }

@@ -92,11 +92,12 @@ export class Agent {
   // Snapshot for the running turn: tools added/removed mid-turn (e.g. an MCP server connecting) apply from the next turn.
   private turnTools: Tool[]
   private turnDefinitions: ToolDefinition[]
-  private readonly readFiles = new Set<string>()
+  readonly readFiles = new Set<string>()
   private readonly webBudget = new WebBudget()
   private readonly maxSteps?: number
   // One window for every model; resolved from contextWindowFor() (catalog + env override).
   private contextWindow: number
+  private budgetModel: string
   private systemPrompt: string
 
   constructor(private readonly opts: AgentOptions) {
@@ -112,6 +113,7 @@ export class Agent {
         ? Math.max(1, Math.floor(opts.maxSteps))
         : undefined
     this.contextWindow = opts.contextWindow ?? 128_000
+    this.budgetModel = opts.budgetModel ?? ''
     this.systemPrompt = opts.systemPrompt
     this.reasoning = opts.reasoning ?? 'auto'
   }
@@ -122,6 +124,18 @@ export class Agent {
 
   setContextWindow(window: number): void {
     this.contextWindow = window
+  }
+
+  getContextWindow(): number {
+    return this.contextWindow
+  }
+
+  setBudgetModel(model: string): void {
+    this.budgetModel = model
+  }
+
+  getBudgetModel(): string {
+    return this.budgetModel
   }
 
   setTools(tools: Tool[]): void {
@@ -342,7 +356,7 @@ export class Agent {
 
   /** Current cap status; undefined means the budget is not exhausted. */
   private overBudget(): { kind: 'tokens' | 'usd'; used: number; limit: number } | undefined {
-    return budgetStatus(this.totalUsage, this.opts.usageCap, this.opts.budgetModel ?? '')
+    return budgetStatus(this.totalUsage, this.opts.usageCap, this.budgetModel)
   }
 
   /** Every tool call needs an answer in the history, or the next request to the model is rejected. */

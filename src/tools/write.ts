@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 import { diffLines, formatDiff } from '../diff'
-import { errorCode, resolvePath } from './paths'
+import { errorCode, recordFileMtime, resolvePath } from './paths'
 import { defineTool } from './types'
 import { t } from '../i18n'
 
@@ -37,7 +37,7 @@ export const writeTool = defineTool({
     } catch (error) {
       return { output: `Failed to write ${input.path}: ${errorCode(error)}`, isError: true }
     }
-    ctx.readFiles.add(abs)
+    recordFileMtime(ctx.readFiles, abs)
     const lines = input.content.split('\n').length
     return { output: `Wrote ${input.path} (${lines} lines).`, display: t('{lines} lines written', { lines }) }
   },

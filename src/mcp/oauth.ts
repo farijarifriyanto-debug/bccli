@@ -216,8 +216,13 @@ export async function authorizeMcpServer(
       res.end('<html><body><p>BCCLI is connected. You can close this tab.</p></body></html>')
       settle.resolve(code)
     } catch (error) {
+      const escaped = (error as Error).message
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
       res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' })
-      res.end(`<html><body><p>${(error as Error).message}</p></body></html>`)
+      res.end(`<html><body><p>${escaped}</p></body></html>`)
       settle.reject(error as Error)
     }
   })

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { contentText, type ChatMessage, type Usage } from './provider'
 
 type SessionRecord =
@@ -32,6 +32,10 @@ function repairTail(messages: ChatMessage[]): ChatMessage[] {
 export class Session {
   constructor(readonly file: string) {}
 
+  get id(): string {
+    return basename(this.file, '.jsonl')
+  }
+
   static create(home: string, cwd: string, now = new Date()): Session {
     const dir = projectDir(home, cwd)
     mkdirSync(dir, { recursive: true })
@@ -46,7 +50,7 @@ export class Session {
       .filter((f) => f.endsWith('.jsonl'))
       .map((f) => {
         const session = new Session(join(dir, f))
-        const first = session.load().find((m) => m.role === 'user')
+        const first = session.loadHistory().find((m) => m.role === 'user')
         return { session, mtime: statSync(session.file).mtime, preview: first ? contentText(first.content).slice(0, 80) : '' }
       })
       .sort((a, b) => b.mtime.getTime() - a.mtime.getTime() || b.session.file.localeCompare(a.session.file))
@@ -106,6 +110,36 @@ export class Session {
     return undefined
   }
 
+  /** Accumulated token usage since the last non-compaction reset. */
+  totalUsage(): Usage {
+    const segments: { msgs: ChatMessage[]; usage: Usage }[] = [{ msgs: [], usage: { inputTokens: 0, outputTokens: 0 } }]
+    for (const record of this.records()) {
+      const cur = segments[segments.length - 1]
+      if (record.t === 'reset') {
+        segments.push({ msgs: [], usage: { inputTokens: 0, outputTokens: 0 } })
+      } else if (record.t === 'msg') {
+        cur.msgs.push(record.m)
+      } else if (record.t === 'usage') {
+        cur.usage.inputTokens += record.inputTokens
+        cur.usage.outputTokens += record.outputTokens
+        if (record.cachedInputTokens) cur.usage.cachedInputTokens = (cur.usage.cachedInputTokens ?? 0) + record.cachedInputTokens
+        if (record.cacheWriteTokens) cur.usage.cacheWriteTokens = (cur.usage.cacheWriteTokens ?? 0) + record.cacheWriteTokens
+      }
+    }
+    let total: Usage = { ...segments[0].usage }
+    for (const seg of segments.slice(1)) {
+      if (!isCompactionSummary(seg.msgs[0])) {
+        total = { ...seg.usage }
+      } else {
+        total.inputTokens += seg.usage.inputTokens
+        total.outputTokens += seg.usage.outputTokens
+        if (seg.usage.cachedInputTokens) total.cachedInputTokens = (total.cachedInputTokens ?? 0) + seg.usage.cachedInputTokens
+        if (seg.usage.cacheWriteTokens) total.cacheWriteTokens = (total.cacheWriteTokens ?? 0) + seg.usage.cacheWriteTokens
+      }
+    }
+    return total
+  }
+
   /**
    * What the user sees on resume: the whole conversation. Compaction only shrinks what the model is sent, so
    * its reset does not hide the older turns here. A real reset (/clear, rewind) still starts over, the
@@ -118,12 +152,23 @@ export class Session {
       else if (record.t === 'msg') segments[segments.length - 1].push(record.m)
     }
     let shown: ChatMessage[] = segments[0]
+    let lastSummary: ChatMessage | undefined
     for (const segment of segments.slice(1)) {
       if (!isCompactionSummary(segment[0])) {
         shown = segment
+        lastSummary = undefined
         continue
       }
       const kept = segment.slice(2)
+      // Rewind after compaction rewrites the exact same summary followed by a truncated prefix of post-compaction turns.
+      if (lastSummary && sameMessage(segment[0], lastSummary)) {
+        const subIdx = findContiguousSlice(shown, kept)
+        if (subIdx !== -1) {
+          shown = shown.slice(0, subIdx + kept.length)
+          continue
+        }
+      }
+      lastSummary = segment[0]
       let at = 0
       while (at <= shown.length && !endsWithPrefixOf(shown, at, kept)) at++
       shown = [...shown, ...kept.slice(shown.length - at)]
@@ -157,12 +202,32 @@ function endsWithPrefixOf(shown: ChatMessage[], at: number, kept: ChatMessage[])
   return true
 }
 
+function findContiguousSlice(shown: ChatMessage[], slice: ChatMessage[]): number {
+  if (slice.length === 0) return shown.length
+  for (let i = 0; i + slice.length <= shown.length; i++) {
+    let ok = true
+    for (let j = 0; j < slice.length; j++) {
+      if (!sameMessage(shown[i + j], slice[j])) {
+        ok = false
+        break
+      }
+    }
+    if (ok) return i
+  }
+  return -1
+}
+
 export function pruneSessions(home: string, now = Date.now(), maxAgeDays = 30): number {
   const root = join(home, 'sessions')
   if (!existsSync(root)) return 0
   let removed = 0
   for (const project of readdirSync(root)) {
     const dir = join(root, project)
+    try {
+      if (!statSync(dir).isDirectory()) continue
+    } catch {
+      continue
+    }
     for (const file of readdirSync(dir)) {
       const path = join(dir, file)
       if (now - statSync(path).mtimeMs > maxAgeDays * 86400_000) {

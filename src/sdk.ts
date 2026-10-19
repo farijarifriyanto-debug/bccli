@@ -28,7 +28,8 @@ export interface SdkResult {
   text: string
   toolCalls: SdkToolCall[]
   usage: { inputTokens: number; outputTokens: number }
-  stopReason: 'done' | 'stepLimit' | 'aborted' | 'budgetExceeded'
+  stopReason: 'done' | 'stepLimit' | 'aborted' | 'budgetExceeded' | 'error'
+  error?: string
 }
 
 export type SdkEvent =
@@ -37,6 +38,7 @@ export type SdkEvent =
   | { type: 'toolStart'; name: string; target: string }
   | { type: 'toolEnd'; name: string; target: string; output: string; isError?: boolean }
   | { type: 'usage'; inputTokens: number; outputTokens: number }
+  | { type: 'error'; message: string }
   | { type: 'result'; result: SdkResult }
 
 export async function* streamTask(opts: SdkOptions): AsyncGenerator<SdkEvent> {
@@ -53,6 +55,7 @@ export async function* streamTask(opts: SdkOptions): AsyncGenerator<SdkEvent> {
   let finished = false
   let text = ''
   let stopReason: SdkResult['stopReason'] = 'done'
+  let errorMessage: string | undefined
   const usage = { inputTokens: 0, outputTokens: 0 }
   const toolCalls: SdkToolCall[] = []
   const byId = new Map<string, SdkToolCall>()
@@ -103,31 +106,48 @@ export async function* streamTask(opts: SdkOptions): AsyncGenerator<SdkEvent> {
       case 'aborted':
         stopReason = 'aborted'
         break
+      case 'error':
+        stopReason = 'error'
+        errorMessage = event.message
+        push({ type: 'error', message: event.message })
+        break
       default:
         break
     }
   }
+  const controller = new AbortController()
+  const onParentAbort = () => controller.abort()
+  if (opts.signal) {
+    if (opts.signal.aborted) controller.abort()
+    else opts.signal.addEventListener('abort', onParentAbort, { once: true })
+  }
   const running = rt.agent
-    .run(opts.prompt, opts.signal ?? new AbortController().signal)
-    .catch(() => {
-      stopReason = 'aborted'
+    .run(opts.prompt, controller.signal)
+    .catch((err: unknown) => {
+      stopReason = 'error'
+      errorMessage = err instanceof Error ? err.message : String(err)
     })
     .finally(() => {
       finished = true
       wake?.()
     })
-  while (!finished || queue.length) {
-    if (queue.length) {
-      yield queue.shift() as SdkEvent
-      continue
+  try {
+    while (!finished || queue.length) {
+      if (queue.length) {
+        yield queue.shift() as SdkEvent
+        continue
+      }
+      await new Promise<void>((resolve) => {
+        wake = resolve
+      })
+      wake = null
     }
-    await new Promise<void>((resolve) => {
-      wake = resolve
-    })
-    wake = null
+    await running
+    yield { type: 'result', result: { text, toolCalls, usage, stopReason, ...(errorMessage ? { error: errorMessage } : {}) } }
+  } finally {
+    opts.signal?.removeEventListener('abort', onParentAbort)
+    if (!finished) controller.abort()
   }
-  await running
-  yield { type: 'result', result: { text, toolCalls, usage, stopReason } }
 }
 
 /** One-shot helper: runs the task and returns only the final result. */

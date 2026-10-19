@@ -1,6 +1,5 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { bccliHome, type Config, readCredentials, readJsonConfig, removeCredential } from './config'
+import { bccliHome, type Config, readCredentials, readJsonConfig, removeCredential, writeFileAtomic } from './config'
 import { PRESETS } from './presets'
 
 export function providerName(config: Config, id: string): string {
@@ -21,8 +20,7 @@ export function readGlobalConfigFile(env: NodeJS.ProcessEnv = process.env): Part
 }
 
 function save(data: Partial<Config>, env: NodeJS.ProcessEnv): void {
-  mkdirSync(bccliHome(env), { recursive: true })
-  writeFileSync(globalPath(env), `${JSON.stringify(data, null, 2)}\n`)
+  writeFileAtomic(globalPath(env), `${JSON.stringify(data, null, 2)}\n`)
 }
 
 export function writeGlobalConfig(patch: Partial<Config>, env: NodeJS.ProcessEnv = process.env): void {

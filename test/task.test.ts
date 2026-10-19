@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { Agent, type AgentEvent } from '../src/agent'
 import { BUILTIN_AGENTS } from '../src/agents'
+import { parseFrontmatter } from '../src/extensions'
 import { Permissions } from '../src/permissions'
 import type { ChatRequest, Completion, Provider } from '../src/provider'
 import { ALL_TOOLS } from '../src/tools/index'
@@ -358,6 +359,21 @@ test('parallel: true lets a write-capable agent run concurrently with its siblin
   expect(task.parallelSafe?.({ agent: 'general', description: 'a', prompt: 'a' })).toBe(false)
 })
 
+test('parseFrontmatter parses multi-line YAML lists so custom agents do not silently get unrestricted tools', () => {
+  const md = [
+    '---',
+    'name: reader',
+    'description: Read-only helper',
+    'tools:',
+    '  - read',
+    '  - grep',
+    '---',
+    'You only read.',
+  ].join('\n')
+  const parsed = parseFrontmatter(md)
+  expect(parsed.data.tools).toEqual(['read', 'grep'])
+})
+
 test('concurrent write subagents queue their permission prompts one at a time', async () => {
   const { agent } = setup(
     {
@@ -400,4 +416,37 @@ test('concurrent write subagents queue their permission prompts one at a time', 
   expect(asks).toBe(2)
   expect(maxActive).toBe(1)
   expect(agent.messages.filter((m) => m.role === 'tool').map((m) => (m as { tool_call_id: string }).tool_call_id)).toEqual(['t1', 't2'])
+})
+
+test('subagent synthesizes a summary when hitting maxSteps during tool calls, and supports session_id continuation', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-task-syn-'))
+  writeFileSync(join(cwd, 'a.txt'), 'secret-clue')
+  let callCount = 0
+  const provider: Provider = {
+    async chat(req) {
+      callCount++
+      if (!req.tools?.length) {
+        return { text: 'SYNTHESIZED_FROM_STEP_LIMIT', toolCalls: [] }
+      }
+      return { text: '', toolCalls: [call('read', { path: 'a.txt' }, `c${callCount}`)] }
+    },
+    async listModels() {
+      return []
+    },
+  }
+  const task = createTaskTool({
+    agents: [{ name: 'short', description: 'short', tools: ['read'], maxSteps: 2, prompt: 'read' }],
+    baseTools: () => ALL_TOOLS,
+    permissions: new Permissions('default', [], cwd),
+    provider: () => provider,
+    providerFor: () => provider,
+    systemPrompt: 'S',
+    cwd,
+  })
+  const r = await task.run(
+    { agent: 'short', description: 'check', prompt: 'find clue', session_id: 'sub-1' },
+    { cwd, signal: new AbortController().signal, readFiles: new Set() },
+  )
+  expect(r.output).toContain('SYNTHESIZED_FROM_STEP_LIMIT')
+  expect(r.output).toContain('2-step limit')
 })

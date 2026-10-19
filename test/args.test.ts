@@ -110,3 +110,10 @@ test('mcp serve parses --base-url', () => {
   })
   expect(parseCliArgs(['mcp', 'serve']).baseUrl).toBeUndefined()
 })
+
+test('stats --project works as a bare flag or with an explicit slug', () => {
+  expect(parseCliArgs(['stats', '--project'])).toMatchObject({ command: 'stats', project: '' })
+  expect(parseCliArgs(['stats', '--project', '--days', '7'])).toMatchObject({ command: 'stats', project: '', days: 7 })
+  expect(parseCliArgs(['stats', '--project', 'my-slug'])).toMatchObject({ command: 'stats', project: 'my-slug' })
+  expect(parseCliArgs(['-p', 'hi', '--fallback-model', 'bc-cloud/gpt-oss-120b']).fallbackModel).toBe('bc-cloud/gpt-oss-120b')
+})

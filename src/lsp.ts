@@ -1,6 +1,46 @@
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { extname } from 'node:path'
 import { pathToFileURL } from 'node:url'
+
+const LANGUAGE_IDS: Record<string, string> = {
+  '.ts': 'typescript',
+  '.tsx': 'typescriptreact',
+  '.mts': 'typescript',
+  '.cts': 'typescript',
+  '.js': 'javascript',
+  '.jsx': 'javascriptreact',
+  '.mjs': 'javascript',
+  '.cjs': 'javascript',
+  '.py': 'python',
+  '.rs': 'rust',
+  '.go': 'go',
+  '.java': 'java',
+  '.c': 'c',
+  '.h': 'c',
+  '.cpp': 'cpp',
+  '.hpp': 'cpp',
+  '.cs': 'csharp',
+  '.rb': 'ruby',
+  '.php': 'php',
+  '.json': 'json',
+  '.md': 'markdown',
+  '.sh': 'shellscript',
+  '.ps1': 'powershell',
+  '.yaml': 'yaml',
+  '.yml': 'yaml',
+  '.toml': 'toml',
+  '.html': 'html',
+  '.css': 'css',
+}
+
+export function languageIdFor(file: string): string {
+  return LANGUAGE_IDS[extname(file).toLowerCase()] ?? 'plaintext'
+}
+
+export function useShellForLsp(command: string, platform: NodeJS.Platform = process.platform): boolean {
+  return platform === 'win32' && !/\.(exe|mjs|cjs|js)$/i.test(command.trim())
+}
 
 export interface LspServer {
   extensions: string[]
@@ -66,9 +106,13 @@ export function createLspParser(onMessage: (msg: LspMessage) => void): { push(ch
  * Open one file with one LSP server, wait for its first publishDiagnostics (or the timeout),
  * then shut it down. A one-shot client on purpose: no long-lived servers to manage yet.
  */
-export function getDiagnostics(opts: { server: LspServer; cwd: string; file: string; timeoutMs?: number }): Promise<LspDiagnostic[]> {
+export function getDiagnostics(opts: { server: LspServer; cwd: string; file: string; timeoutMs?: number; signal?: AbortSignal }): Promise<LspDiagnostic[]> {
   return new Promise((resolve) => {
-    const child = spawn(opts.server.command, opts.server.args ?? [], { cwd: opts.cwd, stdio: ['pipe', 'pipe', 'ignore'] })
+    const child = spawn(opts.server.command, opts.server.args ?? [], {
+      cwd: opts.cwd,
+      stdio: ['pipe', 'pipe', 'ignore'],
+      shell: useShellForLsp(opts.server.command),
+    })
     const uri = pathToFileURL(opts.file).href
     let settled = false
     let nextId = 2
@@ -83,6 +127,7 @@ export function getDiagnostics(opts: { server: LspServer; cwd: string; file: str
       if (settled) return
       settled = true
       clearTimeout(timer)
+      opts.signal?.removeEventListener('abort', onAbort)
       send({ jsonrpc: '2.0', id: nextId++, method: 'shutdown' })
       send({ jsonrpc: '2.0', method: 'exit' })
       const killer = setTimeout(() => {
@@ -95,6 +140,9 @@ export function getDiagnostics(opts: { server: LspServer; cwd: string; file: str
       killer.unref?.()
       resolve(diags)
     }
+    const onAbort = () => finish([])
+    if (opts.signal?.aborted) return finish([])
+    opts.signal?.addEventListener('abort', onAbort, { once: true })
     const timer = setTimeout(() => finish([]), opts.timeoutMs ?? 8_000)
     const parser = createLspParser((msg) => {
       if (msg.id === 1 && msg.result) {
@@ -108,7 +156,7 @@ export function getDiagnostics(opts: { server: LspServer; cwd: string; file: str
         send({
           jsonrpc: '2.0',
           method: 'textDocument/didOpen',
-          params: { textDocument: { uri, languageId: 'plaintext', version: 1, text } },
+          params: { textDocument: { uri, languageId: languageIdFor(opts.file), version: 1, text } },
         })
       }
       if (msg.method === 'textDocument/publishDiagnostics' && msg.params?.uri === uri) {

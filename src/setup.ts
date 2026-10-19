@@ -11,7 +11,7 @@ import { buildSystemPrompt } from './context'
 import { type AgentDef, type CommandDef, loadAgentDefs, loadCommands, loadSkills, type SkillDef } from './extensions'
 import { Permissions } from './permissions'
 import { listAllModels, type ModelGroup } from './models'
-import { type ChatMessage, createProvider, type Provider } from './provider'
+import { type ChatMessage, createProvider, type Provider, withFallbackProvider } from './provider'
 import type { ReasoningLevel } from './reasoning'
 import { addProviderKey } from './providerCli'
 import { providerName } from './providers'
@@ -103,16 +103,37 @@ export function createRuntime(opts: {
   let config = loadConfig(opts.cwd, env)
   let modelRef = opts.args.model ?? config.model
   let reasoning: ReasoningLevel = opts.args.reasoning ?? config.reasoning
-  const makeProvider = (ref: string) => {
+  const makeSingleProvider = (ref: string) => {
     const resolved = resolveModel(config, ref, env)
-    return opts.provider ?? createProvider({
-      baseURL: resolved.baseURL,
-      apiKey: resolved.apiKey,
-      model: resolved.model,
-      providerId: resolved.providerId,
-      fetch: opts.fetch, // diteruskan penuh (spec gh-bot §6.6 — juga memperbaiki sdk fetch-injection)
-      enableProgrammaticToolCalling: lunaPtcAutoEnabled(env),
-    })
+    return (
+      opts.provider ??
+      createProvider({
+        baseURL: resolved.baseURL,
+        apiKey: resolved.apiKey,
+        model: resolved.model,
+        providerId: resolved.providerId,
+        fetch: opts.fetch, // diteruskan penuh (spec gh-bot §6.6 — juga memperbaiki sdk fetch-injection)
+        enableProgrammaticToolCalling: lunaPtcAutoEnabled(env),
+      })
+    )
+  }
+  const makeProvider = (ref: string) => {
+    const primary = makeSingleProvider(ref)
+    if (opts.provider) return primary
+    const fallbackRefs = [
+      ...(opts.args.fallbackModel ? [opts.args.fallbackModel] : []),
+      ...(config.fallbackModels ?? []),
+    ].filter((r) => r && r !== ref)
+    if (!fallbackRefs.length) return primary
+    return withFallbackProvider(primary, () =>
+      fallbackRefs.flatMap((fbRef) => {
+        try {
+          return [makeSingleProvider(fbRef)]
+        } catch {
+          return []
+        }
+      }),
+    )
   }
   const provider = makeProvider(modelRef)
   const mode = opts.args.allowAll ? 'allowAll' : (opts.args.permissionMode ?? config.permissionMode)
@@ -139,6 +160,10 @@ export function createRuntime(opts: {
     if (latest) {
       session = latest
       history = latest.load()
+      if (!opts.args.model) {
+        const prevModel = latest.lastModel()
+        if (prevModel) modelRef = prevModel
+      }
     }
   }
 
@@ -185,7 +210,7 @@ export function createRuntime(opts: {
     // Subagents get whatever the main agent has right now (incl. MCP tools), minus task itself.
     baseTools: () => agent.tools.filter((t) => t.name !== 'task'),
     permissions,
-    provider: () => agent.provider,
+    provider: () => (opts.provider ? agent.provider : makeProvider(modelRef)),
     providerFor: makeProvider,
     systemPrompt: (childModelRef) => systemFor(childModelRef ?? modelRef),
     cwd: opts.cwd,
@@ -273,6 +298,21 @@ export function createRuntime(opts: {
       agent.load(previous.load())
       // Token counts and todos belonged to the conversation being left.
       agent.totalUsage = { inputTokens: 0, outputTokens: 0 }
+      if (!opts.args.model) {
+        const prevModel = previous.lastModel()
+        if (prevModel) {
+          try {
+            const nextProvider = makeProvider(prevModel)
+            modelRef = prevModel
+            agent.provider = nextProvider
+            agent.setBudgetModel(prevModel)
+            agent.setContextWindow(contextWindowFor(prevModel, env))
+            agent.setSystemPrompt(systemFor(modelRef))
+          } catch {
+            // keep current model if the session's previous provider is no longer configured
+          }
+        }
+      }
       todos.set([])
       checkpoints.clear()
       turnMarks.length = 0
@@ -322,6 +362,7 @@ export function createRuntime(opts: {
       const nextProvider = makeProvider(ref)
       modelRef = ref
       agent.provider = nextProvider
+      agent.setBudgetModel(ref)
       agent.setContextWindow(contextWindowFor(ref, env))
       agent.setSystemPrompt(systemFor(modelRef))
     },

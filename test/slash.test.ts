@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
+import { SLASH_COMMANDS } from '../src/commands'
 import { osc52 } from '../src/slash/copy'
 import { gitDiff } from '../src/slash/diff'
 import { doctorText } from '../src/slash/doctor'
@@ -27,6 +28,21 @@ test('statusText summarises version, model, mode, MCP and context use', () => {
   expect(text).toContain('bc-cloud/glm (BotConnector Cloud)')
   expect(text).toContain('MCP: 1 aktif, 1 error')
   expect(text).toContain('Konteks: ±25%')
+  expect(SLASH_COMMANDS.some((c) => c.name === 'config')).toBe(true)
+
+  const customWin = statusText({
+    version: '0.4.1',
+    modelRef: 'bc-cloud/gpt-6-luna',
+    providerLabel: 'BotConnector Cloud',
+    mode: 'default',
+    cwd: '/w',
+    mcp: [],
+    usage: { inputTokens: 50000, outputTokens: 500 },
+    lastInputTokens: 50000,
+    contextWindow: 200000,
+  })
+  expect(customWin).toContain('25%')
+  expect(customWin).toContain('200k')
 })
 
 test('agents, skills and session texts', () => {

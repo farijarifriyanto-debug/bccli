@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, expect, test } from 'vitest'
@@ -81,4 +81,48 @@ test('glob rejects oversized patterns before the glob engine', async () => {
   const r = await globTool.run({ pattern: 'a'.repeat(4097) }, ctx)
   expect(r.isError).toBe(true)
   expect(r.output).toMatch(/too long/)
+})
+
+test('grep target includes input.path so sensitive path checks apply', () => {
+  const target = grepTool.target!({ pattern: '.*', path: '/home/u/.ssh/id_rsa' })
+  expect(target).toContain('/home/u/.ssh/id_rsa')
+})
+
+test('grep searches a single file when path points to a file, and supports literal, context, and output_mode', async () => {
+  const singleFile = join(root, 'src', 'single.ts')
+  writeFileSync(singleFile, 'line1\nconst a = [1, 2]\nline3\n')
+  const r1 = await grepTool.run({ pattern: 'Needle', path: 'src/a.ts' }, ctx)
+  expect(r1.isError).toBeFalsy()
+  expect(r1.output).toContain('export const Needle = 1')
+
+  const rLit = await grepTool.run({ pattern: '[1, 2]', path: 'src/single.ts', literal: true }, ctx)
+  expect(rLit.isError).toBeFalsy()
+  expect(rLit.output).toContain('const a = [1, 2]')
+
+  const rCtx = await grepTool.run({ pattern: '[1, 2]', path: 'src/single.ts', literal: true, context: 1 }, ctx)
+  expect(rCtx.output).toContain('line1')
+  expect(rCtx.output).toContain('line3')
+
+  const rFiles = await grepTool.run({ pattern: 'Needle', output_mode: 'files_with_matches' }, ctx)
+  expect(rFiles.output).toContain('src/a.ts')
+  expect(rFiles.output).not.toContain('export const')
+})
+
+test('glob respects root .gitignore even when searching inside a subdirectory', async () => {
+  mkdirSync(join(root, 'src', 'dist'), { recursive: true })
+  writeFileSync(join(root, 'src', 'dist', 'ignored.ts'), 'export const x = 1\n')
+  const r = await globTool.run({ pattern: '**/*.ts', path: 'src' }, ctx)
+  expect(r.output).toContain('a.ts')
+  expect(r.output).not.toContain('ignored.ts')
+
+  const mtimeDir = join(root, 'src', 'mtime-sort')
+  mkdirSync(mtimeDir, { recursive: true })
+  const older = join(mtimeDir, 'aaa-old.ts')
+  const newer = join(mtimeDir, 'zzz-new.ts')
+  writeFileSync(older, '1')
+  writeFileSync(newer, '2')
+  utimesSync(older, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000))
+  utimesSync(newer, new Date(Date.now() + 1_000), new Date(Date.now() + 1_000))
+  const sorted = await globTool.run({ pattern: '*.ts', path: 'src/mtime-sort' }, ctx)
+  expect(sorted.output.split('\n')[0]).toBe('zzz-new.ts')
 })

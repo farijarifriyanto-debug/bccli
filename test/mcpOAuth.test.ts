@@ -64,6 +64,30 @@ test('parseCallback accepts code+state and rejects OAuth errors or gaps', () => 
   expect(() => parseCallback('http://127.0.0.1:1/callback?state=s1')).toThrow(/code/)
 })
 
+test('authorizeMcpServer escapes HTML in callback error responses', async () => {
+  const auth = await startFakeAuth()
+  let htmlBody = ''
+  try {
+    await expect(
+      authorizeMcpServer(
+        { name: 's1', config: { type: 'http', url: `${auth.origin}/mcp` } },
+        {
+          home: tmpHome(),
+          open: async (authUrl) => {
+            const redirect = authUrl.searchParams.get('redirect_uri')!
+            const res = await fetch(`${redirect}?error=access_denied&error_description=${encodeURIComponent('<script>alert(1)</script>')}`)
+            htmlBody = await res.text()
+          },
+        },
+      ),
+    ).rejects.toThrow(/access_denied/)
+    expect(htmlBody).not.toContain('<script>')
+    expect(htmlBody).toContain('&lt;script&gt;')
+  } finally {
+    await auth.close()
+  }
+})
+
 test('clearTokens removes stored tokens for one server only', () => {
   const home = tmpHome()
   new FileOAuthProvider({ home, serverUrl: 'https://a.example/mcp' }).saveTokens({ access_token: 'at-a', token_type: 'Bearer' })

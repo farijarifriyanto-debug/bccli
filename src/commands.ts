@@ -31,6 +31,7 @@ export const SLASH_COMMANDS = [
   { name: 'clear', description: 'start a new conversation' },
   { name: 'compact', description: 'summarize the conversation' },
   { name: 'cost', description: 'token usage of this session' },
+  { name: 'config', description: 'view or change configuration settings' },
   { name: 'tasks', description: 'list background tasks' },
   { name: 'exit', description: 'quit' },
 ]

@@ -27,6 +27,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
   const { value } = line
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
   const [selected, setSelected] = useState(0)
+  const [dismissed, setDismissed] = useState(false)
   const [vimMode, setVimMode] = useState<VimMode>('insert')
   const [vimPending, setVimPending] = useState<string | undefined>(undefined)
   const injectedSeen = useState(0)
@@ -39,20 +40,29 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
   }, [injected, injectedSeen])
 
   const all = [...SLASH_COMMANDS, ...(extraCommands ?? []).filter((c) => !SLASH_COMMANDS.some((b) => b.name === c.name))]
-  const suggestions = value.startsWith('/') && !/\s/.test(value) ? all.filter((c) => c.name.startsWith(value.slice(1))).slice(0, 8) : []
+  const suggestions =
+    historyIndex === null && !dismissed && value.startsWith('/') && !/\s/.test(value)
+      ? all.filter((c) => c.name.startsWith(value.slice(1))).slice(0, 8)
+      : []
   const highlighted = Math.min(selected, Math.max(0, suggestions.length - 1))
   // The cursor goes to the end of text that was not typed here (history, completion, a chosen command).
   const typed = (text: string): LineState => ({ value: text, cursor: text.length })
   const edit = (next: LineState | ((s: LineState) => LineState)) => {
     setLine(next)
     setSelected(0)
+    setDismissed(false)
+    setHistoryIndex(null)
   }
 
   useInput(
     (input, key) => {
       if (isMouseControlInput(input)) return
-      // While slash suggestions are open, arrows pick one, Enter runs it, Tab completes it.
+      // While slash suggestions are open, arrows pick one, Enter runs it, Tab completes it, Esc closes it.
       if (suggestions.length) {
+        if (key.escape) {
+          setDismissed(true)
+          return
+        }
         if (key.upArrow) {
           setSelected(Math.max(0, highlighted - 1))
           return
@@ -65,7 +75,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
           edit(typed(`/${suggestions[highlighted].name} `))
           return
         }
-        if (key.return) {
+        if (key.return && !key.meta) {
           edit(typed(''))
           setHistoryIndex(null)
           onSubmit(`/${suggestions[highlighted].name}`)
@@ -81,6 +91,10 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
           setSelected(0)
           return
         }
+      }
+      if ((key.return && key.meta) || (key.ctrl && input.toLowerCase() === 'j')) {
+        edit((current) => insert(current, '\n'))
+        return
       }
       if (key.return) {
         // A backslash right before the cursor turns Enter into a line break.

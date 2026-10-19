@@ -44,6 +44,7 @@ import { McpMenu, type McpMenuItem } from './McpMenu'
 import { PlanApproval } from './PlanApproval'
 import { TodoList } from './TodoList'
 import { ToolBlock } from './ToolBlock'
+import { expandAtFileMentions } from './complete'
 import { replayEntries } from './replay'
 import { applyEvent, type Entry, endTurn, entry, type Transcript } from './transcript'
 import { getLanguage, locale, parseLang, setLanguage, t } from '../i18n'
@@ -174,7 +175,8 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
       editedInTurn.current = false
       controller.current = new AbortController()
       const signal = controller.current.signal
-      await runtime.agent.run(text, signal)
+      const expandedText = expandAtFileMentions(text, runtime.cwd, runtime.agent.readFiles)
+      await runtime.agent.run(expandedText, signal)
       const commands = runtime.config.verifyCommands
       if (editedInTurn.current && commands.length && !signal.aborted) {
         for (let round = 0; round < MAX_VERIFY_ROUNDS; round++) {
@@ -364,6 +366,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
               mcp: runtime.mcp.states(),
               usage: runtime.agent.totalUsage,
               lastInputTokens: runtime.agent.lastInputTokens,
+              contextWindow: runtime.agent.getContextWindow(),
             }),
           )
           return
@@ -607,6 +610,42 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           )
           return
         }
+        case 'config': {
+          const c = runtime.config
+          const applySetting = (key: string, val: string) => {
+            if (key === 'theme') writeGlobalConfig({ theme: val }, runtime.env)
+            else if (key === 'editor' && (val === 'emacs' || val === 'vim')) writeGlobalConfig({ editor: val }, runtime.env)
+            else if (key === 'repoMap') writeGlobalConfig({ repoMap: val === 'true' || val === 'on' }, runtime.env)
+            else if (key === 'thinkingVisible') writeGlobalConfig({ thinkingVisible: val === 'true' || val === 'on' }, runtime.env)
+            else if (key === 'sandbox' && (val === 'on' || val === 'off')) writeGlobalConfig({ sandbox: val }, runtime.env)
+            else if (key === 'networkPolicy' && (val === 'allow' || val === 'offline')) writeGlobalConfig({ networkPolicy: val }, runtime.env)
+            else return false
+            runtime.reloadConfig()
+            notice(`${key} = ${val}`)
+            return true
+          }
+          if (args.trim()) {
+            const [k, v] = args.trim().split(/\s+/)
+            if (k && v && applySetting(k, v)) return
+          }
+          setListPicker({
+            title: 'Config',
+            items: [
+              { id: `editor:${c.editor === 'vim' ? 'emacs' : 'vim'}`, label: `editor: ${c.editor}`, hint: 'toggle emacs/vim' },
+              { id: `repoMap:${!c.repoMap}`, label: `repoMap: ${c.repoMap}`, hint: 'toggle true/false' },
+              { id: `thinkingVisible:${!c.thinkingVisible}`, label: `thinkingVisible: ${!!c.thinkingVisible}`, hint: 'toggle true/false' },
+              { id: `sandbox:${c.sandbox === 'on' ? 'off' : 'on'}`, label: `sandbox: ${c.sandbox}`, hint: 'toggle on/off' },
+              { id: `networkPolicy:${c.networkPolicy === 'offline' ? 'allow' : 'offline'}`, label: `networkPolicy: ${c.networkPolicy ?? 'allow'}`, hint: 'toggle allow/offline' },
+            ],
+            onPick: (picked) => {
+              setListPicker(null)
+              if (!picked) return
+              const [k, v] = picked.split(':')
+              if (k && v) applySetting(k, v)
+            },
+          })
+          return
+        }
         default:
           notice(t('Unknown command: /{name}. Type /help.', { name }), 'warn')
       }
@@ -690,7 +729,8 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   // Opt-in (thinkingClickCollapse): mouse reporting makes the terminal stop
   // turning drag into a text selection, so it stays off unless asked for.
   useEffect(() => {
-    if (!runtime.config.thinkingClickCollapse || (!busy && !hasThinking) || pending || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
+    const modalOpen = !!(pending || planAsk || picker || listPicker || mcpMenu || providerMenu || prompt)
+    if (!runtime.config.thinkingClickCollapse || (!busy && !hasThinking) || modalOpen || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
     let click: { x: number; y: number } | undefined
     let mouseBuffer = ''
     const onData = (data: Buffer | string) => {
@@ -719,14 +759,14 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
       stdin.off('data', onData)
       stdout.write('\x1b[?1000l\x1b[?1006l')
     }
-  }, [busy, pending, stdin, stdout, toggleThinking, hasThinking, runtime.config.thinkingClickCollapse])
+  }, [busy, pending, planAsk, picker, listPicker, mcpMenu, providerMenu, prompt, stdin, stdout, toggleThinking, hasThinking, runtime.config.thinkingClickCollapse])
 
   useInput((input, key) => {
     if (key.tab && key.shift) {
       const next = nextMode(runtime.agent.permissions.mode)
       runtime.agent.permissions.mode = next
       setMode(next)
-    } else if (key.escape && busy && !pending) {
+    } else if (key.escape && busy && !pending && !planAsk) {
       controller.current?.abort()
       setCancelling(true)
       if (queued.length) {
@@ -806,9 +846,14 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   }
 
   const answer = (a: PermissionAnswer) => {
+    if (a === 'all') {
+      for (const item of asks) item.resolve('all')
+      setAsks([])
+      setMode('allowAll')
+      return
+    }
     pending?.resolve(a)
     setAsks((q) => q.slice(1))
-    if (a === 'all') setMode('allowAll')
   }
 
   const cwd = runtime.cwd.startsWith(homedir()) ? `~${runtime.cwd.slice(homedir().length)}` : runtime.cwd

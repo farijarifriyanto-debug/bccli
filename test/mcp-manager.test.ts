@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { afterEach, expect, test } from 'vitest'
-import { McpManager, mcpToolName } from '../src/mcp/manager'
+import { formatMcpContent, McpManager, mcpToolName } from '../src/mcp/manager'
 import { toolDefinitions } from '../src/tools/index'
 
 const fixture = join(__dirname, 'fixtures', 'echo-server.mjs')
@@ -82,4 +82,15 @@ test('removing a server reports its tool names so session grants can be revoked'
   await manager.start([{ name: 'echo', source: 'global', config: { command: process.execPath, args: [fixture] } }])
   await manager.remove('echo')
   expect(removed).toEqual(['mcp__echo__echo', 'mcp__echo__fail', 'mcp__echo__weird_name_with_spaces'])
+})
+
+test('formatMcpContent extracts image attachments and embedded resource text from MCP tool results', () => {
+  const res = formatMcpContent([
+    { type: 'text', text: 'Screenshot captured' },
+    { type: 'image', data: 'iVBORw0KGgo=', mimeType: 'image/png' },
+    { type: 'resource', resource: { uri: 'file:///a.txt', text: 'resource body' } },
+  ])
+  expect(res.output).toContain('Screenshot captured')
+  expect(res.output).toContain('resource body')
+  expect(res.images).toEqual([{ mediaType: 'image/png', data: 'iVBORw0KGgo=', path: 'mcp:image' }])
 })

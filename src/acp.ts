@@ -8,6 +8,7 @@ export interface AcpIo {
   toolStart(id: string, tool: string, target: string): void
   toolEnd(id: string, output: string, isError: boolean): void
   askPermission(req: PermissionAsk): Promise<PermissionAnswer>
+  onThinking?(delta: string): void
 }
 
 /** The minimum an ACP client needs: run one prompt, stream text chunks, allow cancellation. */
@@ -33,6 +34,7 @@ interface Session {
 interface AcpPromptBlock {
   type?: string
   text?: string
+  resource?: { uri?: string; text?: string }
 }
 
 interface AcpParams {
@@ -101,6 +103,9 @@ export function runAcp(
   const update = (sessionId: string, body: Record<string, unknown>) => write({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update: body } })
 
   const ioFor = (sid: string, session: Session): AcpIo => ({
+    onThinking(delta) {
+      update(sid, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: delta } })
+    },
     toolStart(id, tool, target) {
       session.open.push({ id, tool, target })
       update(sid, { sessionUpdate: 'tool_call', toolCallId: id, title: titleOf(tool, target), kind: kindOf(tool), status: 'in_progress', rawInput: { target } })
@@ -156,7 +161,7 @@ export function runAcp(
         protocolVersion: ACP_PROTOCOL_VERSION,
         agentCapabilities: {
           loadSession: false,
-          promptCapabilities: { image: false, audio: false, embeddedContext: false },
+          promptCapabilities: { image: false, audio: false, embeddedContext: true },
         },
       })
     }
@@ -175,9 +180,17 @@ export function runAcp(
       const sid = params?.sessionId ?? ''
       const session = sessions.get(sid)
       if (!session) return replyError(id, -32602, 'Unknown session')
+      if (session.controller) return replyError(id, -32000, 'Session is busy')
       const text = (params?.prompt ?? [])
-        .filter((p) => p?.type === 'text')
-        .map((p) => String(p.text ?? ''))
+        .map((p) => {
+          if (p?.type === 'text') return String(p.text ?? '')
+          if ((p?.type === 'resource' || p?.type === 'embeddedContext') && p.resource?.text) {
+            const label = p.resource.uri ? `\n[${p.resource.uri}]\n` : '\n'
+            return `${label}${p.resource.text}`
+          }
+          return ''
+        })
+        .filter(Boolean)
         .join('\n')
       const controller = new AbortController()
       session.controller = controller
@@ -192,8 +205,10 @@ export function runAcp(
         if (cancelled) return reply(id, { stopReason: 'cancelled' })
         return replyError(id, -32603, (e as Error).message)
       } finally {
-        session.controller = null
-        session.open = []
+        if (session.controller === controller) {
+          session.controller = null
+          session.open = []
+        }
       }
       return reply(id, { stopReason: cancelled ? 'cancelled' : 'end_turn' })
     }
@@ -221,6 +236,10 @@ export function runAcp(
     }
     const onEnd = () => {
       input.removeListener('data', onData)
+      for (const session of sessions.values()) {
+        session.controller?.abort()
+        for (const settle of [...session.pending]) settle('no')
+      }
       resolve()
     }
     input.on('data', onData)
@@ -242,12 +261,17 @@ export function runtimeAgent(cwd: string, allowAll = false): AcpAgent {
         rt = createRuntime({ cwd, args: { ...parseCliArgs([]), allowAll } })
       }
       if (io && !allowAll) rt.agent.askPermission = (req) => io.askPermission(req)
+      let turnError: string | undefined
       rt.agent.onEvent = (event) => {
         if (event.type === 'text') onChunk(event.delta)
+        else if (event.type === 'thinking') io?.onThinking?.(event.delta)
         else if (event.type === 'toolStart') io?.toolStart(event.id, event.tool, event.target)
         else if (event.type === 'toolEnd') io?.toolEnd(event.id, event.output, event.isError)
+        else if (event.type === 'error') turnError = event.message
+        else if (event.type === 'budgetExceeded') turnError = `Budget exceeded (${event.kind})`
       }
       await rt.agent.run(text, signal)
+      if (turnError) throw new Error(turnError)
     },
   }
 }

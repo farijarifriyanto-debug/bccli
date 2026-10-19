@@ -11,11 +11,14 @@ export interface StatusInput {
   mcp: { name: string; status: string; error?: string; tools: number }[]
   usage: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheWriteTokens?: number }
   lastInputTokens: number
+  contextWindow?: number
 }
 
 export function statusText(s: StatusInput): string {
   const ready = s.mcp.filter((m) => m.status === 'ready').length
   const errors = s.mcp.filter((m) => m.status === 'error').length
+  const win = s.contextWindow && s.contextWindow > 0 ? s.contextWindow : 128_000
+  const ctxLine = t('Context: ~{pct}% of 128k', { pct: Math.round((s.lastInputTokens / win) * 100) }).replace('128k', k(win))
   return [
     `BCCLI ${s.version}`,
     `Model: ${s.modelRef} (${s.providerLabel})`,
@@ -24,7 +27,7 @@ export function statusText(s: StatusInput): string {
     t('MCP: {ready} active, {errors} errors', { ready, errors }),
     t('Session tokens: {input} in · {output} out', { input: k(s.usage.inputTokens), output: k(s.usage.outputTokens) }),
     `Cache: ${k(s.usage.cachedInputTokens ?? 0)} read · ${k(s.usage.cacheWriteTokens ?? 0)} write`,
-    t('Context: ~{pct}% of 128k', { pct: Math.round((s.lastInputTokens / 128_000) * 100) }),
+    ctxLine,
   ].join('\n')
 }
 

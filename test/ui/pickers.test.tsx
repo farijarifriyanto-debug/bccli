@@ -65,3 +65,12 @@ test('line prompt masks secrets', async () => {
   await tick()
   expect(onSubmit).toHaveBeenCalledWith('sk-secret')
 })
+
+test('model picker ignores SGR mouse escape sequences in filter', async () => {
+  const { stdin, lastFrame } = render(<ModelPicker groups={groups} current="bc-cloud/glm-5.3-flash" onPick={() => {}} />)
+  await tick()
+  stdin.write('\x1b[<0;32;14M')
+  await tick()
+  expect(lastFrame()).toContain('glm-5.3-flash')
+  expect(lastFrame()).not.toContain('[<0;32;14M')
+})

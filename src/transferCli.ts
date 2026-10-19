@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { Session } from './session'
 import { t } from './i18n'
 
@@ -23,7 +23,13 @@ export function runExportCommand(args: TransferCliArgs, deps: TransferDeps): num
   const first = (args.subArgs[0] ?? '').trim()
   let source: string | undefined
   let dest: string | undefined
-  if (first.endsWith('.jsonl') && existsSync(first) && statSync(first).isFile()) {
+  const sessionsRoot = resolve(args.home, 'sessions')
+  const isSourceSession =
+    first.endsWith('.jsonl') &&
+    existsSync(first) &&
+    statSync(first).isFile() &&
+    (args.subArgs.length >= 2 || resolve(first).startsWith(sessionsRoot))
+  if (isSourceSession) {
     source = first
     dest = args.subArgs[1]
   } else {

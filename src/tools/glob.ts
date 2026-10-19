@@ -1,4 +1,6 @@
+import { statSync } from 'node:fs'
 import { glob as nativeGlob } from 'node:fs/promises'
+import { join } from 'node:path'
 import { z } from 'zod'
 import { collectUntilAbort } from '../abort'
 import { ignorePatterns } from './ignore'
@@ -16,17 +18,28 @@ export const globTool = defineTool({
     path: z.string().optional().describe('Base directory, default project root'),
   }),
   kind: 'read',
-  target: (input) => input.pattern,
+  target: (input) => (input.path ? `${input.pattern} ${input.path}` : input.pattern),
   async run(input, ctx) {
     const invalid = validateGlobPattern(input.pattern)
     if (invalid) return { output: invalid, isError: true }
     const root = resolvePath(ctx.cwd, input.path ?? '.')
     const files: string[] = []
-    const finished = await collectUntilAbort(nativeGlob(input.pattern, { cwd: root, exclude: ignorePatterns(root) }), ctx.signal, (file) =>
+    const finished = await collectUntilAbort(nativeGlob(input.pattern, { cwd: root, exclude: ignorePatterns(root, ctx.cwd) }), ctx.signal, (file) =>
       files.push(normalizeGlobPath(file)),
     )
     if (!finished) return { output: 'Cancelled by the user.', isError: true }
-    files.sort()
+    const mtime = (rel: string): number => {
+      try {
+        return statSync(join(root, rel)).mtimeMs
+      } catch {
+        return 0
+      }
+    }
+    const mtimes = new Map<string, number>(files.map((f) => [f, mtime(f)]))
+    files.sort((a, b) => {
+      const diff = (mtimes.get(b) ?? 0) - (mtimes.get(a) ?? 0)
+      return Math.abs(diff) >= 50 ? diff : a.localeCompare(b)
+    })
     if (!files.length) return { output: 'No matching files.' }
     const first = files.slice(0, 500)
     const shown: string[] = []

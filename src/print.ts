@@ -14,6 +14,14 @@ export function toolLabel(tool: string): string {
 
 export type OutputFormat = 'text' | 'json' | 'stream-json'
 
+/** Combines an optional piped stdin payload with the `-p` prompt argument. */
+export function resolvePrintPrompt(prompt: string | undefined, stdinText: string | undefined): string | undefined {
+  const cleanStdin = stdinText?.trim()
+  const cleanPrompt = prompt?.trim()
+  if (cleanStdin && cleanPrompt) return `${cleanStdin}\n\n${cleanPrompt}`
+  return cleanPrompt || cleanStdin || undefined
+}
+
 export async function runPrint(
   rt: Runtime,
   prompt: string,
@@ -22,6 +30,7 @@ export async function runPrint(
 ): Promise<number> {
   const format: OutputFormat = opts.outputFormat ?? 'text'
   const emit = (line: Record<string, unknown>) => io.out.write(`${JSON.stringify(line)}\n`)
+  const startedMs = Date.now()
   let result = ''
   const toolNames = new Map<string, string>()
   rt.interaction.approvePlan = async () => {
@@ -41,6 +50,9 @@ export async function runPrint(
         } else {
           result += event.delta
         }
+        break
+      case 'textReplace':
+        result = event.text
         break
       case 'toolStart':
         toolNames.set(event.id, event.tool)
@@ -107,11 +119,28 @@ export async function runPrint(
   const stop = await runHooks(rt.config.hooks, 'Stop', {}, { env: rt.env, cwd: rt.cwd })
   for (const warning of stop.warnings) io.err.write(`${warning}\n`)
   await rt.emitPlugins('Stop')
+  const durationMs = Math.max(0, Date.now() - startedMs)
   if (format === 'json') {
-    io.out.write(`${JSON.stringify({ status: failed ? 'failed' : 'ok', model: rt.modelRef, result })}\n`)
+    io.out.write(
+      `${JSON.stringify({
+        status: failed ? 'failed' : 'ok',
+        model: rt.modelRef,
+        session_id: rt.session.id,
+        usage: rt.agent.totalUsage,
+        duration_ms: durationMs,
+        result,
+      })}\n`,
+    )
   } else if (format === 'stream-json') {
     if (result) emit({ type: 'message', text: result })
-    emit({ type: 'result', status: failed ? 'failed' : 'ok', model: rt.modelRef })
+    emit({
+      type: 'result',
+      status: failed ? 'failed' : 'ok',
+      model: rt.modelRef,
+      session_id: rt.session.id,
+      usage: rt.agent.totalUsage,
+      duration_ms: durationMs,
+    })
   } else if (wroteText) {
     io.out.write('\n')
   }

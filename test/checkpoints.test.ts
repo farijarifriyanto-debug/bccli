@@ -81,6 +81,8 @@ test('redo re-applies the file edits of the last undo', async () => {
   expect(readFileSync(join(cwd, 'a.txt'), 'utf8')).toBe('v2')
   expect(readFileSync(join(cwd, 'new.txt'), 'utf8')).toBe('created')
   expect(await store.redo()).toBeUndefined()
+  expect(await store.undo()).toEqual({ restored: [join(cwd, 'a.txt')], deleted: [join(cwd, 'new.txt')], skipped: [], failed: [] })
+  expect(readFileSync(join(cwd, 'a.txt'), 'utf8')).toBe('v1')
 })
 
 test('a new turn or clear invalidates the redo stack', async () => {

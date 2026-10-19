@@ -1,7 +1,7 @@
 
 import { expect, test } from 'vitest'
 import type { ChatMessage } from '../src/provider'
-import { isToolStub, pruneOldToolOutputs, splitKeepRecent } from '../src/tokenBudget'
+import { estimateMessages, isToolStub, pruneOldToolOutputs, splitKeepRecent, trimToFit } from '../src/tokenBudget'
 
 const user = (content: string): ChatMessage => ({ role: 'user', content })
 const assistant = (content: string): ChatMessage => ({ role: 'assistant', content })
@@ -51,4 +51,29 @@ test('pruneOldToolOutputs is a no-op under the prune minimum (keeps the prompt c
   const before = JSON.stringify(msgs)
   expect(pruneOldToolOutputs(msgs)).toBe(false)
   expect(JSON.stringify(msgs)).toBe(before)
+})
+
+test('estimateMessages bounds base64 image_url token cost and splitKeepRecent/trimToFit do not split mid-turn on image attachment messages', () => {
+  const bigBase64 = `data:image/png;base64,${'A'.repeat(400_000)}`
+  const imgMsg: ChatMessage = {
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Image read from screenshot.png.' },
+      { type: 'image_url', image_url: { url: bigBase64 } },
+    ],
+  }
+  const msgs: ChatMessage[] = [
+    user(`turn 1 old prompt ${'x'.repeat(800)}`),
+    assistant('turn 1 reply'),
+    user('turn 2 inspect screenshot'),
+    { role: 'assistant', content: null, tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'read', arguments: '{"path":"screenshot.png"}' } }] },
+    tool('tc1', 'Read image screenshot.png'),
+    imgMsg,
+    assistant('The screenshot shows a button.'),
+  ]
+  expect(estimateMessages([imgMsg])).toBeLessThan(5_000)
+  const [, keep] = splitKeepRecent(msgs, 50)
+  expect(keep[0]).toMatchObject({ role: 'user', content: 'turn 2 inspect screenshot' })
+  const trimmed = trimToFit(msgs, 50)
+  expect(trimmed[0]).toMatchObject({ role: 'user', content: 'turn 2 inspect screenshot' })
 })

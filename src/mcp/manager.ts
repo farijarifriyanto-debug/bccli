@@ -9,7 +9,38 @@ import { expandEnvVars } from './config'
 import { FileOAuthProvider, hasStoredTokens } from './oauth'
 import { t } from '../i18n'
 
-const MCP_OUTPUT_MAX_CHARS = 32_000
+export interface McpContentItem {
+  type: string
+  text?: string
+  data?: string
+  mimeType?: string
+  resource?: { uri?: string; text?: string }
+}
+
+export function formatMcpContent(content: McpContentItem[] | undefined): {
+  output: string
+  images?: { mediaType: string; data: string; path: string }[]
+} {
+  const parts: string[] = []
+  const images: { mediaType: string; data: string; path: string }[] = []
+  for (const c of content ?? []) {
+    if (c.type === 'text') {
+      parts.push(c.text ?? '')
+    } else if (c.type === 'image' && c.data) {
+      const mediaType = c.mimeType || 'image/png'
+      images.push({ mediaType, data: c.data, path: 'mcp:image' })
+      parts.push(`[image attached: ${mediaType}]`)
+    } else if (c.type === 'resource' && c.resource?.text) {
+      parts.push(c.resource.uri ? `[${c.resource.uri}]\n${c.resource.text}` : c.resource.text)
+    } else {
+      parts.push(`[${c.type}]`)
+    }
+  }
+  return {
+    output: parts.join('\n') || '(empty)',
+    ...(images.length ? { images } : {}),
+  }
+}
 
 /**
  * Env vars a stdio MCP child may inherit from the parent CLI. The parent can hold
@@ -178,16 +209,18 @@ export class McpManager {
       async run(input, ctx) {
         try {
           const result = (await client.callTool({ name: tool.name, arguments: input as Record<string, unknown> }, undefined, { signal: ctx.signal })) as {
-            content?: { type: string; text?: string }[]
+            content?: McpContentItem[]
             isError?: boolean
           }
-          const output = (result.content ?? []).map((c) => (c.type === 'text' ? (c.text ?? '') : `[${c.type}]`)).join('\n') || '(empty)'
+          const formatted = formatMcpContent(result.content)
+          const output = formatted.output
           return {
             output:
-              output.length > MCP_OUTPUT_MAX_CHARS
-                ? `${output.slice(0, MCP_OUTPUT_MAX_CHARS)}\n… [truncated at ${MCP_OUTPUT_MAX_CHARS} characters; narrow the MCP request if possible]`
+              output.length > 32_000
+                ? `${output.slice(0, 32_000)}\n… [truncated at 32000 characters; narrow the MCP request if possible]`
                 : output,
             isError: !!result.isError,
+            ...(formatted.images ? { images: formatted.images } : {}),
           }
         } catch (error) {
           return { output: `Server MCP ${server} error: ${(error as Error).message}`, isError: true }

@@ -94,3 +94,17 @@ test('a turn without file edits does not revert the edits of earlier turns', asy
 test('/rewind slash command is registered', () => {
   expect(SLASH_COMMANDS.some((c) => c.name === 'rewind')).toBe(true)
 })
+
+test('rewinding a turn with file edits after an earlier read-only turn reverts those file edits', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-rw5-'))
+  const rt = makeRuntime(cwd, [answer('just talking first'), writeStep('2', 'b.txt', 'v2'), answer('made b')])
+  await rt.agent.run('hello', new AbortController().signal)
+  await rt.agent.run('create b', new AbortController().signal)
+  expect(existsSync(join(cwd, 'b.txt'))).toBe(true)
+
+  const res = await rt.rewindTurns(1)
+  expect(res?.turns).toBe(1)
+  expect(existsSync(join(cwd, 'b.txt'))).toBe(false)
+  expect(rt.agent.messages.some((m) => m.role === 'user' && m.content === 'create b')).toBe(false)
+  expect(rt.agent.messages.some((m) => m.role === 'user' && m.content === 'hello')).toBe(true)
+})
