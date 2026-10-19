@@ -50,14 +50,18 @@ export function ToolBlock({ tool, target, output, display, isError, done, expand
         <Box marginLeft={3}>
           <DiffView diff={display!} />
         </Box>
-      ) : output && (isError || tool === 'bash') && !(isTask && !isError) ? (
+      ) : output && (isError || tool === 'bash' || expanded) && !(isTask && !isError) ? (
         <Box flexDirection="column" marginLeft={3}>
           {shown.map((line, i) => (
             <Text key={i} dimColor={!isError} color={isError ? color('red') : undefined}>
               {line}
             </Text>
           ))}
-          {lines.length > shown.length ? <Text dimColor>{t('… {n} more lines ({bind})', { n: lines.length - shown.length, bind: moreBind })}</Text> : null}
+          {lines.length > shown.length ? (
+            <Text dimColor>{t('… {n} more lines ({bind})', { n: lines.length - shown.length, bind: moreBind })}</Text>
+          ) : expanded && lines.length > PREVIEW_LINES ? (
+            <Text dimColor>{t('… ({bind} to collapse)', { bind: moreBind })}</Text>
+          ) : null}
         </Box>
       ) : null}
     </Box>
