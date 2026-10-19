@@ -766,3 +766,77 @@ test('live Thinking spinner and expanded inspector show the currently running to
   await waitFor(() => frames.some((f) => f.includes('TOOL_FINISHED')), 6000)
   unmount()
 }, 15000)
+
+test('ctrl+o expands and collapses tool output in-place without appending a duplicate block', async () => {
+  const linesCmd = 'node -e "for(let i=0;i<12;i++)console.log(\'OUTLINE_\'+i)"'
+  const rt = makeRuntime([
+    { text: '', toolCalls: [{ id: '1', name: 'bash', arguments: JSON.stringify({ command: linesCmd }) }] },
+    { text: 'SELESAI_BASH', toolCalls: [] },
+  ])
+  rt.agent.permissions.mode = 'allowAll'
+  const { stdin, lastFrame, frames, unmount } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('tes ctrl+o')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('SELESAI_BASH')))
+  expect(lastFrame()).toContain('OUTLINE_3')
+  expect(lastFrame()).not.toContain('OUTLINE_10')
+  expect(lastFrame()).toContain('baris lagi (ctrl+o)')
+
+  // First ctrl+o expands in-place without adding a second tool block
+  stdin.write('\u000f')
+  await waitFor(() => (lastFrame() ?? '').includes('OUTLINE_10'))
+  expect(lastFrame()).toContain('OUTLINE_10')
+  expect(lastFrame()).toContain('(ctrl+o untuk menutup)')
+  expect(((lastFrame() ?? '').match(/⎿\s+bash/gi) ?? []).length).toBe(1)
+
+  // Second ctrl+o collapses back to 5 preview lines
+  stdin.write('\u000f')
+  await waitFor(() => !(lastFrame() ?? '').includes('OUTLINE_10'))
+  expect(lastFrame()).not.toContain('OUTLINE_10')
+  expect(lastFrame()).toContain('baris lagi (ctrl+o)')
+  unmount()
+})
+
+test('Thinking is rendered at its chronological position above tool calls and assistant answer, not at the bottom', async () => {
+  const rt = makeRuntime([])
+  let step = 0
+  rt.agent.provider = {
+    async chat(req) {
+      step++
+      if (step === 1) {
+        req.onThinking?.('PIKIRAN_ATAS_SEBELUM_TOOL')
+        return {
+          text: '',
+          thinking: 'PIKIRAN_ATAS_SEBELUM_TOOL',
+          toolCalls: [{ id: '1', name: 'read', arguments: '{"path":"a.txt"}' }],
+        }
+      }
+      req.onText?.('JAWABAN_AKHIR_BAWAH')
+      return { text: 'JAWABAN_AKHIR_BAWAH', toolCalls: [] }
+    },
+    async listModels() {
+      return []
+    },
+  }
+  const { stdin, lastFrame, frames, unmount } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('cek urutan thinking')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('JAWABAN_AKHIR_BAWAH')))
+  // Collapsed header is already above the tool call and final answer
+  const collapsedFrame = lastFrame() ?? ''
+  expect(collapsedFrame.indexOf('✻ Berpikir')).toBeGreaterThan(-1)
+  expect(collapsedFrame.indexOf('✻ Berpikir')).toBeLessThan(collapsedFrame.indexOf('⎿ Read  a.txt'))
+  expect(collapsedFrame.indexOf('⎿ Read  a.txt')).toBeLessThan(collapsedFrame.indexOf('● JAWABAN_AKHIR_BAWAH'))
+
+  // Expanding with ctrl+t reveals the thinking text at the top (before tool and answer), never at the bottom
+  stdin.write('\u0014')
+  await waitFor(() => (lastFrame() ?? '').includes('PIKIRAN_ATAS_SEBELUM_TOOL'))
+  const expandedFrame = lastFrame() ?? ''
+  expect(expandedFrame.indexOf('PIKIRAN_ATAS_SEBELUM_TOOL')).toBeLessThan(expandedFrame.indexOf('⎿ Read  a.txt'))
+  expect(expandedFrame.indexOf('PIKIRAN_ATAS_SEBELUM_TOOL')).toBeLessThan(expandedFrame.indexOf('● JAWABAN_AKHIR_BAWAH'))
+  unmount()
+})

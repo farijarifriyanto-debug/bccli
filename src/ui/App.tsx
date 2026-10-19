@@ -107,10 +107,14 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   const [queued, setQueued] = useState<string[]>([])
   const [showThinking, setShowThinking] = useState(runtime.config.thinkingVisible === true)
   const showThinkingRef = useRef(showThinking)
+  const [showToolOutput, setShowToolOutput] = useState(false)
   const [, setConfigRev] = useState(0)
-  // The last turn summary is a single mutable inspector, never immutable Ink scrollback.
-  const [lastThinking, setLastThinking] = useState('')
-  const hasThinking = !!lastThinking.trim()
+  const lastUserIdx = transcript.done.findLastIndex((e) => e.kind === 'user')
+  const staticDone = lastUserIdx > 0 ? transcript.done.slice(0, lastUserIdx) : []
+  const activeTurnDone = lastUserIdx > 0 ? transcript.done.slice(lastUserIdx) : transcript.done
+  const activeTurnEntries = [...activeTurnDone, ...transcript.live]
+  const lastThinkingEntryId = activeTurnEntries.findLast((e) => e.kind === 'thinking' && !!e.text.trim())?.id
+  const hasThinking = lastThinkingEntryId !== undefined
   const { stdin } = useStdin()
   const { stdout } = useStdout()
   const liveRootRef = useRef<DOMElement>(null)
@@ -141,7 +145,6 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
       if ((event.tool === 'edit' || event.tool === 'write') && !event.isError) editedInTurn.current = true
     }
     if (event.type === 'usage') setTokens(event.inputTokens + event.outputTokens)
-    if (event.type === 'thinking' && event.delta) setLastThinking((prev) => prev + event.delta)
     if (event.type === 'budgetExceeded') {
       notice(
         t('Budget exceeded ({kind}): {used} of {limit}. Further model calls are blocked; raise usageCap in ~/.bccli/config.json.', {
@@ -173,7 +176,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
     async (text: string) => {
       setTranscript((t) => ({ ...t, done: [...t.done, entry({ kind: 'user', text })] }))
       setBusy(true)
-      setLastThinking('')
+      setShowToolOutput(false)
       setStartedAt(Date.now())
       editedInTurn.current = false
       controller.current = new AbortController()
@@ -222,7 +225,8 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
         case 'clear':
           runtime.agent.clear()
           setTokens(0)
-          setLastThinking('')
+          setShowToolOutput(false)
+          setTranscript((t) => ({ ...t, done: t.done.filter((e) => e.kind !== 'thinking') }))
           notice(t('Conversation cleared.'))
           return
         case 'cost': {
@@ -319,7 +323,8 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
         case 'new':
           runtime.newSession()
           setTokens(0)
-          setLastThinking('')
+          setShowToolOutput(false)
+          setTranscript((t) => ({ ...t, done: t.done.filter((e) => e.kind !== 'thinking') }))
           notice(t('New session started. The previous session stays saved (/resume).'))
           return
         case 'session':
@@ -352,7 +357,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
               if (!chosen) return
               runtime.resume(chosen.session)
               setTokens(0)
-              setLastThinking('')
+              setShowToolOutput(false)
               setTranscript({ done: [entry({ kind: 'header' }), ...replayEntries(chosen.session.loadHistory())], live: [] })
             },
           })
@@ -812,9 +817,8 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
       })()
     } else if (matchKeybind(runtime.config.keybinds.thinking, input, key)) {
       toggleThinking()
-    } else if (matchKeybind(runtime.config.keybinds.toolOutput, input, key) && lastTool.current) {
-      const t = lastTool.current
-      notice(`⎿ ${t.tool} ${t.target}\n${t.output}`)
+    } else if (matchKeybind(runtime.config.keybinds.toolOutput, input, key)) {
+      setShowToolOutput((prev) => !prev)
     }
   })
 
@@ -919,12 +923,29 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
             <Markdown text={e.text.replace(/^\s+/, '')} />
           </Box>
         )
-      case 'thinking':
-        // Render in the single live inspector below; never write a copy into <Static>.
-        return null
+      case 'thinking': {
+        const text = e.text.trim()
+        if (!text) return null
+        const lines = text.split('\n').length
+        const isTarget = e.id === lastThinkingEntryId
+        return (
+          <Box key={e.id} ref={isTarget ? thinkingTargetRef : undefined} marginTop={1} flexDirection="column">
+            <Box flexDirection="row">
+              <Text dimColor>{showThinking ? t('✻ Thinking') : t('✻ Thinking · {n} lines', { n: lines })}</Text>
+              <Text dimColor> · {runtime.config.keybinds.thinking.spec}{runtime.config.thinkingClickCollapse ? ` · ${t('click to toggle')}` : ''}</Text>
+            </Box>
+            {showThinking ? (
+              <Box flexDirection="column" paddingLeft={2}>
+                <Text dimColor>{t('Model: {model} · reasoning: {level}', { model: runtime.modelRef, level: reasoning })}</Text>
+                <Text dimColor italic>{text}</Text>
+              </Box>
+            ) : null}
+          </Box>
+        )
+      }
       case 'tool':
         return (
-          <ToolBlock key={e.id} tool={e.tool} target={e.target} output={e.output} display={e.display} isError={e.isError} done={e.done} sub={e.sub} moreBind={runtime.config.keybinds.toolOutput.spec} />
+          <ToolBlock key={e.id} tool={e.tool} target={e.target} output={e.output} display={e.display} isError={e.isError} done={e.done} expanded={showToolOutput} sub={e.sub} moreBind={runtime.config.keybinds.toolOutput.spec} />
         )
       case 'notice':
         return (
@@ -949,25 +970,20 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
 
   return (
     <Box ref={liveRootRef} flexDirection="column">
-      <Static items={transcript.done}>{renderEntry}</Static>
+      <Static items={staticDone}>{renderEntry}</Static>
+      {activeTurnDone.map(renderEntry)}
       {transcript.live.map(renderEntry)}
-      {((busy && !pending && !planAsk) || (!busy && hasThinking)) ? (
-        <Box ref={thinkingTargetRef} marginTop={1} flexDirection="column">
+      {busy && !pending && !planAsk ? (
+        <Box ref={lastThinkingEntryId === undefined ? thinkingTargetRef : undefined} marginTop={1} flexDirection="column">
           <Box flexDirection="row">
-            {busy ? (
-              <Spinner label={cancelling ? t('Cancelling') : activeSpinnerSummary ? `${t('Thinking')} · ${activeSpinnerSummary}` : t('Thinking')} startedAt={startedAt} />
-            ) : (
-              <Text dimColor>{t('✻ Thinking')}</Text>
-            )}
+            <Spinner label={cancelling ? t('Cancelling') : activeSpinnerSummary ? `${t('Thinking')} · ${activeSpinnerSummary}` : t('Thinking')} startedAt={startedAt} />
             <Text dimColor> · {runtime.config.keybinds.thinking.spec}{runtime.config.thinkingClickCollapse ? ` · ${t('click to toggle')}` : ''}</Text>
           </Box>
-          {showThinking ? (
+          {showThinking && lastThinkingEntryId === undefined ? (
             <Box flexDirection="column" paddingLeft={2}>
               <Text dimColor>{t('Model: {model} · reasoning: {level}', { model: runtime.modelRef, level: reasoning })}</Text>
               {activeToolSummary ? <Text dimColor>{`▶ ${activeToolSummary}`}</Text> : null}
-              {lastThinking.trim() ? (
-                <Text dimColor italic>{lastThinking.trim()}</Text>
-              ) : !activeToolSummary ? (
+              {!activeToolSummary ? (
                 <Text dimColor>{t('No reasoning summary received yet; tool activity remains visible above.')}</Text>
               ) : null}
             </Box>

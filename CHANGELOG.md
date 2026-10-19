@@ -3,6 +3,14 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## 0.4.5 - 2026-10-19
+
+Render `Thinking` blocks in their chronological position at the top (before each step's tool call or assistant response, matching Claude Code and OpenCode) and make `ctrl+o` a reversible in-place expand/collapse toggle for tool outputs without duplicating scrollback.
+
+### Fixed & Changed
+- **Chronological `Thinking` Position at Top (`src/ui/App.tsx`, `src/i18n/id.ts`)**: `Thinking` blocks now render inline in the transcript where each reasoning step occurred (above the step's tool calls and assistant text) instead of accumulating at the bottom of the screen, and toggle open/closed in-place via `ctrl+t` or mouse click.
+- **Reversible `ctrl+o` Tool Output Toggle (`src/ui/App.tsx`, `src/ui/ToolBlock.tsx`, `src/i18n/id.ts`)**: pressing `ctrl+o` now expands and collapses `<ToolBlock>` output in-place (`… (ctrl+o to collapse)` / `… {n} more lines (ctrl+o)`) instead of appending a permanent duplicate notice to scrollback.
+
 ## 0.4.4 - 2026-10-19
 
 Fix `bash` tool hanging on background daemons (such as `agent-browser`) that inherit stdio pipes, show active tool progress in the live `Thinking` spinner and inspector, add `thinkingClickCollapse` to `/config`, and expand manual `/reasoning` support.
