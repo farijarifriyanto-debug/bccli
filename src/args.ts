@@ -49,6 +49,8 @@ export interface CliArgs {
   project?: string
   /** `bccli pr` — explicit owner/name repo when cwd is not a git checkout of the PR. */
   repo?: string
+  /** Automatic fallback model ref when the primary model fails with 429 or 5xx. */
+  fallbackModel?: string
 }
 
 const HELP = `BCCLI — BotConnector's AI coding agent for the terminal
@@ -95,9 +97,12 @@ export const helpText = (): string => t(HELP)
 export function parseCliArgs(argv: string[]): CliArgs {
   // `--models` may appear bare (show all) or with a number; parseArgs string options
   // require a value, so a bare flag is rewritten to `--models=all` before parsing.
-  const expanded = argv.map((a, i) =>
-    a === '--models' && (i + 1 >= argv.length || argv[i + 1].startsWith('-')) ? '--models=all' : a,
-  )
+  const expanded = argv.map((a, i) => {
+    const nextIsFlagOrEnd = i + 1 >= argv.length || argv[i + 1].startsWith('-')
+    if (a === '--models' && nextIsFlagOrEnd) return '--models=all'
+    if (a === '--project' && nextIsFlagOrEnd) return '--project='
+    return a
+  })
   const { values, positionals } = parseArgs({
     args: expanded,
     allowPositionals: true,
@@ -130,6 +135,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
       models: { type: 'string' },
       project: { type: 'string' },
       repo: { type: 'string' },
+      'fallback-model': { type: 'string' },
     },
   })
   const reasoning = values.reasoning
@@ -207,5 +213,6 @@ export function parseCliArgs(argv: string[]): CliArgs {
     models,
     project: values.project,
     repo: values.repo,
+    fallbackModel: values['fallback-model'],
   }
 }

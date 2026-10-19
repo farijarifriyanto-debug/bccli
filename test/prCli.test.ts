@@ -95,6 +95,25 @@ test('pr with --repo passes it to gh', async () => {
     },
   )
   expect(calls[0]).toEqual(['pr', 'checkout', '7', '--repo', 'owner/name'])
+
+  const calls2: string[][] = []
+  await runPrCommand(
+    { subArgs: ['8'], repo: 'parsed/repo', model: 'bc-cloud/gpt-oss-120b', cwd: '/repo' },
+    {
+      out: () => {},
+      err: () => {},
+      gh: fakeGh(calls2),
+      runTask: async () => 0,
+    },
+  )
+  expect(calls2[0]).toEqual(['pr', 'checkout', '8', '--repo', 'parsed/repo'])
+  expect(prTaskArgv('/dist/cli.js', { prompt: 'review', model: 'bc-cloud/gpt-oss-120b' })).toEqual([
+    '/dist/cli.js',
+    '-p',
+    'review',
+    '-m',
+    'bc-cloud/gpt-oss-120b',
+  ])
 })
 
 test('pr forwards the remaining words as the task', async () => {

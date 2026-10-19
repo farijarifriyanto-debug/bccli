@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import { isFocusReport } from './focusReport'
+import { isMouseControlInput } from './thinkingMouse'
 import { color } from './theme'
 import { t } from '../i18n'
 
@@ -19,6 +20,7 @@ export function ListPicker({ title, items, onPick }: { title: string; items: Lis
   const shown = items.filter((i) => i.label.toLowerCase().includes(filter.toLowerCase()))
   const cursor = Math.min(index, Math.max(0, shown.length - 1))
   useInput((input, key) => {
+    if (isMouseControlInput(input)) return
     if (key.upArrow) setIndex(Math.max(0, cursor - 1))
     else if (key.downArrow) setIndex(Math.min(shown.length - 1, cursor + 1))
     else if (key.return && !shown[cursor]?.disabled) onPick(shown[cursor]?.id)

@@ -94,4 +94,29 @@ describe('vim', () => {
     expect(n(s('a', 1), 'insert', 'b').handled).toBe(false)
     expect(n(s('a', 1), 'insert', '', K({ escape: true })).handled).toBe(true)
   })
+
+  it('handles surrogate pairs (emojis) without splitting UTF-16 code units on x, h, l, a, Esc, and supports D/C/I/e', () => {
+    // '😀' is 2 UTF-16 code units
+    const delEmoji = n(s('a😀b', 1), 'normal', 'x')
+    expect(delEmoji.state.value).toBe('ab')
+    expect(delEmoji.state.cursor).toBe(1)
+
+    const moveRight = n(s('😀b', 0), 'normal', 'l')
+    expect(moveRight.state.cursor).toBe(2)
+    const moveLeft = n(s('😀b', 2), 'normal', 'h')
+    expect(moveLeft.state.cursor).toBe(0)
+
+    const escEmoji = n(s('a😀', 3), 'insert', '', K({ escape: true }))
+    expect(escEmoji.state.cursor).toBe(1)
+
+    // D deletes to end of line, C changes to end of line, I inserts at first non-blank
+    const dEol = n(s('hello world\nnext', 5), 'normal', 'D')
+    expect(dEol.state.value).toBe('hello\nnext')
+    const cEol = n(s('hello world', 5), 'normal', 'C')
+    expect(cEol.state.value).toBe('hello')
+    expect(cEol.mode).toBe('insert')
+    const insFirst = n(s('   hello', 6), 'normal', 'I')
+    expect(insFirst.state.cursor).toBe(3)
+    expect(insFirst.mode).toBe('insert')
+  })
 })

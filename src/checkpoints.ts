@@ -40,9 +40,9 @@ export class CheckpointStore {
   private readonly history: Turn[] = []
   private current: Turn | undefined
   private pendingRedo: Turn | undefined
+  private offset = 0
 
   beginTurn(): void {
-    if (this.current?.size === 0) return
     this.current = new Map()
     this.history.push(this.current)
     this.pendingRedo = undefined
@@ -56,7 +56,10 @@ export class CheckpointStore {
     if (!existsSync(path)) turn.set(path, null)
     else if (statSync(path).size > MAX_BYTES) turn.set(path, 'skipped')
     else turn.set(path, await readFile(path))
-    while (this.turns() > MAX_TURNS) this.history.shift()
+    while (this.turns() > MAX_TURNS) {
+      this.history.shift()
+      this.offset++
+    }
   }
 
   turns(): number {
@@ -65,7 +68,7 @@ export class CheckpointStore {
 
   /** Total entries including empty ones; used to align file snapshots with conversation turns. */
   entries(): number {
-    return this.history.length
+    return this.offset + this.history.length
   }
 
   async undo(): Promise<UndoResult | undefined> {
@@ -87,7 +90,7 @@ export class CheckpointStore {
    * pairs conversation turns with the entry count recorded when each turn started.
    */
   async undoTo(keep: number): Promise<UndoResult | undefined> {
-    const target = Math.max(0, Math.min(keep, this.history.length))
+    const target = Math.max(0, Math.min(keep - this.offset, this.history.length))
     const result = emptyResult()
     const redo = new Map<string, Buffer | null | 'skipped'>()
     let applied = false
@@ -113,8 +116,11 @@ export class CheckpointStore {
     const turn = this.pendingRedo
     if (!turn) return undefined
     this.pendingRedo = undefined
+    const undoEntry = new Map<string, Buffer | null | 'skipped'>()
+    await this.captureFor(turn, undoEntry)
     const result = emptyResult()
     await restoreTurn(turn, result)
+    if (undoEntry.size) this.history.push(undoEntry)
     return result
   }
 
@@ -140,5 +146,6 @@ export class CheckpointStore {
     this.history.length = 0
     this.current = undefined
     this.pendingRedo = undefined
+    this.offset = 0
   }
 }

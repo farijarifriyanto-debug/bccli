@@ -282,7 +282,7 @@ async function readStream(res: Response, onText?: (delta: string) => void, onThi
       }
       current = target
       if (tc.id) target.id = tc.id
-      if (tc.function?.name && !target.name) target.name = tc.function.name
+      if (tc.function?.name && target.name !== tc.function.name) target.name += tc.function.name
       if (tc.function?.arguments) target.arguments += tc.function.arguments
     }
   }
@@ -558,7 +558,16 @@ function responsesFinishReason(
 export function hasPendingProgrammaticReplay(messages: ChatMessage[]): boolean {
   let pending = false
   for (const message of messages) {
+    if (message.role === 'user' && typeof message.content === 'string') {
+      pending = false
+      continue
+    }
+    if (message.role === 'tool' && message.content === 'Cancelled by the user.') {
+      pending = false
+      continue
+    }
     if (message.role !== 'assistant') continue
+    if (message.content) pending = false
     for (const item of message.responses_output_items ?? []) {
       if (item.type === 'program') pending = true
       else if (item.type === 'message' && pending) pending = false
@@ -639,7 +648,7 @@ async function readResponsesStream(
         calls.set(index, {
           id: String(event.item.call_id || current?.id || event.item.id || `call_${index}`),
           name: String(event.item.name || current?.name || ''),
-          arguments: String(event.item.arguments ?? current?.arguments ?? ''),
+          arguments: String(event.item.arguments || current?.arguments || ''),
           ...((programCaller(event.item) ?? current?.caller) ? { caller: programCaller(event.item) ?? current?.caller } : {}),
         })
       }
@@ -909,7 +918,7 @@ async function readResponsesWebSocketTurn(
           calls.set(index, {
             id: String(event.item.call_id || current?.id || event.item.id || `call_${index}`),
             name: String(event.item.name || current?.name || ''),
-            arguments: String(event.item.arguments ?? current?.arguments ?? ''),
+            arguments: String(event.item.arguments || current?.arguments || ''),
             ...((programCaller(event.item) ?? current?.caller) ? { caller: programCaller(event.item) ?? current?.caller } : {}),
           })
         }
@@ -1121,8 +1130,13 @@ export function createProvider(options: ProviderOptions): Provider {
 
   async function post(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
     let lastError: ProviderError | undefined
+    let retryAfterWaitMs: number | undefined
     for (let attempt = 0; attempt < 4; attempt++) {
-      if (attempt > 0) await sleep(retryDelayMs * 2 ** (attempt - 1), signal)
+      if (attempt > 0) {
+        const delay = retryAfterWaitMs ?? retryDelayMs * 2 ** (attempt - 1)
+        retryAfterWaitMs = undefined
+        await sleep(delay, signal)
+      }
       let res: Response
       try {
         res = await doFetch(`${baseURL}${path}`, { method: 'POST', headers, body: JSON.stringify(body), signal })
@@ -1132,6 +1146,11 @@ export function createProvider(options: ProviderOptions): Provider {
         continue
       }
       if (res.ok) return res
+      const retryHeader = res.headers.get('retry-after')
+      if (retryHeader) {
+        const secs = Number(retryHeader)
+        if (Number.isFinite(secs) && secs > 0 && secs <= 30) retryAfterWaitMs = Math.ceil(secs * 1000)
+      }
       const text = await res.text().catch(() => '')
       lastError = new ProviderError(t('{status} from {url}: {message}', { status: res.status, url: baseURL, message: errorMessage(text) }), res.status)
       const deterministicQuota429 =
@@ -1201,5 +1220,49 @@ export function createProvider(options: ProviderOptions): Provider {
       // Some OpenAI-compatible catalogs list the same id twice; dedupe so UI keys stay unique without renaming models.
       return [...new Set(ids)].sort()
     },
+  }
+}
+
+/**
+ * Wraps a primary provider with automatic fallback providers tried in order when the primary
+ * fails before emitting any text (e.g. HTTP 429 rate-limit/quota, 5xx, or connection failure).
+ */
+export function withFallbackProvider(primary: Provider, fallbacks: () => Provider[]): Provider {
+  return {
+    async chat(req) {
+      let emitted = false
+      const wrappedReq: ChatRequest = {
+        ...req,
+        onText: req.onText
+          ? (delta) => {
+              emitted = true
+              req.onText?.(delta)
+            }
+          : () => {
+              emitted = true
+            },
+      }
+      try {
+        return await primary.chat(wrappedReq)
+      } catch (primaryError) {
+        if (emitted || req.signal?.aborted) throw primaryError
+        const status = primaryError instanceof ProviderError ? primaryError.status : undefined
+        const canFallback = status === undefined || status === 429 || status === 408 || status >= 500
+        if (!canFallback) throw primaryError
+        const chain = fallbacks()
+        if (!chain.length) throw primaryError
+        let lastError: unknown = primaryError
+        for (const fb of chain) {
+          if (req.signal?.aborted) throw lastError
+          try {
+            return await fb.chat(req)
+          } catch (fbError) {
+            lastError = fbError
+          }
+        }
+        throw lastError
+      }
+    },
+    listModels: () => primary.listModels(),
   }
 }

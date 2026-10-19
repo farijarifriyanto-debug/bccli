@@ -118,4 +118,49 @@ describe('acp', () => {
   it('the cli knows the acp subcommand', () => {
     expect(parseCliArgs(['acp']).command).toBe('acp')
   })
+
+  it('rejects concurrent session/prompt on a busy session and includes embeddedContext/resource prompt blocks', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const agent: AcpAgent = {
+      async run(text, onChunk) {
+        await gate
+        onChunk(`got:${text}`)
+      },
+    }
+    const h = harness(agent)
+    h.send({ jsonrpc: '2.0', id: 1, method: 'session/new', params: { cwd: '.' } })
+    const sess = await h.waitFor((m) => m.id === 1)
+    const sid = sess.result?.sessionId
+    h.send({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'session/prompt',
+      params: {
+        sessionId: sid,
+        prompt: [
+          { type: 'text', text: 'check' },
+          { type: 'resource', resource: { uri: 'file:///a.ts', text: 'const x = 1' } },
+        ],
+      },
+    })
+    await new Promise((r) => setTimeout(r, 20))
+    h.send({
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'session/prompt',
+      params: { sessionId: sid, prompt: [{ type: 'text', text: 'concurrent' }] },
+    })
+    const busyErr = await h.waitFor((m) => m.id === 3)
+    expect(busyErr.error?.code).toBe(-32000)
+    release()
+    const res = await h.waitFor((m) => m.id === 2)
+    expect(res.result?.stopReason).toBe('end_turn')
+    const chunk = h.messages.find((m) => m.method === 'session/update' && m.params?.update?.sessionUpdate === 'agent_message_chunk')
+    expect(chunk?.params?.update?.content?.text).toContain('const x = 1')
+    h.finish()
+    await h.done
+  })
 })

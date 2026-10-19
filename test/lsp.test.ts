@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { createLspParser, encodeLsp, getDiagnostics } from '../src/lsp'
+import { createLspParser, encodeLsp, getDiagnostics, languageIdFor, useShellForLsp } from '../src/lsp'
 import { createDiagnosticsTool } from '../src/tools/diagnostics'
 import { ConfigError, loadConfig } from '../src/config'
 import type { ToolContext } from '../src/tools/types'
@@ -37,6 +37,13 @@ describe('lsp diagnostics', () => {
     writeFileSync(file, 'const x: number = "nope"\n')
     const diags = await getDiagnostics({ server: SERVER, cwd: root, file, timeoutMs: 15_000 })
     expect(diags).toEqual([{ line: 0, character: 0, severity: 1, message: 'fake problem' }])
+    expect(languageIdFor('a.ts')).toBe('typescript')
+    expect(languageIdFor('App.tsx')).toBe('typescriptreact')
+    expect(languageIdFor('main.py')).toBe('python')
+    expect(languageIdFor('lib.rs')).toBe('rust')
+    expect(useShellForLsp('typescript-language-server', 'win32')).toBe(true)
+    expect(useShellForLsp('C:\\nodejs\\node.exe', 'win32')).toBe(false)
+    expect(useShellForLsp('typescript-language-server', 'linux')).toBe(false)
   })
 
   it('resolves empty when the server never answers', async () => {

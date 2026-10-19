@@ -32,6 +32,7 @@ describe('trustFence', () => {
   test('localhost + ::1 lolos', () => {
     expect(trustFence(H({ host: 'localhost:8787' }), 8787)).toBeNull()
     expect(trustFence(H({ host: '[::1]:8787' }), 8787)).toBeNull()
+    expect(trustFence(H({ host: '[::1]' }), 80)).toBeNull()
   })
   test('Host non-loopback → alasan 403', () => expect(trustFence(H({ host: 'evil.com' }), 8787)).toBeTruthy())
   test('port Host tidak cocok listener → 403', () =>

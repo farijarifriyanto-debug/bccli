@@ -2,7 +2,7 @@ import { helpText, parseCliArgs } from './args'
 import { ConfigError } from './config'
 import { settleExit } from './exit'
 import { defaultLoginDeps, runLogin } from './login'
-import { runPrint } from './print'
+import { resolvePrintPrompt, runPrint } from './print'
 import { readGlobalConfigFile } from './providers'
 import { pruneSessions } from './session'
 import { createRuntime } from './setup'
@@ -123,7 +123,16 @@ async function main(): Promise<number> {
   if (args.command === 'pr') {
     const { runPrCommand } = await import('./prCli')
     return runPrCommand(
-      { subArgs: args.subArgs, cwd, allowAll: args.allowAll },
+      {
+        subArgs: args.subArgs,
+        cwd,
+        allowAll: args.allowAll,
+        repo: args.repo,
+        model: args.model,
+        reasoning: args.reasoning,
+        permissionMode: args.permissionMode,
+        allowedTools: args.allowedTools,
+      },
       { out: (s) => console.log(s), err: (s) => console.error(s) },
     )
   }
@@ -135,7 +144,14 @@ async function main(): Promise<number> {
     // pruning is best effort
   }
   if (args.print) {
-    if (!args.prompt) throw new ConfigError(t('-p mode needs a task, e.g. bccli -p "explain this repo"'))
+    let stdinText: string | undefined
+    if (!process.stdin.isTTY) {
+      const chunks: Buffer[] = []
+      for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk))
+      if (chunks.length) stdinText = Buffer.concat(chunks).toString('utf8')
+    }
+    const finalPrompt = resolvePrintPrompt(args.prompt, stdinText)
+    if (!finalPrompt) throw new ConfigError(t('-p mode needs a task, e.g. bccli -p "explain this repo"'))
     const { serversToStart } = await import('./mcp/config')
     const plan = serversToStart(rt.home, cwd)
     for (const s of plan.needTrust) {
@@ -143,7 +159,7 @@ async function main(): Promise<number> {
     }
     await rt.startMcp(plan.start)
     try {
-      return await runPrint(rt, args.prompt, undefined, { allowAll: args.allowAll, outputFormat: args.outputFormat })
+      return await runPrint(rt, finalPrompt, undefined, { allowAll: args.allowAll, outputFormat: args.outputFormat })
     } finally {
       await rt.mcp.stop()
     }

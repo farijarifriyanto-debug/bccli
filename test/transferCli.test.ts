@@ -31,6 +31,13 @@ test('export copies the latest session to a file', () => {
   const text = readFileSync(out, 'utf8')
   expect(text).toContain('second')
   expect(text).not.toContain('first')
+
+  // Overwriting an existing destination file exports the latest session instead of reading `out` as source.
+  seedSession(home, cwd, 'c.jsonl', [msg('user', 'third')])
+  const outLines: string[] = []
+  const code2 = runExportCommand({ subArgs: [out], home, cwd }, { out: (l) => outLines.push(l), err: (l) => errs.push(l) })
+  expect(code2).toBe(0)
+  expect(readFileSync(out, 'utf8')).toContain('third')
 })
 
 test('export with no session errors when none exist', () => {

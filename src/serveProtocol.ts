@@ -48,9 +48,18 @@ export function trustFence(
 ): string | null {
   const host = headers.host
   if (!host) return 'missing Host header'
-  const sep = host.lastIndexOf(':')
-  const hostname = sep > -1 ? host.slice(0, sep) : host
-  const hostPort = sep > -1 ? Number(host.slice(sep + 1)) : 80
+  let hostname: string
+  let hostPort: number
+  if (host.startsWith('[')) {
+    const close = host.indexOf(']')
+    if (close === -1) return `non-loopback Host: ${host}`
+    hostname = host.slice(0, close + 1)
+    hostPort = host[close + 1] === ':' ? Number(host.slice(close + 2)) : 80
+  } else {
+    const sep = host.lastIndexOf(':')
+    hostname = sep > -1 ? host.slice(0, sep) : host
+    hostPort = sep > -1 ? Number(host.slice(sep + 1)) : 80
+  }
   if (!LOOPBACK_HOSTS.has(hostname)) return `non-loopback Host: ${hostname}`
   if (hostPort !== port) return `Host port ${hostPort} does not match listener ${port}`
   if (headers.origin) {

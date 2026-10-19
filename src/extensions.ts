@@ -33,10 +33,28 @@ export function parseFrontmatter(text: string): { data: Record<string, string | 
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text)
   if (!match) return { data: {}, body: text }
   const data: Record<string, string | string[]> = {}
+  let currentListKey: string | undefined
   for (const line of match[1].split(/\r?\n/)) {
+    const listItem = /^\s*-\s+(.+)$/.exec(line)
+    if (listItem && currentListKey) {
+      const item = listItem[1].trim().replace(/^["']|["']$/g, '')
+      const prev = data[currentListKey]
+      if (Array.isArray(prev)) prev.push(item)
+      else data[currentListKey] = [item]
+      continue
+    }
     const kv = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line)
-    if (!kv) continue
+    if (!kv) {
+      if (line.trim()) currentListKey = undefined
+      continue
+    }
     let value = kv[2].trim()
+    if (!value) {
+      currentListKey = kv[1]
+      data[kv[1]] = ''
+      continue
+    }
+    currentListKey = undefined
     if (value.startsWith('[') && value.endsWith(']')) {
       data[kv[1]] = value
         .slice(1, -1)

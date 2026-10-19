@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
@@ -30,15 +30,19 @@ test('abort kills the running command', async () => {
   expect(r.aborted).toBe(true)
 })
 
-test('huge output keeps head and tail', async () => {
-  const r = await runCommand(node("process.stdout.write('A'.repeat(100000)+'END')"), {
+test('huge output keeps head and tail and saves full output to a temp file', async () => {
+  const r = await runCommand(node("process.stdout.write('A'.repeat(20000)+'MIDDLE_NEEDLE'+'B'.repeat(80000)+'END')"), {
     cwd,
     timeoutMs: 20000,
     signal: new AbortController().signal,
   })
-  expect(r.output.length).toBeLessThan(31000)
+  expect(r.output.length).toBeLessThan(32000)
   expect(r.output).toContain('characters truncated')
   expect(r.output.endsWith('END')).toBe(true)
+  const m = /saved to ([^\s\]]+)/.exec(r.output)
+  expect(m).not.toBeNull()
+  expect(existsSync(m![1])).toBe(true)
+  expect(readFileSync(m![1], 'utf8')).toContain('MIDDLE_NEEDLE')
 })
 
 test('multibyte characters split across chunks survive', async () => {

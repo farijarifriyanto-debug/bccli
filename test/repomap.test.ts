@@ -30,12 +30,26 @@ describe('repo map', () => {
   })
 
   it('extracts symbols per language', () => {
-    expect(extractSymbols('export async function f() {}\ninterface I {}\nconst g = 1\n', '.ts')).toEqual(
-      expect.arrayContaining(['f', 'I']),
+    expect(extractSymbols('export async function f() {}\ninterface I {}\nexport const arrow = () => {}\n', '.ts')).toEqual(
+      expect.arrayContaining(['f', 'I', 'arrow']),
     )
     expect(extractSymbols('def a():\n    pass\nclass B:\n    pass\n', '.py')).toEqual(['a', 'B'])
+    expect(extractSymbols('def ruby_method\nend\n', '.rb')).toEqual(['ruby_method'])
+    expect(extractSymbols('public class Main {\n}\n', '.java')).toEqual(['Main'])
     expect(extractSymbols('func (s *S) Do() {}\ntype T struct{}\n', '.go')).toEqual(expect.arrayContaining(['Do', 'T']))
     expect(extractSymbols('pub fn main() {}\nstruct S;\n', '.rs')).toEqual(expect.arrayContaining(['main', 'S']))
+  })
+
+  it('prioritizes shallow src/ files even when an alphabetically earlier deep folder has >400 files', () => {
+    const root = mkdtempSync(join(tmpdir(), 'bccli-map-deep-'))
+    mkdirSync(join(root, 'apps', 'deep', 'nested'), { recursive: true })
+    mkdirSync(join(root, 'src'), { recursive: true })
+    for (let i = 0; i < 420; i++) {
+      writeFileSync(join(root, 'apps', 'deep', 'nested', `f${i}.ts`), `export function deep${i}() {}\n`)
+    }
+    writeFileSync(join(root, 'src', 'index.ts'), 'export function coreEntry() {}\n')
+    const map = buildRepoMapSync(root, { maxTokens: 500 })
+    expect(map).toContain('src/index.ts: coreEntry')
   })
 
   it('truncates to the token budget', () => {

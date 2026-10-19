@@ -63,4 +63,42 @@ describe('sdk', () => {
     })
     expect(result.text).toContain('MODEL_OK')
   })
+
+  it('surfaces provider errors with stopReason error instead of silently returning done', async () => {
+    const failing: Provider = {
+      async chat() {
+        throw new Error('HTTP 429 rate limit exceeded')
+      },
+      async listModels() {
+        return []
+      },
+    }
+    const result = await runTask({
+      prompt: 'say hi',
+      provider: failing,
+      cwd: tmpdir(),
+      env: env(),
+    })
+    expect(result.stopReason).toBe('error')
+    expect(result.error).toContain('429')
+  })
+
+  it('aborts the running agent when the consumer breaks out of streamTask early', async () => {
+    let seenSignal: AbortSignal | undefined
+    const slow: Provider = {
+      async chat(req) {
+        seenSignal = req.signal
+        req.onText?.('chunk-1')
+        await new Promise((r) => setTimeout(r, 50))
+        return { text: 'chunk-1', toolCalls: [{ id: '1', name: 'read', arguments: '{"path":"missing.txt"}' }] }
+      },
+      async listModels() {
+        return []
+      },
+    }
+    for await (const e of streamTask({ prompt: 'hi', provider: slow, cwd: tmpdir(), env: env() })) {
+      if (e.type === 'text') break
+    }
+    expect(seenSignal?.aborted).toBe(true)
+  })
 })

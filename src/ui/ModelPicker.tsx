@@ -2,6 +2,7 @@ import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import type { ModelGroup } from '../models'
 import { isFocusReport } from './focusReport'
+import { isMouseControlInput } from './thinkingMouse'
 import { color } from './theme'
 import { t } from '../i18n'
 
@@ -25,6 +26,7 @@ export function ModelPicker({ groups, current, onPick }: { groups: ModelGroup[];
   const cursor = selectable[Math.min(index, selectable.length - 1)] ?? -1
 
   useInput((input, key) => {
+    if (isMouseControlInput(input)) return
     if (key.upArrow) setIndex((i) => Math.max(0, i - 1))
     else if (key.downArrow) setIndex((i) => Math.min(selectable.length - 1, i + 1))
     else if (key.return) {

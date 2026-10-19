@@ -1,9 +1,36 @@
 import type { ChatMessage } from './provider'
 
+const IMAGE_TOKEN_COST = 1_000
+
 /** ~4 chars per token, the same conservative estimate the usage fallback uses. */
 export const estimateTokens = (text: string): number => Math.ceil(text.length / 4)
 
-export const estimateMessages = (messages: ChatMessage[]): number => estimateTokens(JSON.stringify(messages))
+function isImageAttachmentMessage(m: ChatMessage): boolean {
+  if (m.role !== 'user' || !Array.isArray(m.content)) return false
+  const hasImage = m.content.some((p) => p.type === 'image_url')
+  const firstText = m.content.find((p) => p.type === 'text')
+  return hasImage && !!firstText && firstText.type === 'text' && firstText.text.startsWith('Image read from ')
+}
+
+function isUserTurnBoundary(m: ChatMessage): boolean {
+  return m.role === 'user' && !isImageAttachmentMessage(m)
+}
+
+export function estimateMessages(messages: ChatMessage[]): number {
+  let total = 0
+  for (const m of messages) {
+    if (m.role === 'user' && Array.isArray(m.content)) {
+      for (const part of m.content) {
+        if (part.type === 'image_url') total += IMAGE_TOKEN_COST
+        else total += estimateTokens(part.text)
+      }
+      total += 8
+    } else {
+      total += estimateTokens(JSON.stringify(m))
+    }
+  }
+  return total
+}
 
 /**
  * Drops whole oldest turns (everything up to the next user message) until the history fits the
@@ -13,7 +40,7 @@ export const estimateMessages = (messages: ChatMessage[]): number => estimateTok
 export function trimToFit(messages: ChatMessage[], maxTokens: number): ChatMessage[] {
   let out = messages
   while (estimateMessages(out) > maxTokens) {
-    const boundary = out.findIndex((m, i) => i > 0 && m.role === 'user')
+    const boundary = out.findIndex((m, i) => i > 0 && isUserTurnBoundary(m))
     if (boundary === -1) return out
     out = out.slice(boundary)
   }
@@ -29,14 +56,14 @@ export function splitKeepRecent(messages: ChatMessage[], keepTokens: number): [C
   if (messages.length === 0) return [[], []]
   let start = messages.length
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (i > 0 && messages[i].role !== 'user') continue
+    if (i > 0 && !isUserTurnBoundary(messages[i])) continue
     if (estimateMessages(messages.slice(i)) <= keepTokens) start = i
     else break
   }
   // Even the last turn alone is over budget: still keep it so the model sees fresh detail.
   if (start === messages.length) {
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === 'user') {
+      if (isUserTurnBoundary(messages[i])) {
         start = i
         break
       }

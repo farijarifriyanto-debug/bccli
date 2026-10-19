@@ -66,6 +66,7 @@ test('completeFile completes the last @token', () => {
   mkdirSync(join(cwd, 'src'))
   writeFileSync(join(cwd, 'src', 'agent.ts'), '')
   expect(completeFile('lihat @src/ag', cwd)).toBe('lihat @src/agent.ts ')
+  expect(completeFile('lihat @agent', cwd)).toBe('lihat @src/agent.ts ')
   expect(completeFile('tanpa token', cwd)).toBe('tanpa token')
 })
 
@@ -96,6 +97,26 @@ test('arrows move the highlight among suggestions; Tab completes without running
   await tick()
   expect(lastFrame()).toContain('> /clear')
   expect(onSubmit).not.toHaveBeenCalled()
+})
+
+test('recalling a slash command from history with Up does not trap subsequent Up/Down navigation, and Esc dismisses suggestions', async () => {
+  const { stdin, lastFrame } = render(<PromptInput history={['earlier prompt', '/status']} cwd="." onSubmit={() => {}} />)
+  await tick()
+  stdin.write('\u001B[A')
+  await tick()
+  expect(lastFrame()).toContain('> /status')
+  stdin.write('\u001B[A')
+  await tick()
+  expect(lastFrame()).toContain('> earlier prompt')
+
+  const other = render(<PromptInput history={[]} cwd="." onSubmit={() => {}} />)
+  await tick()
+  other.stdin.write('/mo')
+  await tick()
+  expect(other.lastFrame()).toContain('› /model')
+  other.stdin.write('\u001B')
+  await tick()
+  expect(other.lastFrame()).not.toContain('› /model')
 })
 
 test('once arguments are typed, Enter sends the text as is', async () => {

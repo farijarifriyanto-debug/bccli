@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { parseCliArgs } from '../src/args'
-import { runPrint } from '../src/print'
+import { resolvePrintPrompt, runPrint } from '../src/print'
 import type { Completion, Provider } from '../src/provider'
 import { createRuntime } from '../src/setup'
 
@@ -181,4 +181,31 @@ test('print mode skips verifyCommands when nothing was edited', async () => {
   const o = io()
   expect(await runPrint(rt, 'go', o.io)).toBe(0)
   expect(o.err.join('')).not.toContain('Memverifikasi')
+})
+
+test('json and stream-json replace recovered textToolCalls via textReplace and include session_id/usage', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-ptr-'))
+  writeFileSync(join(cwd, 'a.txt'), 'isi')
+  const rt = createRuntime({
+    cwd,
+    args: parseCliArgs(['-p', 'go']),
+    env: env(),
+    provider: provider([
+      {
+        text: 'Reading file now\n<tool_call>read<arg_key>path</arg_key><arg_value>a.txt</arg_value></tool_call>',
+        toolCalls: [],
+        usage: { inputTokens: 12, outputTokens: 8 },
+      },
+      { text: ' Clean final answer', toolCalls: [], usage: { inputTokens: 20, outputTokens: 6 } },
+    ]),
+  })
+  const o = io()
+  expect(await runPrint(rt, 'go', o.io, { outputFormat: 'json' })).toBe(0)
+  const parsed = JSON.parse(o.out.join(''))
+  expect(parsed.result).not.toContain('<tool_call>')
+  expect(parsed.result).toContain('Clean final answer')
+  expect(parsed.session_id).toBe(rt.session.id)
+  expect(parsed.usage).toMatchObject({ inputTokens: 32, outputTokens: 14 })
+  expect(resolvePrintPrompt('explain this', 'piped log line')).toBe('piped log line\n\nexplain this')
+  expect(resolvePrintPrompt(undefined, 'only stdin')).toBe('only stdin')
 })

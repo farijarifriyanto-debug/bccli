@@ -178,16 +178,17 @@ export async function collectGhContext(
     diffBlock = `\n## diff (truncated)\n${truncateHeadTailUtf8(diffRes.stdout, 100_000)}`
   }
 
-  const comment = truncateUtf8Bytes(d.body, 8_192)
+  const sanitizeUntrusted = (s: string) => s.replace(/<\/untrusted-github>/gi, '&lt;/untrusted-github&gt;')
+  const comment = sanitizeUntrusted(truncateUtf8Bytes(d.body, 8_192))
   const context = [
     '<untrusted-github>',
     `## Comment by ${d.author} (${d.repo}#${d.number})`,
     comment,
     '',
-    `## Issue/PR title: ${title}`,
+    `## Issue/PR title: ${sanitizeUntrusted(title)}`,
     '## Issue/PR body',
-    issueBody,
-    diffBlock,
+    sanitizeUntrusted(issueBody),
+    sanitizeUntrusted(diffBlock),
     '</untrusted-github>',
     '',
     'Draft your reply to the comment above following your system rules.',

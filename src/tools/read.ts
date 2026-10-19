@@ -1,6 +1,7 @@
+import { readdirSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
-import { errorCode, resolvePath } from './paths'
+import { errorCode, recordFileMtime, resolvePath } from './paths'
 import { defineTool, type ToolContext, type ToolResult } from './types'
 import { t } from '../i18n'
 
@@ -104,6 +105,19 @@ export function createReadTool(options: ReadToolOptions = {}) {
     target: (input: ReadInput) => input.path,
     async run(input: ReadInput, ctx: ToolContext): Promise<ToolResult> {
       const abs = resolvePath(ctx.cwd, input.path)
+      try {
+        if (statSync(abs).isDirectory()) {
+          const entries = readdirSync(abs, { withFileTypes: true })
+            .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
+            .sort((a, b) => a.localeCompare(b))
+          const start = (input.offset ?? 1) - 1
+          const limit = input.limit ?? 2000
+          const slice = entries.slice(start, start + limit)
+          return { output: slice.join('\n') || '(empty directory)', display: t('{n} lines', { n: slice.length }) }
+        }
+      } catch {
+        // let readFile report the exact error code below
+      }
       let buffer: Buffer
       try {
         buffer = await readFile(abs)
@@ -112,13 +126,13 @@ export function createReadTool(options: ReadToolOptions = {}) {
       }
       const mediaType = vision ? imageMediaType(buffer) : undefined
       if (mediaType) {
-        ctx.readFiles.add(abs)
+        recordFileMtime(ctx.readFiles, abs)
         return readImageResult(input, buffer, mediaType)
       }
       if (buffer.subarray(0, 8000).includes(0)) {
         return { output: `${input.path} is a binary file; not read.`, isError: true }
       }
-      ctx.readFiles.add(abs)
+      recordFileMtime(ctx.readFiles, abs)
       return readTextResult(input, buffer)
     },
   })

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { Agent, type AgentEvent } from '../agent'
 import type { AgentDef } from '../extensions'
 import type { Permissions } from '../permissions'
-import type { Provider } from '../provider'
+import type { ChatMessage, Provider } from '../provider'
 import type { ReasoningLevel } from '../reasoning'
 import { defineTool, type Tool } from './types'
 import type { HooksConfig } from '../hooks'
@@ -29,6 +29,7 @@ export interface TaskToolOptions {
 export function createTaskTool(opts: TaskToolOptions): Tool {
   const byName = new Map(opts.agents.map((a) => [a.name, a]))
   const list = opts.agents.map((a) => `- ${a.name}: ${a.description}`).join('\n')
+  const sessions = new Map<string, ChatMessage[]>()
   // Parallel children share one single-slot prompt UI: permission dialogs must not interleave.
   let askChain: Promise<unknown> = Promise.resolve()
   const enqueueAsk = <T>(fn: () => Promise<T>): Promise<T> => {
@@ -49,6 +50,7 @@ export function createTaskTool(opts: TaskToolOptions): Tool {
       agent: z.string().describe('Agent name'),
       description: z.string().describe('3-6 word summary shown to the user'),
       prompt: z.string().describe('Full instructions; the subagent sees nothing else'),
+      session_id: z.string().optional().describe('Optional session id to continue a previous subagent conversation'),
     }),
     kind: 'read',
     target: (input) => `[${input.agent}] ${input.description}`,
@@ -76,12 +78,14 @@ export function createTaskTool(opts: TaskToolOptions): Tool {
       } catch (error) {
         return { output: `Agent "${def.name}": ${(error as Error).message}`, isError: true }
       }
+      const priorHistory = input.session_id ? sessions.get(input.session_id) : undefined
       const child = new Agent({
         provider,
         tools,
         permissions: opts.permissions,
         systemPrompt: `${typeof opts.systemPrompt === 'function' ? opts.systemPrompt(def.model) : opts.systemPrompt}\n\n# Your role\n${def.prompt}`,
         cwd: opts.cwd,
+        ...(priorHistory ? { history: priorHistory } : {}),
         // Every subagent runs with a step cap so a looping child cannot burn tokens forever.
         maxSteps: def.maxSteps ?? 50,
         label: def.name,
@@ -102,12 +106,30 @@ export function createTaskTool(opts: TaskToolOptions): Tool {
       const ask = ctx.ask
       if (ask) child.askPermission = (req) => enqueueAsk(() => ask(req))
       await child.run(input.prompt, ctx.signal)
+      if (input.session_id) sessions.set(input.session_id, [...child.messages])
       ctx.addUsage?.(child.totalUsage)
       const tokens = child.totalUsage.inputTokens + child.totalUsage.outputTokens
       const display = t('{steps} steps · {tokens} tokens', { steps, tokens: tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : tokens })
       if (outcome?.type === 'error') return { output: `Subagent ${def.name} failed: ${outcome.message}`, isError: true, display }
       if (outcome?.type === 'aborted') return { output: `Subagent ${def.name} was cancelled.`, isError: true, display }
-      const last = [...child.messages].reverse().find((m) => m.role === 'assistant' && m.content)
+      let last = [...child.messages].reverse().find((m) => m.role === 'assistant' && m.content)
+      if (!last && outcome?.type === 'stepLimit' && !ctx.signal.aborted) {
+        try {
+          const synthesis = await provider.chat({
+            messages: [
+              ...child.messages,
+              { role: 'user', content: 'Step limit reached. Summarize all findings gathered so far concisely.' },
+            ],
+            signal: ctx.signal,
+            reasoning: opts.reasoning?.() ?? 'auto',
+          })
+          if (synthesis.text.trim()) {
+            last = { role: 'assistant', content: synthesis.text.trim() }
+          }
+        } catch {
+          // keep fallback (no report) if synthesis call fails
+        }
+      }
       const report = last && typeof last.content === 'string' ? last.content : '(no report)'
       const suffix = outcome?.type === 'stepLimit' ? `\n\n(The subagent stopped at its ${outcome.maxSteps}-step limit.)` : ''
       return { output: report + suffix, display }

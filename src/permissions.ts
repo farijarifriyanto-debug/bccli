@@ -1,4 +1,4 @@
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { isAbsolute, relative, resolve } from 'node:path'
 import type { PermissionMode } from './config'
 import type { PermissionKind } from './tools/types'
 
@@ -58,8 +58,11 @@ function commandKey(segment: string): string {
 export function requiresSensitiveToolApproval(req: PermissionRequest): boolean {
   const target = req.target.trim()
   if (req.kind === 'read' || req.kind === 'edit') {
-    return /(?:^|[/\\])(?:\.env(?:\..*)?|\.ssh|\.aws|\.config\/gcloud|secrets?|credentials?)(?:[/\\]|$)/i.test(target)
-      || /(?:id_rsa|id_ed25519|\.pem|\.p12|\.key)$/i.test(target)
+    return (
+      /(?:^|[\s/\\])(?:\.env(?:\.[^\s/\\]+)?|\.ssh|\.aws|\.config[/\\]gcloud|\.npmrc|\.netrc|\.git-credentials|(?:secrets?|credentials?)(?:\.[a-z0-9_-]+)?)(?:[\s/\\]|$)/i.test(
+        target,
+      ) || /(?:id_rsa|id_ed25519|\.pem|\.p12|\.key)(?:\s|$)/i.test(target)
+    )
   }
   if (req.kind === 'bash') {
     return /\b(?:rm\s+-[a-z]*r[a-z]*f[a-z]*\s|rm\s+-[a-z]*f[a-z]*r[a-z]*\s|mkfs(?:\.|\s)|wipefs\b|shred\s|git\s+push\s+(?:--force|-f)\b|docker\s+(?:system\s+prune|volume\s+rm)|kubectl\s+delete\b|drop\s+(?:database|table)|npm\s+publish\b)/i.test(target)
@@ -88,7 +91,8 @@ export class Permissions {
   private editInProject(target: string): boolean {
     const rel = relative(this.cwd, resolve(this.cwd, target))
     if (!rel || rel.startsWith('..') || isAbsolute(rel)) return false
-    return !rel.split(sep).includes('.git') && !rel.split('/').includes('.git')
+    const parts = rel.split(/[/\\]/).map((p) => p.toLowerCase())
+    return !parts.includes('.git')
   }
 
   /** Rules that "[a] allow for this session" would add; undefined when it must always be asked. */
@@ -112,7 +116,7 @@ export class Permissions {
         .map((s) => s.trim())
         .filter(Boolean)
       if (!segments.length) return undefined
-      if (segments.some(isAlwaysAsk)) return undefined
+      if (segments.some((s) => /^[({]/.test(s) || isAlwaysAsk(s))) return undefined
       return [...new Set(segments.map((s) => `bash(${commandKey(s)})`))]
     }
     if (req.kind === 'mcp') return [`mcp(${req.tool})`]

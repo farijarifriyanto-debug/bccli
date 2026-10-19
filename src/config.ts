@@ -21,6 +21,8 @@ export interface ProviderConfig {
 
 export interface Config {
   model: string
+  /** Optional list of fallback model refs tried in order on 429 / 5xx / connection errors. */
+  fallbackModels?: string[]
   permissionMode: PermissionMode
   reasoning: ReasoningLevel
   /** Show provider-supplied reasoning summaries in the TUI. Global setting only. */
@@ -281,8 +283,13 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
   const project = readJsonConfig(join(cwd, '.bccli', 'config.json'))
   const known = { ...DEFAULT_CONFIG.providers, ...global.providers }
   const fromProject = untrustedProviders(project, known)
+  const rawFallbacks = project.fallbackModels ?? global.fallbackModels
+  const fallbackModels = Array.isArray(rawFallbacks)
+    ? rawFallbacks.filter((m): m is string => typeof m === 'string' && m.includes('/'))
+    : undefined
   return {
     model: project.model ?? global.model ?? DEFAULT_CONFIG.model,
+    ...(fallbackModels?.length ? { fallbackModels } : {}),
     permissionMode: global.permissionMode ?? DEFAULT_CONFIG.permissionMode,
     reasoning: global.reasoning ?? DEFAULT_CONFIG.reasoning,
     thinkingVisible: global.thinkingVisible === true,

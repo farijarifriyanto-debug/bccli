@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { z } from 'zod'
 import { sandboxArgv } from './sandbox'
 import { type ShellDeps, type ShellSpec, defaultShell, resolveShell } from './shell'
@@ -215,7 +217,14 @@ export function runCommand(
     let dropped = 0
     let timedOut = false
     let aborted = false
+    const fullChunks: string[] = []
+    let fullBytes = 0
+    const MAX_SPILL_BYTES = 10 * 1024 * 1024
     const onData = (data: string) => {
+      if (fullBytes < MAX_SPILL_BYTES) {
+        fullChunks.push(data)
+        fullBytes += data.length
+      }
       let s = data
       if (head.length < HALF) {
         const take = s.slice(0, HALF - head.length)
@@ -254,7 +263,17 @@ export function runCommand(
       active.delete(killAsAborted)
       clearTimeout(timer)
       opts.signal.removeEventListener('abort', onAbort)
-      const output = dropped ? `${head}\n… [${dropped} characters truncated] …\n${tail}` : head + tail
+      let spillNote = ''
+      if (dropped && fullChunks.length) {
+        try {
+          const spillPath = join(tmpdir(), `bccli-bash-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.log`)
+          writeFileSync(spillPath, fullChunks.join(''), 'utf8')
+          spillNote = `; full output saved to ${spillPath}`
+        } catch {
+          // best effort spill file
+        }
+      }
+      const output = dropped ? `${head}\n… [${dropped} characters truncated${spillNote}] …\n${tail}` : head + tail
       resolve({ output: output + extra, exitCode, timedOut, aborted })
     }
     child.on('error', (error) => finish(null, error.message))

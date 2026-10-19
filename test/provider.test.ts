@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest'
 import type { ResponseOutputItem } from 'openai/resources/responses/responses'
-import { completionAssistantMessage, createProvider, lunaToolPlan, ProviderError, responseContinuationInput, responseInputFromMessages, shouldEnableLunaPtc, shouldForceLunaPtc, type ChatMessage, type Completion } from '../src/provider'
+import { completionAssistantMessage, createProvider, hasPendingProgrammaticReplay, lunaToolPlan, ProviderError, responseContinuationInput, responseInputFromMessages, shouldEnableLunaPtc, shouldForceLunaPtc, withFallbackProvider, type ChatMessage, type Completion } from '../src/provider'
 import type { ToolDefinition } from '../src/tools/index'
 
 function sse(events: unknown[]): Response {
@@ -1188,4 +1188,71 @@ test('Responses WebSocket continuation replays full context when local history d
     { role: 'assistant', content: 'FIRST_OK' },
     { role: 'user', content: 'second' },
   ])
+})
+
+test('withFallbackProvider switches to fallback models when the primary model fails with 429 or 5xx', async () => {
+  const primary = {
+    async chat() {
+      throw new ProviderError('429 quota exhausted', 429)
+    },
+    async listModels() {
+      return ['primary']
+    },
+  }
+  const fallback = {
+    async chat(req: { onText?: (d: string) => void }) {
+      req.onText?.('FALLBACK_ANSWER')
+      return { text: 'FALLBACK_ANSWER', toolCalls: [], usage: { inputTokens: 5, outputTokens: 2 } }
+    },
+    async listModels() {
+      return ['fallback']
+    },
+  }
+  const wrapped = withFallbackProvider(primary, () => [fallback])
+  const res = await wrapped.chat({ messages: [{ role: 'user', content: 'hi' }] })
+  expect(res.text).toBe('FALLBACK_ANSWER')
+})
+
+test('Responses SSE preserves streamed function_call_arguments.delta when output_item.done has empty arguments string', async () => {
+  const f = vi.fn(async () =>
+    sse([
+      {
+        type: 'response.output_item.added',
+        output_index: 0,
+        item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'read', arguments: '' },
+      },
+      {
+        type: 'response.function_call_arguments.delta',
+        output_index: 0,
+        delta: '{"path":"a.txt"}',
+      },
+      {
+        type: 'response.output_item.done',
+        output_index: 0,
+        item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'read', arguments: '' },
+      },
+      {
+        type: 'response.completed',
+        response: { id: 'resp_done_empty', usage: { input_tokens: 5, output_tokens: 3 } },
+      },
+    ]),
+  )
+  const p = createProvider({
+    baseURL: 'https://api.botconnector.id/v1',
+    apiKey: 'bc_live_test_key',
+    model: 'gpt-6-luna',
+    providerId: 'bc-cloud',
+    fetch: f,
+  })
+  const res = await p.chat({ messages: [{ role: 'user', content: 'read' }], tools: [toolDef('read')] })
+  expect(res.toolCalls).toEqual([{ id: 'call_1', name: 'read', arguments: '{"path":"a.txt"}' }])
+
+  const progMsg: ChatMessage = {
+    role: 'assistant',
+    content: null,
+    responses_output_items: [{ type: 'program', id: 'p1', call_id: 'cp1', code: 'x', fingerprint: 'fp' }] as unknown as ResponseOutputItem[],
+  }
+  expect(hasPendingProgrammaticReplay([progMsg])).toBe(true)
+  expect(hasPendingProgrammaticReplay([progMsg, { role: 'tool', tool_call_id: 'c1', content: 'Cancelled by the user.' }])).toBe(false)
+  expect(hasPendingProgrammaticReplay([progMsg, { role: 'user', content: 'new turn' }])).toBe(false)
 })
