@@ -403,7 +403,7 @@ test('BotConnector BCCLI identity headers remain attached to official Cloud requ
   const [, init] = f.mock.calls[0] as unknown as [string, RequestInit]
   const headers = init.headers as Record<string, string>
   expect(headers['x-botconnector-client']).toBe('bccli')
-  expect(headers['x-botconnector-client-version']).toBe('0.4.2')
+  expect(headers['x-botconnector-client-version']).toBe('0.4.3')
 })
 
 test('BCCLI identity headers are not leaked to custom/non-BotConnector providers', async () => {

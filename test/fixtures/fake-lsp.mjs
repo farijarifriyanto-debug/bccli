@@ -17,6 +17,37 @@ const handle = (msg) => {
       },
     })
   }
+  if (msg.method === 'textDocument/didChange') {
+    send({
+      jsonrpc: '2.0',
+      method: 'textDocument/publishDiagnostics',
+      params: {
+        uri: msg.params.textDocument.uri,
+        diagnostics: [{ range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } }, severity: 2, message: `fake problem v${msg.params.textDocument.version}` }],
+      },
+    })
+  }
+  if (msg.method === 'textDocument/hover') {
+    send({
+      jsonrpc: '2.0',
+      id: msg.id,
+      result: { contents: { kind: 'markdown', value: `hover-doc pid=${process.pid} line=${msg.params.position.line}` } },
+    })
+  }
+  if (msg.method === 'textDocument/definition') {
+    send({
+      jsonrpc: '2.0',
+      id: msg.id,
+      result: [{ uri: msg.params.textDocument.uri, range: { start: { line: 4, character: 2 }, end: { line: 4, character: 8 } } }],
+    })
+  }
+  if (msg.method === 'textDocument/references') {
+    send({
+      jsonrpc: '2.0',
+      id: msg.id,
+      result: [{ uri: msg.params.textDocument.uri, range: { start: { line: 9, character: 0 }, end: { line: 9, character: 5 } } }],
+    })
+  }
   if (msg.method === 'shutdown') send({ jsonrpc: '2.0', id: msg.id, result: null })
   if (msg.method === 'exit') process.exit(0)
 }

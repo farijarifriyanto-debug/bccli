@@ -49,7 +49,11 @@ export async function runPrint(
           wroteText = true
         } else {
           result += event.delta
+          if (format === 'stream-json') emit({ type: 'text_delta', delta: event.delta })
         }
+        break
+      case 'thinking':
+        if (format === 'stream-json') emit({ type: 'thinking_delta', delta: event.delta })
         break
       case 'textReplace':
         result = event.text

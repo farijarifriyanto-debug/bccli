@@ -208,4 +208,30 @@ test('json and stream-json replace recovered textToolCalls via textReplace and i
   expect(parsed.usage).toMatchObject({ inputTokens: 32, outputTokens: 14 })
   expect(resolvePrintPrompt('explain this', 'piped log line')).toBe('piped log line\n\nexplain this')
   expect(resolvePrintPrompt(undefined, 'only stdin')).toBe('only stdin')
+
+  const oStream = io()
+  const rtStream = createRuntime({
+    cwd,
+    args: parseCliArgs(['-p', 'go']),
+    env: env(),
+    provider: {
+      async chat(req) {
+        req.onThinking?.('thinking-step-1')
+        req.onText?.('part-A ')
+        req.onText?.('part-B')
+        return { text: 'part-A part-B', toolCalls: [] }
+      },
+      async listModels() {
+        return []
+      },
+    },
+  })
+  expect(await runPrint(rtStream, 'go', oStream.io, { outputFormat: 'stream-json' })).toBe(0)
+  const streamEvents = oStream.out
+    .join('')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l))
+  expect(streamEvents.filter((e) => e.type === 'thinking_delta').map((e) => e.delta)).toEqual(['thinking-step-1'])
+  expect(streamEvents.filter((e) => e.type === 'text_delta').map((e) => e.delta)).toEqual(['part-A ', 'part-B'])
 })

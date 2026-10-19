@@ -726,3 +726,20 @@ test('a conversation loaded at start (-c / -r) is shown on screen, not only the 
   expect(all).toContain('pertanyaan lama')
   expect(all).toContain('jawaban lama')
 })
+
+test('!command and #memory prompt shortcuts execute locally without calling the LLM provider', async () => {
+  const rt = makeRuntime([])
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('#always use strict types')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => existsSync(join(rt.cwd, 'AGENTS.md')))
+  expect(readFileSync(join(rt.cwd, 'AGENTS.md'), 'utf8')).toContain('always use strict types')
+
+  stdin.write('!node -e "console.log(12345 + 54321)"')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.join('\n').includes('66666'))
+  expect(rt.agent.messages.some((m) => typeof m.content === 'string' && m.content.includes('66666'))).toBe(true)
+})

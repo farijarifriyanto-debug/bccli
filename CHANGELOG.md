@@ -3,6 +3,16 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## 0.4.3 - 2026-10-19
+
+Advanced next-gen capabilities: persistent warm LSP client with symbol navigation, Windows WSL2 `bwrap` sandbox bridge, `!cmd` / `#memory` TUI prompt shortcuts, and real-time `text_delta` / `thinking_delta` streaming in `-p --output-format stream-json`.
+
+### Added
+- **Persistent Warm LSP Client & Symbol Navigation (`src/lsp.ts`, `src/tools/diagnostics.ts`)**: `createWarmLspClient()` keeps language server processes warm across turns (`textDocument/didOpen` on first touch, incremental `textDocument/didChange` on edits) and adds `action: 'hover' | 'definition' | 'references'` (with 1-based `line` and `character`) to the `diagnostics` tool.
+- **Windows WSL2 `bwrap` Sandbox Bridge (`src/tools/sandbox.ts`)**: `winPathToWsl()` and `sandboxArgv(..., { wslBwrap: true })` (or `BCCLI_WIN32_WSL_SANDBOX=1`) enable Linux kernel `bwrap` filesystem/network namespace sandboxing for Windows projects via `wsl.exe -- bwrap`, while preserving fail-closed behavior when WSL sandboxing is not enabled.
+- **TUI Prompt Shortcuts (`!command` & `#memory` in `src/ui/App.tsx`)**: typing `!cmd` in the TUI executes the shell command locally without an LLM round-trip and attaches the output to the conversation context; typing `#note` saves the note directly to `AGENTS.md` / `BCCLI.md` and refreshes the system prompt.
+- **Real-Time Token Delta Streaming (`src/print.ts`)**: `-p --output-format stream-json` now emits real-time `text_delta` and `thinking_delta` JSONL events as tokens stream from the provider in addition to the final `message` and `result` events.
+
 ## 0.4.2 - 2026-10-19
 
 Security hardening, bug fixes, and feature upgrades across core tools, TUI/Vim, SDK/ACP/CLI, LSP, MCP, and providers.
