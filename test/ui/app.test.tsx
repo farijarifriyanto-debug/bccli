@@ -743,3 +743,26 @@ test('!command and #memory prompt shortcuts execute locally without calling the 
   await waitFor(() => frames.join('\n').includes('66666'))
   expect(rt.agent.messages.some((m) => typeof m.content === 'string' && m.content.includes('66666'))).toBe(true)
 })
+
+test('live Thinking spinner and expanded inspector show the currently running tool activity', async () => {
+  const rt = makeRuntime([
+    { text: '', toolCalls: [{ id: '1', name: 'bash', arguments: '{"command":"node -e \\"setTimeout(()=>{}, 800)\\""}' }] },
+    { text: 'TOOL_FINISHED', toolCalls: [] },
+  ])
+  rt.agent.permissions.mode = 'allowAll'
+  const { stdin, lastFrame, frames, unmount } = render(<App runtime={rt} version="test" />)
+  await wait()
+  await slash(stdin, '/config thinkingVisible true')
+  await slash(stdin, '/config thinkingClickCollapse true')
+  expect(rt.config.thinkingVisible).toBe(true)
+  expect(rt.config.thinkingClickCollapse).toBe(true)
+  stdin.write('jalankan bash')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => (lastFrame() ?? '').includes('Berpikir · Bash'))
+  expect(lastFrame()).toContain('Berpikir · Bash')
+  expect(lastFrame()).toContain('klik untuk buka/tutup')
+  expect(lastFrame()).toContain('▶ Bash')
+  await waitFor(() => frames.some((f) => f.includes('TOOL_FINISHED')), 6000)
+  unmount()
+}, 15000)

@@ -45,6 +45,7 @@ import { McpMenu, type McpMenuItem } from './McpMenu'
 import { PlanApproval } from './PlanApproval'
 import { TodoList } from './TodoList'
 import { ToolBlock } from './ToolBlock'
+import { toolLabel } from '../print'
 import { expandAtFileMentions } from './complete'
 import { replayEntries } from './replay'
 import { applyEvent, type Entry, endTurn, entry, type Transcript } from './transcript'
@@ -106,6 +107,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   const [queued, setQueued] = useState<string[]>([])
   const [showThinking, setShowThinking] = useState(runtime.config.thinkingVisible === true)
   const showThinkingRef = useRef(showThinking)
+  const [, setConfigRev] = useState(0)
   // The last turn summary is a single mutable inspector, never immutable Ink scrollback.
   const [lastThinking, setLastThinking] = useState('')
   const hasThinking = !!lastThinking.trim()
@@ -617,11 +619,17 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
             if (key === 'theme') writeGlobalConfig({ theme: val }, runtime.env)
             else if (key === 'editor' && (val === 'emacs' || val === 'vim')) writeGlobalConfig({ editor: val }, runtime.env)
             else if (key === 'repoMap') writeGlobalConfig({ repoMap: val === 'true' || val === 'on' }, runtime.env)
-            else if (key === 'thinkingVisible') writeGlobalConfig({ thinkingVisible: val === 'true' || val === 'on' }, runtime.env)
+            else if (key === 'thinkingVisible') {
+              const next = val === 'true' || val === 'on'
+              writeGlobalConfig({ thinkingVisible: next }, runtime.env)
+              showThinkingRef.current = next
+              setShowThinking(next)
+            } else if (key === 'thinkingClickCollapse') writeGlobalConfig({ thinkingClickCollapse: val === 'true' || val === 'on' }, runtime.env)
             else if (key === 'sandbox' && (val === 'on' || val === 'off')) writeGlobalConfig({ sandbox: val }, runtime.env)
             else if (key === 'networkPolicy' && (val === 'allow' || val === 'offline')) writeGlobalConfig({ networkPolicy: val }, runtime.env)
             else return false
             runtime.reloadConfig()
+            setConfigRev((n) => n + 1)
             notice(`${key} = ${val}`)
             return true
           }
@@ -635,6 +643,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
               { id: `editor:${c.editor === 'vim' ? 'emacs' : 'vim'}`, label: `editor: ${c.editor}`, hint: 'toggle emacs/vim' },
               { id: `repoMap:${!c.repoMap}`, label: `repoMap: ${c.repoMap}`, hint: 'toggle true/false' },
               { id: `thinkingVisible:${!c.thinkingVisible}`, label: `thinkingVisible: ${!!c.thinkingVisible}`, hint: 'toggle true/false' },
+              { id: `thinkingClickCollapse:${!c.thinkingClickCollapse}`, label: `thinkingClickCollapse: ${!!c.thinkingClickCollapse}`, hint: 'toggle true/false' },
               { id: `sandbox:${c.sandbox === 'on' ? 'off' : 'on'}`, label: `sandbox: ${c.sandbox}`, hint: 'toggle on/off' },
               { id: `networkPolicy:${c.networkPolicy === 'offline' ? 'allow' : 'offline'}`, label: `networkPolicy: ${c.networkPolicy ?? 'allow'}`, hint: 'toggle allow/offline' },
             ],
@@ -928,6 +937,16 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
     }
   }
 
+  const activeToolEntry = transcript.live.findLast((e): e is Extract<Entry, { kind: 'tool' }> => e.kind === 'tool' && !e.done)
+  const activeSub = activeToolEntry?.sub?.findLast((s) => !s.done)
+  const activeTarget = (activeSub ? `${toolLabel(activeSub.tool)} ${activeSub.target}` : activeToolEntry?.target ?? '').replace(/\s+/g, ' ').trim()
+  const activeSpinnerSummary = activeToolEntry
+    ? `${toolLabel(activeToolEntry.tool)}${activeTarget ? ` ${activeTarget.length > 20 ? `${activeTarget.slice(0, 20)}…` : activeTarget}` : ''}`
+    : ''
+  const activeToolSummary = activeToolEntry
+    ? `${toolLabel(activeToolEntry.tool)}${activeTarget ? ` ${activeTarget.length > 68 ? `${activeTarget.slice(0, 68)}…` : activeTarget}` : ''}`
+    : ''
+
   return (
     <Box ref={liveRootRef} flexDirection="column">
       <Static items={transcript.done}>{renderEntry}</Static>
@@ -936,7 +955,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
         <Box ref={thinkingTargetRef} marginTop={1} flexDirection="column">
           <Box flexDirection="row">
             {busy ? (
-              <Spinner label={cancelling ? t('Cancelling') : t('Thinking')} startedAt={startedAt} />
+              <Spinner label={cancelling ? t('Cancelling') : activeSpinnerSummary ? `${t('Thinking')} · ${activeSpinnerSummary}` : t('Thinking')} startedAt={startedAt} />
             ) : (
               <Text dimColor>{t('✻ Thinking')}</Text>
             )}
@@ -945,11 +964,12 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           {showThinking ? (
             <Box flexDirection="column" paddingLeft={2}>
               <Text dimColor>{t('Model: {model} · reasoning: {level}', { model: runtime.modelRef, level: reasoning })}</Text>
+              {activeToolSummary ? <Text dimColor>{`▶ ${activeToolSummary}`}</Text> : null}
               {lastThinking.trim() ? (
                 <Text dimColor italic>{lastThinking.trim()}</Text>
-              ) : (
+              ) : !activeToolSummary ? (
                 <Text dimColor>{t('No reasoning summary received yet; tool activity remains visible above.')}</Text>
-              )}
+              ) : null}
             </Box>
           ) : null}
         </Box>

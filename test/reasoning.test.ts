@@ -61,6 +61,34 @@ test('unknown/custom providers only allow Auto unless a contract is added', () =
   expect(() => reasoningPayload('corp', 'high')).toThrow(/Gunakan Auto/)
 })
 
+test('GMI Cloud, Vertex MaaS, DeepSeek, and Groq support manual reasoning_effort levels', () => {
+  for (const id of ['gmi', 'gmicloud', 'vertex-maas', 'deepseek', 'groq']) {
+    expect(reasoningPayload(id, 'high')).toEqual({ reasoning_effort: 'high' })
+  }
+})
+
+test('non-streaming JSON chat completion still fires onThinking and onText callbacks', async () => {
+  const f = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: 'hasil akhir', reasoning_content: 'langkah pikir' }, finish_reason: 'stop' }],
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+  )
+  const thoughts: string[] = []
+  const texts: string[] = []
+  const res = await createProvider({ baseURL: 'http://x', model: 'm', providerId: 'gmi', fetch: f }).chat({
+    messages: [{ role: 'user', content: 'halo' }],
+    onThinking: (d) => thoughts.push(d),
+    onText: (d) => texts.push(d),
+  })
+  expect(res.thinking).toBe('langkah pikir')
+  expect(thoughts.join('')).toBe('langkah pikir')
+  expect(texts.join('')).toBe('hasil akhir')
+})
+
 function scripted(steps: Completion[], requests: ChatRequest[]): Provider {
   return {
     async chat(req) {

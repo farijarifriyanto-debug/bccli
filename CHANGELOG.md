@@ -3,6 +3,15 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## 0.4.4 - 2026-10-19
+
+Fix `bash` tool hanging on background daemons (such as `agent-browser`) that inherit stdio pipes, show active tool progress in the live `Thinking` spinner and inspector, add `thinkingClickCollapse` to `/config`, and expand manual `/reasoning` support.
+
+### Fixed & Changed
+- **Prevent `bash` Tool Hang on Inherited Stdio Pipes (`src/tools/bash.ts`)**: `runCommand()` now listens to `child.on('exit')` with a 200ms pipe-drain grace timer, adds a 500ms post-kill timer on timeout/abort, and destroys `child.stdout` / `child.stderr` in `finish()` so background grandchildren (`agent-browser`, dev servers) can never block turn completion.
+- **Live Tool Activity in `Thinking` Spinner & Inspector (`src/ui/App.tsx`)**: the live `<Spinner>` header and expanded `Thinking` inspector now display the currently running tool (`Berpikir · Bash …` / `▶ Bash …`), and `/config` immediately applies `thinkingVisible` and `thinkingClickCollapse` changes to the active session.
+- **Manual `/reasoning` & Non-Streaming JSON Thinking (`src/reasoning.ts`, `src/provider.ts`)**: added `reasoning_effort` support for `gmi`, `gmicloud`, `vertex-maas`, `deepseek`, `groq`, `together`, `fireworks`, and `mistral`, and ensured non-streaming JSON chat completions invoke `onThinking` and `onText`.
+
 ## 0.4.3 - 2026-10-19
 
 Advanced next-gen capabilities: persistent warm LSP client with symbol navigation, Windows WSL2 `bwrap` sandbox bridge, `!cmd` / `#memory` TUI prompt shortcuts, and real-time `text_delta` / `thinking_delta` streaming in `-p --output-format stream-json`.
