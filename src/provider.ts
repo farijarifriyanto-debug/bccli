@@ -252,7 +252,7 @@ async function readStream(res: Response, onText?: (delta: string) => void, onThi
     if (!data || data === '[DONE]') return
     let event: {
       choices?: {
-        delta?: { content?: string; reasoning_content?: string; reasoning?: string; tool_calls?: RawToolCall[] }
+        delta?: { content?: string; reasoning_content?: string; reasoning?: string; thinking?: string; tool_calls?: RawToolCall[] }
         finish_reason?: string
       }[]
       usage?: RawUsage
@@ -269,7 +269,7 @@ async function readStream(res: Response, onText?: (delta: string) => void, onThi
     if (!choice) return
     if (choice.finish_reason) finishReason = choice.finish_reason
     const delta = choice.delta ?? {}
-    const reasoning = delta.reasoning_content || delta.reasoning
+    const reasoning = delta.reasoning_content || delta.reasoning || delta.thinking
     if (reasoning) emit({ text: '', thinking: reasoning })
     if (delta.content) emit(splitter.push(delta.content))
     for (const tc of delta.tool_calls ?? []) {
@@ -303,10 +303,10 @@ async function readStream(res: Response, onText?: (delta: string) => void, onThi
   return { text, toolCalls, thinking: thinking || undefined, usage, finishReason }
 }
 
-async function readJson(res: Response): Promise<Completion> {
+async function readJson(res: Response, onText?: (delta: string) => void, onThinking?: (delta: string) => void): Promise<Completion> {
   const body = (await res.json()) as {
     choices?: {
-      message?: { content?: string | null; reasoning_content?: string | null; reasoning?: string | null; tool_calls?: RawToolCall[] }
+      message?: { content?: string | null; reasoning_content?: string | null; reasoning?: string | null; thinking?: string | null; tool_calls?: RawToolCall[] }
       finish_reason?: string
     }[]
     usage?: RawUsage
@@ -318,7 +318,9 @@ async function readJson(res: Response): Promise<Completion> {
     arguments: tc.function?.arguments ?? '',
   }))
   const split = splitThinking(choice?.message?.content ?? '')
-  const thinking = (choice?.message?.reasoning_content || choice?.message?.reasoning || '') + split.thinking
+  const thinking = (choice?.message?.reasoning_content || choice?.message?.reasoning || choice?.message?.thinking || '') + split.thinking
+  if (thinking) onThinking?.(thinking)
+  if (split.text) onText?.(split.text)
   return { text: split.text, toolCalls, thinking: thinking || undefined, usage: toUsage(body.usage), finishReason: choice?.finish_reason }
 }
 
@@ -985,7 +987,7 @@ export function createProvider(options: ProviderOptions): Provider {
   const isBotConnectorCloud = /^https:\/\/api\.botconnector\.id\/v1\/?$/.test(baseURL) && apiKey?.startsWith('bc_live_')
   if (isBotConnectorCloud) {
     headers['x-botconnector-client'] = 'bccli'
-    headers['x-botconnector-client-version'] = '0.4.3'
+    headers['x-botconnector-client-version'] = '0.4.4'
   }
   const useNativeResponses = isBotConnectorCloud && providerId === 'bc-cloud' && model === 'gpt-6-luna'
   const useResponsesWebSocket =
@@ -1019,7 +1021,7 @@ export function createProvider(options: ProviderOptions): Provider {
         baseURL: baseURL.replace(/\/+$/, ''),
         defaultHeaders: {
           'x-botconnector-client': 'bccli',
-          'x-botconnector-client-version': '0.4.3',
+          'x-botconnector-client-version': '0.4.4',
         },
       })
       lunaWs = responsesWebSocketFactory ? responsesWebSocketFactory(client) : new ResponsesWS(client, { reconnect: null })
@@ -1206,7 +1208,7 @@ export function createProvider(options: ProviderOptions): Provider {
         { model, messages, stream: true, stream_options: { include_usage: true }, ...(tools?.length ? { tools } : {}), ...reasoningOverride },
         signal,
       )
-      if ((res.headers.get('content-type') ?? '').includes('application/json')) return readJson(res)
+      if ((res.headers.get('content-type') ?? '').includes('application/json')) return readJson(res, onText, onThinking)
       if (!res.body) throw new ProviderError(t('Empty response from the provider'))
       return readStream(res, onText, onThinking)
     },

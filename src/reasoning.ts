@@ -28,6 +28,14 @@ export function reasoningCapability(providerId?: string): ReasoningCapability | 
     case 'bc-cloud':
       return { levels: BOTCONNECTOR_LEVELS, parameter: 'reasoning_effort' }
     case 'openai':
+    case 'gmi':
+    case 'gmicloud':
+    case 'vertex-maas':
+    case 'deepseek':
+    case 'groq':
+    case 'together':
+    case 'fireworks':
+    case 'mistral':
       return { levels: OPENAI_LEVELS, parameter: 'reasoning_effort' }
     case 'openrouter':
       return { levels: ['auto', 'low', 'medium', 'high'], parameter: 'reasoning' }

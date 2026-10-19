@@ -66,3 +66,15 @@ test('killProcessTree survives a missing taskkill on Windows', () => {
   expect(() => killProcessTree(123, 'win32', () => fake as never)).not.toThrow()
   expect(() => fake.emit('error', new Error('spawn taskkill ENOENT'))).not.toThrow()
 })
+
+test('returns promptly when a command spawns a background grandchild that keeps stdio open', async () => {
+  const started = Date.now()
+  const r = await runCommand(
+    node("const {spawn}=require('node:child_process'); const c=spawn(process.execPath,['-e','setTimeout(()=>{},10000)'],{stdio:'inherit',detached:true}); c.unref(); console.log('MAIN_DONE'); process.exit(0)"),
+    { cwd, timeoutMs: 5000, signal: new AbortController().signal },
+  )
+  expect(r.output).toContain('MAIN_DONE')
+  expect(r.exitCode).toBe(0)
+  expect(r.timedOut).toBe(false)
+  expect(Date.now() - started).toBeLessThan(3000)
+})

@@ -103,9 +103,13 @@ function startBackground(command: string | string[], cwd: string, env?: NodeJS.P
     task.status = 'exited'
     task.head += `${task.head ? '\n' : ''}${error.message}`
   })
-  child.on('close', (code) => {
+  child.on('exit', (code) => {
     task.status = 'exited'
     task.exitCode = code
+  })
+  child.on('close', (code) => {
+    task.status = 'exited'
+    if (task.exitCode === null) task.exitCode = code
   })
   return task
 }
@@ -241,8 +245,39 @@ export function runCommand(
     }
     child.stdout.on('data', onData)
     child.stderr.on('data', onData)
+    let settled = false
+    let exitDrainTimer: ReturnType<typeof setTimeout> | undefined
+    let killDrainTimer: ReturnType<typeof setTimeout> | undefined
+    const finish = (exitCode: number | null, extra = '') => {
+      if (settled) return
+      settled = true
+      active.delete(killAsAborted)
+      clearTimeout(timer)
+      if (exitDrainTimer) clearTimeout(exitDrainTimer)
+      if (killDrainTimer) clearTimeout(killDrainTimer)
+      opts.signal.removeEventListener('abort', onAbort)
+      child.stdout.removeListener('data', onData)
+      child.stderr.removeListener('data', onData)
+      child.stdout.destroy()
+      child.stderr.destroy()
+      let spillNote = ''
+      if (dropped && fullChunks.length) {
+        try {
+          const spillPath = join(tmpdir(), `bccli-bash-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.log`)
+          writeFileSync(spillPath, fullChunks.join(''), 'utf8')
+          spillNote = `; full output saved to ${spillPath}`
+        } catch {
+          // best effort spill file
+        }
+      }
+      const output = dropped ? `${head}\n… [${dropped} characters truncated${spillNote}] …\n${tail}` : head + tail
+      resolve({ output: output + extra, exitCode, timedOut, aborted })
+    }
     const kill = () => {
       if (child.pid !== undefined) killProcessTree(child.pid)
+      if (!killDrainTimer) {
+        killDrainTimer = setTimeout(() => finish(child.exitCode), 500)
+      }
     }
     const killAsAborted = () => {
       aborted = true
@@ -259,30 +294,20 @@ export function runCommand(
     }
     if (opts.signal.aborted) onAbort()
     opts.signal.addEventListener('abort', onAbort, { once: true })
-    const finish = (exitCode: number | null, extra = '') => {
-      active.delete(killAsAborted)
-      clearTimeout(timer)
-      opts.signal.removeEventListener('abort', onAbort)
-      let spillNote = ''
-      if (dropped && fullChunks.length) {
-        try {
-          const spillPath = join(tmpdir(), `bccli-bash-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.log`)
-          writeFileSync(spillPath, fullChunks.join(''), 'utf8')
-          spillNote = `; full output saved to ${spillPath}`
-        } catch {
-          // best effort spill file
-        }
+    // When a command spawns a background daemon (e.g. agent-browser) that inherits stdio pipes,
+    // 'exit' fires when the shell finishes while 'close' would otherwise wait forever for the daemon.
+    child.on('exit', (code) => {
+      if (!exitDrainTimer) {
+        exitDrainTimer = setTimeout(() => finish(code), 200)
       }
-      const output = dropped ? `${head}\n… [${dropped} characters truncated${spillNote}] …\n${tail}` : head + tail
-      resolve({ output: output + extra, exitCode, timedOut, aborted })
-    }
+    })
     child.on('error', (error) => finish(null, error.message))
-    child.on('close', (code) => finish(code))
+    child.on('close', (code) => finish(code ?? child.exitCode))
   })
 }
 
 const BASH_DESCRIPTION =
-  'Run a shell command in the project directory. No interactive input. Default timeout 2 minutes (max 10). Use for tests, builds, git, and other CLI tasks. Set background: true for long-running jobs, then poll with task_id (stop with kill: true) or use the /tasks command.'
+  'Run a shell command in the project directory. No interactive input. Default timeout 2 minutes (max 10). Use for tests, builds, git, and other CLI tasks. Set background: true for long-running jobs, then poll with task_id (stop with kill: true) or use the /tasks command. Do not pipe commands that start background daemons (such as agent-browser) through | head or | tail.'
 
 const BASH_SCHEMA = z.object({
   command: z.string().optional().describe('The shell command to run (required unless task_id is set)'),
