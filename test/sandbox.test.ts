@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { darwinProfile, sandboxArgv, sandboxSupported } from '../src/tools/sandbox'
+import { darwinProfile, sandboxArgv, sandboxSupported, winPathToWsl } from '../src/tools/sandbox'
 import { createBashTool, runCommand } from '../src/tools/bash'
 import { ConfigError, loadConfig } from '../src/config'
 import type { ToolContext } from '../src/tools/types'
@@ -43,8 +43,13 @@ describe('sandbox', () => {
     expect(on).not.toContain('--unshare-net')
   })
 
-  it('win32 has no argv', () => {
+  it('win32 has no argv by default, and supports WSL2 bwrap sandbox when wslBwrap is enabled', () => {
     expect(sandboxArgv('ls', { platform: 'win32', cwd: 'C:/x', network: true })).toBeUndefined()
+    expect(winPathToWsl('C:\\Users\\farij\\repo')).toBe('/mnt/c/Users/farij/repo')
+    const wslArgv = sandboxArgv('npm test', { platform: 'win32', cwd: 'C:\\Users\\farij\\repo', network: false, wslBwrap: true })
+    expect(wslArgv?.slice(0, 3)).toEqual(['wsl.exe', '--', 'bwrap'])
+    expect(wslArgv).toContain('/mnt/c/Users/farij/repo')
+    expect(wslArgv).toContain('--unshare-net')
   })
 
   it('runCommand accepts an argv array (no shell)', async () => {

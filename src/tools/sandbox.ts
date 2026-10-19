@@ -2,6 +2,13 @@ export function sandboxSupported(platform: NodeJS.Platform): boolean {
   return platform === 'darwin' || platform === 'linux'
 }
 
+/** Converts a Windows drive path (`C:\Users\foo`) into its WSL `/mnt/c/Users/foo` mount path. */
+export function winPathToWsl(winPath: string): string {
+  const normalized = winPath.replace(/\\/g, '/')
+  const m = /^([A-Za-z]):\/(.*)$/.exec(normalized)
+  return m ? `/mnt/${m[1].toLowerCase()}/${m[2]}` : normalized
+}
+
 /** Seatbelt profile: read everything, write only under cwd + temp areas, network only when allowed. */
 export function darwinProfile(cwd: string, network: boolean): string {
   const writable = [cwd, '/tmp', '/private/tmp', '/dev', '/var/folders'].map((p) => `(subpath "${p}")`).join(' ')
@@ -23,7 +30,10 @@ export function darwinProfile(cwd: string, network: boolean): string {
  * Wrap a shell command in the platform sandbox, or undefined when the platform has none
  * (the caller then refuses to run it sandboxed rather than silently running it raw).
  */
-export function sandboxArgv(command: string, opts: { platform: NodeJS.Platform; cwd: string; network: boolean }): string[] | undefined {
+export function sandboxArgv(
+  command: string,
+  opts: { platform: NodeJS.Platform; cwd: string; network: boolean; wslBwrap?: boolean },
+): string[] | undefined {
   if (opts.platform === 'darwin') {
     return ['sandbox-exec', '-p', darwinProfile(opts.cwd, opts.network), '/bin/bash', '-c', command]
   }
@@ -41,6 +51,33 @@ export function sandboxArgv(command: string, opts: { platform: NodeJS.Platform; 
       '--bind',
       opts.cwd,
       opts.cwd,
+      '--tmpfs',
+      '/tmp',
+      '--die-with-parent',
+      ...(opts.network ? [] : ['--unshare-net']),
+      '--',
+      '/bin/bash',
+      '-c',
+      command,
+    ]
+  }
+  if (opts.platform === 'win32' && (opts.wslBwrap || process.env.BCCLI_WIN32_WSL_SANDBOX === '1')) {
+    const wslCwd = winPathToWsl(opts.cwd)
+    return [
+      'wsl.exe',
+      '--',
+      'bwrap',
+      '--ro-bind',
+      '/',
+      '/',
+      '--dev-bind',
+      '/dev',
+      '/dev',
+      '--proc',
+      '/proc',
+      '--bind',
+      wslCwd,
+      wslCwd,
       '--tmpfs',
       '/tmp',
       '--die-with-parent',

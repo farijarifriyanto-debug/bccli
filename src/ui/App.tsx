@@ -9,7 +9,8 @@ import { BUILTIN_AGENTS } from '../agents'
 import { expandCommand, parseSlash, prReviewPrompt, SLASH_COMMANDS } from '../commands'
 import { removeCredential } from '../config'
 import { runHooks } from '../hooks'
-import { renderBackgroundTasks } from '../tools/bash'
+import { renderBackgroundTasks, runCommand } from '../tools/bash'
+import { resolveShell } from '../tools/shell'
 import { assertReasoningSupported, parseReasoningLevel, REASONING_LEVELS, supportedReasoningLevels, type ReasoningLevel } from '../reasoning'
 import { Session } from '../session'
 import { osc52 } from '../slash/copy'
@@ -661,6 +662,23 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   const submit = useCallback(
     (text: string) => {
       setHistory((h) => [...h, text])
+      if (text.startsWith('#') && text.slice(1).trim()) {
+        void runSlash('memory', text.slice(1).trim())
+        return
+      }
+      if (text.startsWith('!') && text.slice(1).trim()) {
+        const cmd = text.slice(1).trim()
+        setTranscript((tr) => ({ ...tr, done: [...tr.done, entry({ kind: 'user', text })] }))
+        const shell = resolveShell({ platform: process.platform, env: runtime.env, exists: existsSync })
+        void runCommand(cmd, { cwd: runtime.cwd, timeoutMs: 60_000, signal: new AbortController().signal, shell }).then((r) => {
+          const out = r.output.trim() || '(no output)'
+          notice(`$ ${cmd}\n${out}`, r.exitCode ? 'error' : 'info')
+          const ctxMsg = { role: 'user' as const, content: `Local shell command executed:\n$ ${cmd}\n${out}` }
+          runtime.agent.messages.push(ctxMsg)
+          runtime.session.append(ctxMsg)
+        })
+        return
+      }
       const slash = parseSlash(text)
       if (!slash) {
         void runTurn(text)

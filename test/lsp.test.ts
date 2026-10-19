@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { createLspParser, encodeLsp, getDiagnostics, languageIdFor, useShellForLsp } from '../src/lsp'
+import { createLspParser, createWarmLspClient, encodeLsp, getDiagnostics, languageIdFor, useShellForLsp } from '../src/lsp'
 import { createDiagnosticsTool } from '../src/tools/diagnostics'
 import { ConfigError, loadConfig } from '../src/config'
 import type { ToolContext } from '../src/tools/types'
@@ -90,5 +90,40 @@ describe('lsp diagnostics', () => {
     const cfg = loadConfig(project, { BCCLI_HOME: home })
     expect(cfg.lsp?.servers).toHaveLength(1)
     expect(cfg.lsp?.servers[0].command).toBe('typescript-language-server')
+  })
+
+  it('warm LSP client reuses a single process across diagnostics (didOpen -> didChange), hover, definition, and references', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'bccli-lsp-warm-'))
+    const file = join(root, 'a.ts')
+    writeFileSync(file, 'const x = 1\n')
+    const warm = createWarmLspClient({ server: SERVER, cwd: root })
+    try {
+      const d1 = await warm.diagnostics(file)
+      expect(d1[0]?.message).toBe('fake problem')
+      writeFileSync(file, 'const x = 2\n')
+      const d2 = await warm.diagnostics(file)
+      expect(d2[0]?.message).toBe('fake problem v2')
+
+      const h1 = await warm.hover(file, 0, 6)
+      const h2 = await warm.hover(file, 1, 2)
+      expect(h1).toContain('hover-doc pid=')
+      expect(h1).toContain('line=0')
+      const pid1 = /pid=(\d+)/.exec(h1)?.[1]
+      const pid2 = /pid=(\d+)/.exec(h2)?.[1]
+      expect(pid1).toBeDefined()
+      expect(pid1).toBe(pid2)
+
+      const tool = createDiagnosticsTool([SERVER])
+      const ctx: ToolContext = { cwd: root, signal: new AbortController().signal, readFiles: new Set<string>() }
+      const hoverRes = await tool.run({ path: 'a.ts', action: 'hover', line: 3, character: 5 }, ctx)
+      expect(hoverRes.output).toContain('hover-doc')
+      expect(hoverRes.output).toContain('line=2')
+      const defRes = await tool.run({ path: 'a.ts', action: 'definition', line: 1, character: 1 }, ctx)
+      expect(defRes.output).toContain('a.ts:5:3')
+      const refRes = await tool.run({ path: 'a.ts', action: 'references', line: 1, character: 1 }, ctx)
+      expect(refRes.output).toContain('a.ts:10:1')
+    } finally {
+      await warm.close()
+    }
   })
 })
