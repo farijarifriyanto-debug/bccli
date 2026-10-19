@@ -107,3 +107,29 @@ test('[s] yes-to-all is always offered, even when [a] is not', async () => {
   await tick()
   expect(onAnswer).toHaveBeenCalledWith('all')
 })
+
+test('PermissionPrompt windows long diffs (> 16 lines) and scrolls with arrows or 2-finger touchpad wheel', async () => {
+  const longDiff = Array.from({ length: 30 }, (_, i) => `    ${i + 1} + DIFF_LINE_${i}`).join('\n')
+  const { stdin, lastFrame } = render(
+    <PermissionPrompt request={{ tool: 'edit', kind: 'edit', target: 'a.ts', preview: longDiff }} onAnswer={() => {}} />,
+  )
+  await tick()
+  expect(lastFrame()).toContain('DIFF_LINE_0')
+  expect(lastFrame()).not.toContain('DIFF_LINE_25')
+  // Scroll down with touchpad wheel
+  for (let i = 0; i < 5; i++) stdin.write('\x1b[<65;10;10M')
+  await tick()
+  expect(lastFrame()).not.toContain('DIFF_LINE_0')
+  expect(lastFrame()).toContain('DIFF_LINE_18')
+})
+
+test('ToolBlock truncates long diffs (> 20 lines) until expanded with ctrl+o', () => {
+  const longDiff = Array.from({ length: 30 }, (_, i) => `    ${i + 1} + EDIT_LINE_${i}`).join('\n')
+  const collapsed = render(<ToolBlock tool="edit" target="a.ts" display={longDiff} done expanded={false} />).lastFrame()!
+  expect(collapsed).toContain('EDIT_LINE_0')
+  expect(collapsed).not.toContain('EDIT_LINE_25')
+  expect(collapsed).toContain('ctrl+o')
+
+  const expanded = render(<ToolBlock tool="edit" target="a.ts" display={longDiff} done expanded={true} />).lastFrame()!
+  expect(expanded).toContain('EDIT_LINE_25')
+})

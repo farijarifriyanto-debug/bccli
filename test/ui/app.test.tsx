@@ -840,3 +840,58 @@ test('Thinking is rendered at its chronological position above tool calls and as
   expect(expandedFrame.indexOf('PIKIRAN_ATAS_SEBELUM_TOOL')).toBeLessThan(expandedFrame.indexOf('● JAWABAN_AKHIR_BAWAH'))
   unmount()
 })
+
+test('mouse reporting turns off as soon as a turn with Thinking finishes so native touchpad/wheel scroll works when idle', async () => {
+  const rt = makeRuntime([])
+  rt.config.thinkingClickCollapse = true
+  rt.agent.provider = {
+    async chat(req) {
+      req.onThinking?.('pikiran selesai')
+      req.onText?.('jawaban selesai')
+      return { text: 'jawaban selesai', thinking: 'pikiran selesai', toolCalls: [] }
+    },
+    async listModels() {
+      return []
+    },
+  }
+  const { stdin, stdout, frames, unmount } = render(<App runtime={rt} version="test" />)
+  Object.assign(stdout, { isTTY: true })
+  await wait()
+  stdin.write('uji scroll setelah thinking')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('jawaban selesai')))
+  await wait(50)
+  const rawOut = frames.join('')
+  const lastEnable = rawOut.lastIndexOf('\x1b[?1000h')
+  const lastDisable = rawOut.lastIndexOf('\x1b[?1000l')
+  expect(lastDisable).toBeGreaterThanOrEqual(lastEnable)
+  unmount()
+})
+
+test('/rewind removes the rewound turn from the visible transcript and /resume after a longer session still renders the shorter session', async () => {
+  const rt = makeRuntime([
+    { text: 'JAWAB_TURN_1', toolCalls: [] },
+    { text: 'JAWAB_TURN_2', toolCalls: [] },
+  ])
+  const { stdin, lastFrame, frames, unmount } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('TANYA_TURN_1')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('JAWAB_TURN_1')))
+  stdin.write('TANYA_TURN_2')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((f) => f.includes('JAWAB_TURN_2')))
+  expect(lastFrame()).toContain('TANYA_TURN_2')
+  expect(lastFrame()).toContain('JAWAB_TURN_2')
+
+  await slash(stdin, '/rewind 1')
+  await waitFor(() => frames.some((f) => f.includes('1 giliran di-rewind')))
+  expect(lastFrame()).toContain('TANYA_TURN_1')
+  expect(lastFrame()).toContain('JAWAB_TURN_1')
+  expect(lastFrame()).not.toContain('TANYA_TURN_2')
+  expect(lastFrame()).not.toContain('JAWAB_TURN_2')
+  unmount()
+})

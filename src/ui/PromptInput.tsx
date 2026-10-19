@@ -1,10 +1,10 @@
 import { Box, Text, useInput } from 'ink'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { SLASH_COMMANDS } from '../commands'
-import { completeFile } from './complete'
+import { applyFileSuggestion, completeFile, listFileSuggestions } from './complete'
 import { EditableText } from './EditableText'
 import { isFocusReport } from './focusReport'
-import { isMouseControlInput } from './thinkingMouse'
+import { isMouseControlInput, parseMouseWheel } from './thinkingMouse'
 import { applyEditKey, insert, type LineState, moveLine } from './lineEdit'
 import { applyVim, type VimMode } from './vim'
 import { color } from './theme'
@@ -26,6 +26,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
   const [line, setLine] = useState<LineState>({ value: '', cursor: 0 })
   const { value } = line
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
+  const draftRef = useRef('')
   const [selected, setSelected] = useState(0)
   const [dismissed, setDismissed] = useState(false)
   const [vimMode, setVimMode] = useState<VimMode>('insert')
@@ -44,7 +45,13 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
     historyIndex === null && !dismissed && value.startsWith('/') && !/\s/.test(value)
       ? all.filter((c) => c.name.startsWith(value.slice(1))).slice(0, 8)
       : []
-  const highlighted = Math.min(selected, Math.max(0, suggestions.length - 1))
+  const beforeCursor = value.slice(0, line.cursor)
+  const fileSuggestions =
+    historyIndex === null && !dismissed && !suggestions.length && /(^|\s)@([^\s]*)$/.test(beforeCursor)
+      ? listFileSuggestions(beforeCursor, cwd, 8)
+      : []
+  const activeCount = suggestions.length || fileSuggestions.length
+  const highlighted = Math.min(selected, Math.max(0, activeCount - 1))
   // The cursor goes to the end of text that was not typed here (history, completion, a chosen command).
   const typed = (text: string): LineState => ({ value: text, cursor: text.length })
   const edit = (next: LineState | ((s: LineState) => LineState)) => {
@@ -56,6 +63,13 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
 
   useInput(
     (input, key) => {
+      const wheel = parseMouseWheel(input)
+      if (wheel) {
+        if (activeCount > 0) {
+          setSelected(( current ) => (wheel === 'up' ? Math.max(0, Math.min(current, activeCount - 1) - 1) : Math.min(activeCount - 1, Math.min(current, activeCount - 1) + 1)))
+        }
+        return
+      }
       if (isMouseControlInput(input)) return
       // While slash suggestions are open, arrows pick one, Enter runs it, Tab completes it, Esc closes it.
       if (suggestions.length) {
@@ -75,10 +89,31 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
           edit(typed(`/${suggestions[highlighted].name} `))
           return
         }
-        if (key.return && !key.meta) {
+        if (key.return && !key.meta && !key.shift) {
           edit(typed(''))
           setHistoryIndex(null)
+          draftRef.current = ''
           onSubmit(`/${suggestions[highlighted].name}`)
+          return
+        }
+      }
+      // While @file suggestions are open, arrows pick one, Tab completes it, Esc closes the list.
+      if (fileSuggestions.length) {
+        if (key.escape) {
+          setDismissed(true)
+          return
+        }
+        if (key.upArrow) {
+          setSelected(Math.max(0, highlighted - 1))
+          return
+        }
+        if (key.downArrow) {
+          setSelected(Math.min(fileSuggestions.length - 1, highlighted + 1))
+          return
+        }
+        if (key.tab && !key.shift) {
+          const completed = applyFileSuggestion(beforeCursor, fileSuggestions[highlighted])
+          edit({ value: completed + value.slice(line.cursor), cursor: completed.length })
           return
         }
       }
@@ -92,7 +127,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
           return
         }
       }
-      if ((key.return && key.meta) || (key.ctrl && input.toLowerCase() === 'j')) {
+      if ((key.return && (key.meta || key.shift)) || (key.ctrl && input.toLowerCase() === 'j') || input === '\n') {
         edit((current) => insert(current, '\n'))
         return
       }
@@ -107,6 +142,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
         if (!text) return
         edit(typed(''))
         setHistoryIndex(null)
+        draftRef.current = ''
         setVimMode('insert')
         setVimPending(undefined)
         onSubmit(text)
@@ -128,6 +164,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
       }
       if (key.upArrow) {
         if (!history.length) return
+        if (historyIndex === null) draftRef.current = value
         const i = historyIndex === null ? history.length - 1 : Math.max(0, historyIndex - 1)
         setHistoryIndex(i)
         setLine(typed(history[i]))
@@ -137,7 +174,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
         if (historyIndex === null) return
         const i = historyIndex + 1
         setHistoryIndex(i >= history.length ? null : i)
-        setLine(typed(i >= history.length ? '' : history[i]))
+        setLine(typed(i >= history.length ? draftRef.current : history[i]))
         return
       }
       if (key.tab && !key.shift) {
@@ -166,6 +203,11 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
       {suggestions.map((s, i) => (
         <Text key={s.name} color={i === highlighted ? color('green') : undefined} dimColor={i !== highlighted}>
           {`${i === highlighted ? '›' : ' '} /${s.name}  ${t(s.description)}`}
+        </Text>
+      ))}
+      {fileSuggestions.map((f, i) => (
+        <Text key={f} color={i === highlighted ? color('green') : undefined} dimColor={i !== highlighted}>
+          {`${i === highlighted ? '›' : ' '} @${f}`}
         </Text>
       ))}
     </Box>

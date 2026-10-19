@@ -3,6 +3,24 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## 0.4.6 - 2026-10-19
+
+Fix terminal mouse wheel & 2-finger touchpad scrolling, prevent screen clearing/scrollback wiping on long turns, add mouse wheel / touchpad scrolling to all interactive pickers and approval modals, and improve prompt input usability.
+
+### Fixed & Changed
+- **Native Terminal Mouse Wheel & 2-Finger Touchpad Scroll (`src/ui/App.tsx`, `src/ui/thinkingMouse.ts`)**:
+  - Kept all `transcript.done` entries inside `<Static key={staticKey}>` and capped live streaming height so Ink's dynamic frame never exceeds the terminal viewport height (`shouldClearTerminalForFrame`), preventing `\x1b[3J` scrollback wipes and viewport jumps during streaming or typing.
+  - Turned off SGR mouse tracking (`\x1b[?1000l\x1b[?1006l`) immediately when a turn ends even if `thinkingClickCollapse` is enabled, and ensured real TTYs reset stuck mouse tracking on startup/exit.
+  - Hardened `isMouseControlInput` to filter SGR, Urxvt, X10, coalesced, and split mouse/touchpad scroll sequences so they never leak into prompt text or filter inputs.
+- **2-Finger Touchpad & Mouse Wheel Scrolling in All Menus & Modals (`src/ui/ModelPicker.tsx`, `src/ui/ListPicker.tsx`, `src/ui/ProviderMenu.tsx`, `src/ui/McpMenu.tsx`, `src/ui/PermissionPrompt.tsx`, `src/ui/PlanApproval.tsx`)**:
+  - Added `parseMouseWheel` support (`up`/`down`) and `PageUp`/`PageDown` navigation across all pickers, menus, and suggestion lists.
+  - Added scrollable diff/plan windows (`MAX_DIFF_LINES = 16`, `MAX_PLAN_LINES = 16`) in `PermissionPrompt` and `PlanApproval`, and truncated long diffs (`> 20` lines) in `ToolBlock` until expanded with `ctrl+o`.
+- **Prompt Input & Session Usability (`src/ui/PromptInput.tsx`, `src/ui/EditableText.tsx`, `src/ui/complete.ts`, `src/ui/App.tsx`, `src/ui/transcript.ts`)**:
+  - Preserved unsent draft text when navigating history with `↑` and returning with `↓`.
+  - Added `Shift+Enter`, `Ctrl+J`, and Bracketed Paste (`\x1b[?2004h`) multi-line input support without accidental auto-submission, plus 10-line cursor windowing in `EditableText`.
+  - Added live `@file` autocomplete suggestions dropdown navigated via `↑`/`↓` or touchpad scroll and completed with `Tab`.
+  - Updated `/clear`, `/new`, `/resume`, and `/rewind` to refresh `<Static>` cleanly so rewound turns disappear from screen and shorter resumed sessions always render.
+
 ## 0.4.5 - 2026-10-19
 
 Render `Thinking` blocks in their chronological position at the top (before each step's tool call or assistant response, matching Claude Code and OpenCode) and make `ctrl+o` a reversible in-place expand/collapse toggle for tool outputs without duplicating scrollback.

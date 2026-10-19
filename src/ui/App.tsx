@@ -108,15 +108,17 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   const [showThinking, setShowThinking] = useState(runtime.config.thinkingVisible === true)
   const showThinkingRef = useRef(showThinking)
   const [showToolOutput, setShowToolOutput] = useState(false)
+  const [staticKey, setStaticKey] = useState(0)
   const [, setConfigRev] = useState(0)
-  const lastUserIdx = transcript.done.findLastIndex((e) => e.kind === 'user')
-  const staticDone = lastUserIdx > 0 ? transcript.done.slice(0, lastUserIdx) : []
-  const activeTurnDone = lastUserIdx > 0 ? transcript.done.slice(lastUserIdx) : transcript.done
-  const activeTurnEntries = [...activeTurnDone, ...transcript.live]
-  const lastThinkingEntryId = activeTurnEntries.findLast((e) => e.kind === 'thinking' && !!e.text.trim())?.id
-  const hasThinking = lastThinkingEntryId !== undefined
+  const liveThinkingEntryId = transcript.live.findLast((e) => e.kind === 'thinking' && !!e.text.trim())?.id
   const { stdin } = useStdin()
   const { stdout } = useStdout()
+  const refreshStatic = useCallback(() => {
+    if (stdout?.isTTY && 'fd' in stdout) {
+      stdout.write('\x1b[2J\x1b[3J\x1b[H')
+    }
+    setStaticKey((k) => k + 1)
+  }, [stdout])
   const liveRootRef = useRef<DOMElement>(null)
   const thinkingTargetRef = useRef<DOMElement>(null)
   const [injected, setInjected] = useState<{ text: string; n: number } | undefined>()
@@ -226,7 +228,8 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           runtime.agent.clear()
           setTokens(0)
           setShowToolOutput(false)
-          setTranscript((t) => ({ ...t, done: t.done.filter((e) => e.kind !== 'thinking') }))
+          setTranscript({ done: [entry({ kind: 'header' })], live: [] })
+          refreshStatic()
           notice(t('Conversation cleared.'))
           return
         case 'cost': {
@@ -324,7 +327,8 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           runtime.newSession()
           setTokens(0)
           setShowToolOutput(false)
-          setTranscript((t) => ({ ...t, done: t.done.filter((e) => e.kind !== 'thinking') }))
+          setTranscript({ done: [entry({ kind: 'header' })], live: [] })
+          refreshStatic()
           notice(t('New session started. The previous session stays saved (/resume).'))
           return
         case 'session':
@@ -356,9 +360,11 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
               const chosen = others.find((s) => s.session.file === id)
               if (!chosen) return
               runtime.resume(chosen.session)
+              setModelLabel(labelFor(runtime, runtime.modelRef))
               setTokens(0)
               setShowToolOutput(false)
               setTranscript({ done: [entry({ kind: 'header' }), ...replayEntries(chosen.session.loadHistory())], live: [] })
+              refreshStatic()
             },
           })
           return
@@ -565,6 +571,15 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
             notice(t('Nothing to rewind.'))
             return
           }
+          setTranscript((tr) => {
+            const userIndices: number[] = []
+            tr.done.forEach((e, idx) => {
+              if (e.kind === 'user') userIndices.push(idx)
+            })
+            const cutIdx = userIndices[Math.max(0, userIndices.length - result.turns)]
+            return cutIdx !== undefined ? { done: tr.done.slice(0, cutIdx), live: [] } : tr
+          })
+          refreshStatic()
           const rel = (p: string) => relative(runtime.cwd, p) || p
           notice(
             [
@@ -629,6 +644,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
               writeGlobalConfig({ thinkingVisible: next }, runtime.env)
               showThinkingRef.current = next
               setShowThinking(next)
+              refreshStatic()
             } else if (key === 'thinkingClickCollapse') writeGlobalConfig({ thinkingClickCollapse: val === 'true' || val === 'on' }, runtime.env)
             else if (key === 'sandbox' && (val === 'on' || val === 'off')) writeGlobalConfig({ sandbox: val }, runtime.env)
             else if (key === 'networkPolicy' && (val === 'allow' || val === 'offline')) writeGlobalConfig({ networkPolicy: val }, runtime.env)
@@ -665,7 +681,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           notice(t('Unknown command: /{name}. Type /help.', { name }), 'warn')
       }
     },
-    [runtime, notice, exit, version, runTurn, ask],
+    [runtime, notice, exit, version, runTurn, ask, refreshStatic],
   )
   // A failing command (locked file, unwritable folder) must not take the whole app down.
   const runSlash = useCallback(
@@ -683,14 +699,24 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
       if (text.startsWith('!') && text.slice(1).trim()) {
         const cmd = text.slice(1).trim()
         setTranscript((tr) => ({ ...tr, done: [...tr.done, entry({ kind: 'user', text })] }))
+        setBusy(true)
+        setStartedAt(Date.now())
+        const ctrl = new AbortController()
+        controller.current = ctrl
         const shell = resolveShell({ platform: process.platform, env: runtime.env, exists: existsSync })
-        void runCommand(cmd, { cwd: runtime.cwd, timeoutMs: 60_000, signal: new AbortController().signal, shell }).then((r) => {
-          const out = r.output.trim() || '(no output)'
-          notice(`$ ${cmd}\n${out}`, r.exitCode ? 'error' : 'info')
-          const ctxMsg = { role: 'user' as const, content: `Local shell command executed:\n$ ${cmd}\n${out}` }
-          runtime.agent.messages.push(ctxMsg)
-          runtime.session.append(ctxMsg)
-        })
+        void runCommand(cmd, { cwd: runtime.cwd, timeoutMs: 60_000, signal: ctrl.signal, shell })
+          .then((r) => {
+            const out = r.output.trim() || '(no output)'
+            notice(`$ ${cmd}\n${out}`, r.exitCode ? 'error' : 'info')
+            const ctxMsg = { role: 'user' as const, content: `Local shell command executed:\n$ ${cmd}\n${out}` }
+            runtime.agent.messages.push(ctxMsg)
+            runtime.session.append(ctxMsg)
+          })
+          .finally(() => {
+            controller.current = null
+            setBusy(false)
+            setCancelling(false)
+          })
         return
       }
       const slash = parseSlash(text)
@@ -747,13 +773,35 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
     const next = !showThinkingRef.current
     showThinkingRef.current = next
     setShowThinking(next)
+    refreshStatic()
     try {
       writeGlobalConfig({ thinkingVisible: next }, runtime.env)
     } catch (error) {
       notice(t('Could not save thinking visibility: {error}', { error: (error as Error).message }), 'warn')
     }
     // Do not append to transcript.done: Ink <Static> is write-once scrollback.
-  }, [runtime, notice])
+  }, [runtime, notice, refreshStatic])
+
+  // Ensure real TTY starts with mouse tracking off (so native mouse wheel,
+  // 2-finger touchpad scroll, and drag-to-copy work) and bracketed paste on.
+  useEffect(() => {
+    if (!stdout?.isTTY || !('fd' in stdout)) return
+    stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004h')
+    return () => {
+      stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l')
+    }
+  }, [stdout])
+
+  // Enable SGR mouse wheel / 2-finger touchpad scrolling while a modal picker
+  // or approval is open on a real TTY, and restore native scrollback on close.
+  const scrollableModalOpen = !!(picker || listPicker || mcpMenu || providerMenu || pending || planAsk)
+  useEffect(() => {
+    if (!scrollableModalOpen || !stdout?.isTTY || !('fd' in stdout)) return
+    stdout.write('\x1b[?1000h\x1b[?1006h')
+    return () => {
+      stdout.write('\x1b[?1000l\x1b[?1006l')
+    }
+  }, [scrollableModalOpen, stdout])
 
   // Ink has no mouse handler: temporarily enable SGR left-click reports while
   // Thinking is active. Cursor-position response maps Ink's live layout to
@@ -762,7 +810,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   // turning drag into a text selection, so it stays off unless asked for.
   useEffect(() => {
     const modalOpen = !!(pending || planAsk || picker || listPicker || mcpMenu || providerMenu || prompt)
-    if (!runtime.config.thinkingClickCollapse || (!busy && !hasThinking) || modalOpen || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
+    if (!runtime.config.thinkingClickCollapse || !busy || modalOpen || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
     let click: { x: number; y: number } | undefined
     let mouseBuffer = ''
     const onData = (data: Buffer | string) => {
@@ -791,7 +839,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
       stdin.off('data', onData)
       stdout.write('\x1b[?1000l\x1b[?1006l')
     }
-  }, [busy, pending, planAsk, picker, listPicker, mcpMenu, providerMenu, prompt, stdin, stdout, toggleThinking, hasThinking, runtime.config.thinkingClickCollapse])
+  }, [busy, pending, planAsk, picker, listPicker, mcpMenu, providerMenu, prompt, stdin, stdout, toggleThinking, runtime.config.thinkingClickCollapse])
 
   useInput((input, key) => {
     if (key.tab && key.shift) {
@@ -819,6 +867,9 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
       toggleThinking()
     } else if (matchKeybind(runtime.config.keybinds.toolOutput, input, key)) {
       setShowToolOutput((prev) => !prev)
+      refreshStatic()
+    } else if (key.ctrl && input.toLowerCase() === 'l') {
+      refreshStatic()
     }
   })
 
@@ -887,8 +938,21 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
     setAsks((q) => q.slice(1))
   }
 
+  const isRealTty = Boolean(stdout?.isTTY && 'fd' in stdout)
+  const maxLiveLines = Math.max(8, (stdout?.rows ?? 24) - 10)
+  const capLiveMarkdown = (raw: string): string => {
+    if (!isRealTty) return raw
+    const lines = raw.split('\n')
+    if (lines.length <= maxLiveLines) return raw
+    const hidden = lines.length - maxLiveLines
+    const headFence = lines.slice(0, hidden).find((l) => l.trimStart().startsWith('```'))
+    const prefix = headFence ? `${headFence}\n… (${hidden} lines above) …\n` : `… (${hidden} lines above) …\n`
+    return `${prefix}${lines.slice(-maxLiveLines).join('\n')}`
+  }
+
   const cwd = runtime.cwd.startsWith(homedir()) ? `~${runtime.cwd.slice(homedir().length)}` : runtime.cwd
   const renderEntry = (e: Entry) => {
+    const isLive = transcript.live.some((le) => le.id === e.id)
     switch (e.kind) {
       case 'header':
         return (
@@ -908,26 +972,32 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
             <Text dimColor>{`> ${e.text}`}</Text>
           </Box>
         )
-      case 'assistant':
+      case 'assistant': {
+        const displayText = isLive ? capLiveMarkdown(e.text) : e.text
         if (e.cont) {
-          return e.text ? (
+          return displayText ? (
             <Box key={e.id} paddingLeft={2}>
-              <Markdown text={e.text} />
+              <Markdown text={displayText} />
             </Box>
           ) : null
         }
-        if (!e.text.trim()) return null
+        if (!displayText.trim()) return null
         return (
           <Box key={e.id} marginTop={1}>
             <Text color={color(ACCENT)}>● </Text>
-            <Markdown text={e.text.replace(/^\s+/, '')} />
+            <Markdown text={displayText.replace(/^\s+/, '')} />
           </Box>
         )
+      }
       case 'thinking': {
         const text = e.text.trim()
         if (!text) return null
-        const lines = text.split('\n').length
-        const isTarget = e.id === lastThinkingEntryId
+        const allLines = text.split('\n')
+        const lines = allLines.length
+        const shownText = isLive && isRealTty && allLines.length > maxLiveLines
+          ? `… (${allLines.length - maxLiveLines} lines above) …\n${allLines.slice(-maxLiveLines).join('\n')}`
+          : text
+        const isTarget = e.id === liveThinkingEntryId
         return (
           <Box key={e.id} ref={isTarget ? thinkingTargetRef : undefined} marginTop={1} flexDirection="column">
             <Box flexDirection="row">
@@ -937,7 +1007,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
             {showThinking ? (
               <Box flexDirection="column" paddingLeft={2}>
                 <Text dimColor>{t('Model: {model} · reasoning: {level}', { model: runtime.modelRef, level: reasoning })}</Text>
-                <Text dimColor italic>{text}</Text>
+                <Text dimColor italic>{shownText}</Text>
               </Box>
             ) : null}
           </Box>
@@ -970,16 +1040,15 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
 
   return (
     <Box ref={liveRootRef} flexDirection="column">
-      <Static items={staticDone}>{renderEntry}</Static>
-      {activeTurnDone.map(renderEntry)}
+      <Static key={staticKey} items={transcript.done}>{renderEntry}</Static>
       {transcript.live.map(renderEntry)}
       {busy && !pending && !planAsk ? (
-        <Box ref={lastThinkingEntryId === undefined ? thinkingTargetRef : undefined} marginTop={1} flexDirection="column">
+        <Box ref={liveThinkingEntryId === undefined ? thinkingTargetRef : undefined} marginTop={1} flexDirection="column">
           <Box flexDirection="row">
             <Spinner label={cancelling ? t('Cancelling') : activeSpinnerSummary ? `${t('Thinking')} · ${activeSpinnerSummary}` : t('Thinking')} startedAt={startedAt} />
             <Text dimColor> · {runtime.config.keybinds.thinking.spec}{runtime.config.thinkingClickCollapse ? ` · ${t('click to toggle')}` : ''}</Text>
           </Box>
-          {showThinking && lastThinkingEntryId === undefined ? (
+          {showThinking && liveThinkingEntryId === undefined ? (
             <Box flexDirection="column" paddingLeft={2}>
               <Text dimColor>{t('Model: {model} · reasoning: {level}', { model: runtime.modelRef, level: reasoning })}</Text>
               {activeToolSummary ? <Text dimColor>{`▶ ${activeToolSummary}`}</Text> : null}

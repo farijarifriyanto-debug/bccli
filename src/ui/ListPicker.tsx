@@ -1,7 +1,7 @@
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import { isFocusReport } from './focusReport'
-import { isMouseControlInput } from './thinkingMouse'
+import { isMouseControlInput, parseMouseWheel } from './thinkingMouse'
 import { color } from './theme'
 import { t } from '../i18n'
 
@@ -20,9 +20,20 @@ export function ListPicker({ title, items, onPick }: { title: string; items: Lis
   const shown = items.filter((i) => i.label.toLowerCase().includes(filter.toLowerCase()))
   const cursor = Math.min(index, Math.max(0, shown.length - 1))
   useInput((input, key) => {
+    const wheel = parseMouseWheel(input)
+    if (wheel === 'up') {
+      setIndex(Math.max(0, cursor - 1))
+      return
+    }
+    if (wheel === 'down') {
+      setIndex(Math.min(Math.max(0, shown.length - 1), cursor + 1))
+      return
+    }
     if (isMouseControlInput(input)) return
     if (key.upArrow) setIndex(Math.max(0, cursor - 1))
-    else if (key.downArrow) setIndex(Math.min(shown.length - 1, cursor + 1))
+    else if (key.downArrow) setIndex(Math.min(Math.max(0, shown.length - 1), cursor + 1))
+    else if (key.pageUp) setIndex(Math.max(0, cursor - VISIBLE))
+    else if (key.pageDown) setIndex(Math.min(Math.max(0, shown.length - 1), cursor + VISIBLE))
     else if (key.return && !shown[cursor]?.disabled) onPick(shown[cursor]?.id)
     else if (key.escape) onPick(undefined)
     else if (key.backspace || key.delete) {

@@ -7,13 +7,13 @@ import { recordFileMtime } from '../tools/paths'
 
 const MAX_ATTACH_BYTES = 32_768
 
-export function completeFile(value: string, cwd: string): string {
+export function listFileSuggestions(value: string, cwd: string, limit = 8): string[] {
   const match = /(^|\s)@([^\s]*)$/.exec(value)
-  if (!match) return value
+  if (!match) return []
   const prefix = match[2]
   const escaped = prefix.replace(/([*?[\]{}()!])/g, '\\$1')
   const pattern = `${escaped}*`
-  if (validateGlobPattern(pattern)) return value
+  if (validateGlobPattern(pattern)) return []
   const exclude = ignorePatterns(cwd)
   const formatEntry = (entry: string) => {
     const normalized = normalizeGlobPath(entry)
@@ -23,18 +23,33 @@ export function completeFile(value: string, cwd: string): string {
       return normalized
     }
   }
-  let found = globSync(pattern, { cwd, exclude }).map(formatEntry).sort()
-  if (!found.length && prefix && !prefix.includes('/')) {
-    const deepPattern = `**/*${escaped}*`
-    if (!validateGlobPattern(deepPattern)) {
-      found = globSync(deepPattern, { cwd, exclude })
-        .map(formatEntry)
-        .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))
+  try {
+    let found = globSync(pattern, { cwd, exclude }).map(formatEntry).sort()
+    if (!found.length && prefix && !prefix.includes('/')) {
+      const deepPattern = `**/*${escaped}*`
+      if (!validateGlobPattern(deepPattern)) {
+        found = globSync(deepPattern, { cwd, exclude })
+          .map(formatEntry)
+          .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))
+      }
     }
+    return found.slice(0, limit)
+  } catch {
+    return []
   }
-  if (!found.length) return value
-  const pick = found[0]
+}
+
+export function applyFileSuggestion(value: string, pick: string): string {
+  const match = /(^|\s)@([^\s]*)$/.exec(value)
+  if (!match) return value
+  const prefix = match[2]
   return `${value.slice(0, value.length - prefix.length)}${pick}${pick.endsWith('/') ? '' : ' '}`
+}
+
+export function completeFile(value: string, cwd: string): string {
+  const found = listFileSuggestions(value, cwd, 1)
+  if (!found.length) return value
+  return applyFileSuggestion(value, found[0])
 }
 
 /**
