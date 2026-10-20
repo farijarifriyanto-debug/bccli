@@ -186,13 +186,13 @@ test('thinking visibility is global-only and survives config reload', () => {
   expect(loadConfig(project, env).thinkingVisible).toBe(true)
 })
 
-test('thinkingClickCollapse is on by default so Thinking is clickable out of the box, and read from the global config only', () => {
-  expect(loadConfig(project, env).thinkingClickCollapse).toBe(true)
-  mkdirSync(join(project, '.bccli'), { recursive: true })
-  writeFileSync(join(project, '.bccli', 'config.json'), JSON.stringify({ thinkingClickCollapse: false }))
-  expect(loadConfig(project, env).thinkingClickCollapse).toBe(true)
-  writeFileSync(join(home, 'config.json'), JSON.stringify({ thinkingClickCollapse: false }))
+test('thinkingClickCollapse is off by default so mouse drag-to-copy and touchpad scroll work natively, and read from the global config only', () => {
   expect(loadConfig(project, env).thinkingClickCollapse).toBe(false)
+  mkdirSync(join(project, '.bccli'), { recursive: true })
+  writeFileSync(join(project, '.bccli', 'config.json'), JSON.stringify({ thinkingClickCollapse: true }))
+  expect(loadConfig(project, env).thinkingClickCollapse).toBe(false)
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ thinkingClickCollapse: true }))
+  expect(loadConfig(project, env).thinkingClickCollapse).toBe(true)
 })
 
 test('sessionRetentionDays is off by default (sessions are kept until deleted) and read from the global config only', () => {

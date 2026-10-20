@@ -3,6 +3,17 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## 0.4.8 - 2026-10-20
+
+Keep terminal mouse tracking (`\x1b[?1000h`) off by default so mouse drag-to-copy and native 2-finger touchpad scrolling always work 100% of the time, and add single-key `Tab` (on an empty prompt) plus `alt+t` and `/thinking` (`/t`) to open/close `Thinking` effortlessly in both Windows Terminal and Termius on VPS.
+
+### Fixed & Changed
+- **Mouse Drag-to-Copy & Native Touchpad Scroll Always Work (`src/config.ts`, `src/ui/App.tsx`)**:
+  - Kept `thinkingClickCollapse: false` by default and removed automatic `\x1b[?1000h` activation on modals so the terminal never hijacks left-button mouse drag-to-select (copying chat text) or native 2-finger touchpad scrollback.
+- **Single-Key `Tab` (Empty Prompt), `alt+t`, and `/thinking` (`/t`) to Toggle `Thinking` (`src/ui/PromptInput.tsx`, `src/ui/App.tsx`)**:
+  - Pressing `Tab` when the prompt input box `> ` is empty now immediately toggles `Thinking` open/closed (displayed as `✻ Thinking · N lines · tab / alt+t / ctrl+t`), working across Windows PowerShell, Windows Terminal, and Termius (desktop & mobile) without conflicting with Termius's `Ctrl+T` New Tab shortcut or disabling mouse drag-to-copy.
+  - Added `alt+o` alongside `ctrl+o` and `/output` (`/o`) to toggle full tool output.
+
 ## 0.4.7 - 2026-10-20
 
 Allow menu/inspection slash commands (`/help`, `/model`, `/config`, `/thinking`, etc.) to run immediately while the AI is thinking instead of being queued, enable click-to-toggle on `Thinking` by default with automatic 2-finger touchpad scroll passthrough, and add Termius-safe `alt+t` and `/thinking` (`/t`) shortcuts.
