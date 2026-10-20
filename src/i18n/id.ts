@@ -78,6 +78,7 @@ export const ID: Record<string, string> = {
   '✓ Connection {provider} ({n} models)': '✓ Koneksi {provider} ({n} model)',
   '✗ Connection {provider}: {error}': '✗ Koneksi {provider}: {error}',
   'list of commands and shortcuts': 'daftar perintah dan pintasan',
+  'show/hide the model’s thinking': 'buka/tutup thinking model',
   'change model': 'ganti model',
   'set reasoning: auto/off/low/medium/high/max': 'atur reasoning: auto/off/low/medium/high/max',
   'add/choose an AI provider': 'tambah/pilih provider AI',

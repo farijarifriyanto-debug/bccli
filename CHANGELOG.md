@@ -3,6 +3,20 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## 0.4.7 - 2026-10-20
+
+Allow menu/inspection slash commands (`/help`, `/model`, `/config`, `/thinking`, etc.) to run immediately while the AI is thinking instead of being queued, enable click-to-toggle on `Thinking` by default with automatic 2-finger touchpad scroll passthrough, and add Termius-safe `alt+t` and `/thinking` (`/t`) shortcuts.
+
+### Fixed & Changed
+- **Menu & Slash Commands Run Immediately While AI Is Thinking (`src/ui/App.tsx`, `src/commands.ts`, `src/i18n/id.ts`)**:
+  - Typing `/help`, `/model`, `/reasoning`, `/provider`, `/mcp`, `/config`, `/permissions`, `/status`, `/cost`, `/session`, `/thinking` (`/t`), `/output` (`/o`), `/diff`, `/tasks`, `/memory` (`#...`), etc. while the AI is busy thinking now executes immediately instead of getting stuck in `⏳ queued`.
+  - Pressing `Esc` while any modal menu (`ModelPicker`, `ListPicker`, `ProviderMenu`, `McpMenu`, `LinePrompt`) is open closes only the menu without cancelling the running AI turn.
+- **Click-to-Toggle `Thinking` Enabled by Default + 2-Finger Touchpad Scroll Auto-Passthrough (`src/config.ts`, `src/ui/App.tsx`, `src/ui/thinkingMouse.ts`)**:
+  - Enabled `thinkingClickCollapse: true` by default so clicking `✻ Thinking · N lines` or the live `Thinking…` spinner works out of the box (both during and after a turn) with a wider 72-column hitbox covering the full `klik untuk buka/tutup` label.
+  - When a 2-finger touchpad or mouse wheel scroll packet (`\x1b[<64..67;x;yM`) arrives, BCCLI immediately releases `\x1b[?1000l\x1b[?1006l` so the terminal scrolls its native scrollback buffer smoothly, then re-arms click reporting after scroll idle.
+- **Termius-Safe `alt+t` & `/thinking` (`/t`) Shortcuts (`src/ui/App.tsx`, `src/commands.ts`)**:
+  - Added `alt+t` keyboard shortcut and `/thinking` (`/t`) slash command alongside `ctrl+t` so users on Termius (where `Ctrl+T` opens Termius's New Menu/Tab) can toggle `Thinking` via mouse click, `alt+t`, or `/thinking`.
+
 ## 0.4.6 - 2026-10-19
 
 Fix terminal mouse wheel & 2-finger touchpad scrolling, prevent screen clearing/scrollback wiping on long turns, add mouse wheel / touchpad scrolling to all interactive pickers and approval modals, and improve prompt input usability.

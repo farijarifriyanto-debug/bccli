@@ -3,6 +3,7 @@ import type { CommandDef } from './extensions'
 /** Descriptions are English keys; wrap them in t() when showing them. */
 export const SLASH_COMMANDS = [
   { name: 'help', description: 'list of commands and shortcuts' },
+  { name: 'thinking', description: 'show/hide the model’s thinking' },
   { name: 'model', description: 'change model' },
   { name: 'reasoning', description: 'set reasoning: auto/off/low/medium/high/max' },
   { name: 'provider', description: 'add/choose an AI provider' },

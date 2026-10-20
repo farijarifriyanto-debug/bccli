@@ -11,11 +11,12 @@ test('SGR accepts only left press and ignores release, wheel and modified clicks
 test('cursor report locates live region; only target row and columns toggle', () => {
   const cursor = parseCursorPosition('\x1b[22;1R')
   expect(cursor).toEqual({ row: 22, col: 1 })
-  const rect = { x: 0, y: 3, width: 68, height: 1 }
+  const rect = { x: 0, y: 3, width: 90, height: 1 }
   // 8-row Ink frame ending on terminal row 22 starts at terminal row 15.
   expect(clickedThinking({ x: 7, y: 18 }, 22, 8, rect)).toBe(true)
+  expect(clickedThinking({ x: 52, y: 18 }, 22, 8, rect)).toBe(true)
   expect(clickedThinking({ x: 7, y: 19 }, 22, 8, rect)).toBe(false)
-  expect(clickedThinking({ x: 50, y: 18 }, 22, 8, rect)).toBe(false)
+  expect(clickedThinking({ x: 82, y: 18 }, 22, 8, rect)).toBe(false)
   expect(clickedThinking({ x: 7, y: 17 }, 22, 0, rect)).toBe(false)
 })
 test('mouse and cursor reports cannot be injected into prompt text', () => {

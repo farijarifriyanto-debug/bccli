@@ -506,7 +506,7 @@ test('Thinking uses one reversible panel; repeated ctrl+t does not append duplic
   stdin.write('\r')
   await waitFor(() => frames.some((f) => f.includes('Jawabannya 391.')))
   await waitFor(() => (lastFrame() ?? '').includes('ctrl+t'))
-  expect(lastFrame()).not.toContain('klik untuk buka/tutup')
+  expect(lastFrame()).toContain('klik untuk buka/tutup')
   expect(lastFrame()).not.toContain('baris satu')
   for (let n = 0; n < 3; n++) {
     stdin.write('\u0014')
@@ -527,9 +527,10 @@ test('Thinking uses one reversible panel; repeated ctrl+t does not append duplic
 })
 
 
-test('mouse reporting stays off by default so terminal drag-to-copy keeps working', async () => {
+test('mouse reporting can be disabled via thinkingClickCollapse: false in config', async () => {
   const rt = makeRuntime([])
-  expect(rt.config.thinkingClickCollapse).toBe(false)
+  expect(rt.config.thinkingClickCollapse).toBe(true)
+  rt.config.thinkingClickCollapse = false
   let release: (() => void) | undefined
   rt.agent.provider = {
     async chat() {
@@ -841,9 +842,8 @@ test('Thinking is rendered at its chronological position above tool calls and as
   unmount()
 })
 
-test('mouse reporting turns off as soon as a turn with Thinking finishes so native touchpad/wheel scroll works when idle', async () => {
+test('after a turn with Thinking finishes, clicking Thinking still toggles it and 2-finger touchpad scroll immediately releases ?1000l', async () => {
   const rt = makeRuntime([])
-  rt.config.thinkingClickCollapse = true
   rt.agent.provider = {
     async chat(req) {
       req.onThinking?.('pikiran selesai')
@@ -854,18 +854,30 @@ test('mouse reporting turns off as soon as a turn with Thinking finishes so nati
       return []
     },
   }
-  const { stdin, stdout, frames, unmount } = render(<App runtime={rt} version="test" />)
+  const { stdin, stdout, frames, lastFrame, unmount } = render(<App runtime={rt} version="test" />)
   Object.assign(stdout, { isTTY: true })
   await wait()
   stdin.write('uji scroll setelah thinking')
   await wait()
   stdin.write('\r')
   await waitFor(() => frames.some((f) => f.includes('jawaban selesai')))
-  await wait(50)
+  await wait(40)
+  let clicked = false
+  for (let y = 1; y <= 50; y++) {
+    stdin.write(`\x1b[<0;12;${y}M\x1b[50;1R`)
+    await wait(10)
+    if ((lastFrame() ?? '').includes('pikiran selesai')) {
+      clicked = true
+      break
+    }
+  }
+  expect(clicked).toBe(true)
+  stdin.write('\x1b[<65;12;10M')
+  await wait(30)
   const rawOut = frames.join('')
   const lastEnable = rawOut.lastIndexOf('\x1b[?1000h')
   const lastDisable = rawOut.lastIndexOf('\x1b[?1000l')
-  expect(lastDisable).toBeGreaterThanOrEqual(lastEnable)
+  expect(lastDisable).toBeGreaterThan(lastEnable)
   unmount()
 })
 
@@ -893,5 +905,93 @@ test('/rewind removes the rewound turn from the visible transcript and /resume a
   expect(lastFrame()).toContain('JAWAB_TURN_1')
   expect(lastFrame()).not.toContain('TANYA_TURN_2')
   expect(lastFrame()).not.toContain('JAWAB_TURN_2')
+  unmount()
+})
+
+test('menu slash commands (/help, /model, /thinking) execute immediately while AI is thinking instead of being queued, and Esc closes menu without aborting turn', async () => {
+  const rt = makeRuntime([])
+  let releaseTurn: (() => void) | undefined
+  rt.agent.provider = {
+    async chat(req) {
+      req.onThinking?.('PIKIRAN_SEDANG_JALAN_19_BARIS')
+      await new Promise<void>((r) => {
+        releaseTurn = r
+      })
+      req.onText?.('JAWABAN_SETELAH_MENU')
+      return { text: 'JAWABAN_SETELAH_MENU', thinking: 'PIKIRAN_SEDANG_JALAN_19_BARIS', toolCalls: [] }
+    },
+    async listModels() {
+      return ['glm-5.3-flash', 'kimi-k3']
+    },
+  }
+  const { stdin, lastFrame, frames, unmount } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('buat aplikasi multimedia')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => (lastFrame() ?? '').includes('Thinking'))
+
+  // Run /help while AI is still thinking -> must show help immediately, NOT "queued: /help"
+  await slash(stdin, '/help')
+  await waitFor(() => frames.some((f) => f.includes('/model')))
+  expect(lastFrame()).not.toContain('queued: /help')
+  expect(lastFrame()).not.toContain('antri: /help')
+
+  // Run /model while AI is still thinking -> must open ModelPicker immediately, NOT "queued: /model"
+  await slash(stdin, '/model')
+  await waitFor(() => (lastFrame() ?? '').includes('kimi-k3'))
+  expect(lastFrame()).not.toContain('queued: /model')
+  expect(lastFrame()).not.toContain('antri: /model')
+
+  // Pressing Esc closes ModelPicker without cancelling the running AI turn
+  stdin.write('\x1b')
+  await wait()
+  expect(lastFrame()).not.toContain('Pilih model')
+  expect(lastFrame()).not.toContain('Choose a model')
+  expect(lastFrame()).not.toContain('Dibatalkan.')
+  expect(lastFrame()).not.toContain('Cancelled.')
+
+  // Pressing Alt+T (Termius-safe shortcut) or running /thinking toggles Thinking immediately while AI is thinking
+  stdin.write('\x1bt')
+  await waitFor(() => (lastFrame() ?? '').includes('PIKIRAN_SEDANG_JALAN_19_BARIS'))
+  await slash(stdin, '/thinking')
+  await waitFor(() => !(lastFrame() ?? '').includes('PIKIRAN_SEDANG_JALAN_19_BARIS'))
+
+  releaseTurn?.()
+  await waitFor(() => frames.some((f) => f.includes('JAWABAN_SETELAH_MENU')))
+  unmount()
+})
+
+test('2-finger touchpad wheel during active mouse reporting immediately releases ?1000l so native terminal scroll works', async () => {
+  const rt = makeRuntime([])
+  let releaseTurn: (() => void) | undefined
+  rt.agent.provider = {
+    async chat(req) {
+      req.onThinking?.('pikiran panjang')
+      await new Promise<void>((r) => {
+        releaseTurn = r
+      })
+      return { text: 'selesai', thinking: 'pikiran panjang', toolCalls: [] }
+    },
+    async listModels() {
+      return []
+    },
+  }
+  const { stdin, stdout, frames, lastFrame, unmount } = render(<App runtime={rt} version="test" />)
+  Object.assign(stdout, { isTTY: true })
+  await wait()
+  stdin.write('tes wheel')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => (lastFrame() ?? '').includes('klik untuk buka/tutup'))
+  await wait(40)
+  expect(frames.join('')).toContain('\x1b[?1000h')
+  // Send a 2-finger touchpad scroll down packet
+  stdin.write('\x1b[<65;20;10M')
+  await wait(30)
+  const raw = frames.join('')
+  expect(raw.lastIndexOf('\x1b[?1000l')).toBeGreaterThan(raw.lastIndexOf('\x1b[?1000h'))
+  releaseTurn?.()
+  await waitFor(() => frames.some((f) => f.includes('selesai')))
   unmount()
 })
