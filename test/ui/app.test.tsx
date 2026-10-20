@@ -506,7 +506,7 @@ test('Thinking uses one reversible panel; repeated ctrl+t does not append duplic
   stdin.write('\r')
   await waitFor(() => frames.some((f) => f.includes('Jawabannya 391.')))
   await waitFor(() => (lastFrame() ?? '').includes('ctrl+t'))
-  expect(lastFrame()).toContain('klik untuk buka/tutup')
+  expect(lastFrame()).not.toContain('klik untuk buka/tutup')
   expect(lastFrame()).not.toContain('baris satu')
   for (let n = 0; n < 3; n++) {
     stdin.write('\u0014')
@@ -527,10 +527,9 @@ test('Thinking uses one reversible panel; repeated ctrl+t does not append duplic
 })
 
 
-test('mouse reporting can be disabled via thinkingClickCollapse: false in config', async () => {
+test('mouse reporting stays off by default so terminal drag-to-copy and touchpad scroll keep working', async () => {
   const rt = makeRuntime([])
-  expect(rt.config.thinkingClickCollapse).toBe(true)
-  rt.config.thinkingClickCollapse = false
+  expect(rt.config.thinkingClickCollapse).toBe(false)
   let release: (() => void) | undefined
   rt.agent.provider = {
     async chat() {
@@ -842,8 +841,9 @@ test('Thinking is rendered at its chronological position above tool calls and as
   unmount()
 })
 
-test('after a turn with Thinking finishes, clicking Thinking still toggles it and 2-finger touchpad scroll immediately releases ?1000l', async () => {
+test('after a turn with Thinking finishes, clicking Thinking (when opted in) still toggles it and 2-finger touchpad scroll immediately releases ?1000l', async () => {
   const rt = makeRuntime([])
+  rt.config.thinkingClickCollapse = true
   rt.agent.provider = {
     async chat(req) {
       req.onThinking?.('pikiran selesai')
@@ -951,7 +951,11 @@ test('menu slash commands (/help, /model, /thinking) execute immediately while A
   expect(lastFrame()).not.toContain('Dibatalkan.')
   expect(lastFrame()).not.toContain('Cancelled.')
 
-  // Pressing Alt+T (Termius-safe shortcut) or running /thinking toggles Thinking immediately while AI is thinking
+  // Pressing Tab on empty prompt, Alt+T (Termius-safe shortcut), or running /thinking toggles Thinking immediately while AI is thinking
+  stdin.write('\t')
+  await waitFor(() => (lastFrame() ?? '').includes('PIKIRAN_SEDANG_JALAN_19_BARIS'))
+  stdin.write('\t')
+  await waitFor(() => !(lastFrame() ?? '').includes('PIKIRAN_SEDANG_JALAN_19_BARIS'))
   stdin.write('\x1bt')
   await waitFor(() => (lastFrame() ?? '').includes('PIKIRAN_SEDANG_JALAN_19_BARIS'))
   await slash(stdin, '/thinking')
@@ -964,6 +968,7 @@ test('menu slash commands (/help, /model, /thinking) execute immediately while A
 
 test('2-finger touchpad wheel during active mouse reporting immediately releases ?1000l so native terminal scroll works', async () => {
   const rt = makeRuntime([])
+  rt.config.thinkingClickCollapse = true
   let releaseTurn: (() => void) | undefined
   rt.agent.provider = {
     async chat(req) {

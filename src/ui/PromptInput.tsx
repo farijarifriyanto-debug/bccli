@@ -20,9 +20,11 @@ export interface PromptInputProps {
   injected?: { text: string; n: number }
   /** Vim editing: Esc enters normal mode (hjkl/w/b/0/$/x/dd/dw/i/a/A/o/O). */
   vim?: boolean
+  /** Called when Tab is pressed on an empty prompt (e.g. to toggle Thinking without Ctrl+T). */
+  onEmptyTab?: () => void
 }
 
-export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, injected, vim }: PromptInputProps) {
+export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, injected, vim, onEmptyTab }: PromptInputProps) {
   const [line, setLine] = useState<LineState>({ value: '', cursor: 0 })
   const { value } = line
   const [historyIndex, setHistoryIndex] = useState<number | null>(null)
@@ -178,6 +180,10 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
         return
       }
       if (key.tab && !key.shift) {
+        if (!value.trim() && onEmptyTab) {
+          onEmptyTab()
+          return
+        }
         // Completes the @file before the cursor and leaves what follows it alone.
         const before = value.slice(0, line.cursor)
         const completed = completeFile(before, cwd)

@@ -871,17 +871,6 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
     }
   }, [stdout])
 
-  // Enable SGR mouse wheel / 2-finger touchpad scrolling while a modal picker
-  // or approval is open on a real TTY, and restore native scrollback on close.
-  const scrollableModalOpen = !!(picker || listPicker || mcpMenu || providerMenu || pending || planAsk)
-  useEffect(() => {
-    if (!scrollableModalOpen || !stdout?.isTTY || !('fd' in stdout)) return
-    stdout.write('\x1b[?1000h\x1b[?1006h')
-    return () => {
-      stdout.write('\x1b[?1000l\x1b[?1006l')
-    }
-  }, [scrollableModalOpen, stdout])
-
   // Ink has no mouse handler: enable SGR left-click reports while Thinking is
   // visible on screen. If the user scrolls with a 2-finger touchpad or mouse
   // wheel (\x1b[<64..67;x;yM), immediately suspend ?1000l so the terminal
@@ -961,7 +950,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
       })()
     } else if (matchKeybind(runtime.config.keybinds.thinking, input, key) || (key.meta && !key.ctrl && input.toLowerCase() === 't')) {
       toggleThinking()
-    } else if (matchKeybind(runtime.config.keybinds.toolOutput, input, key)) {
+    } else if (matchKeybind(runtime.config.keybinds.toolOutput, input, key) || (key.meta && !key.ctrl && input.toLowerCase() === 'o')) {
       setShowToolOutput((prev) => !prev)
       if (maxSplitIdxRef.current > 0) refreshStatic()
     } else if (key.ctrl && input.toLowerCase() === 'l') {
@@ -1105,7 +1094,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           >
             <Box flexDirection="row">
               <Text dimColor>{showThinking ? t('✻ Thinking') : t('✻ Thinking · {n} lines', { n: lines })}</Text>
-              <Text dimColor> · {runtime.config.keybinds.thinking.spec} / alt+t{runtime.config.thinkingClickCollapse ? ` · ${t('click to toggle')}` : ''}</Text>
+              <Text dimColor> · {runtime.config.keybinds.thinking.spec} / tab{runtime.config.thinkingClickCollapse ? ` · ${t('click to toggle')}` : ''}</Text>
             </Box>
             {showThinking ? (
               <Box flexDirection="column" paddingLeft={2}>
@@ -1157,7 +1146,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
         >
           <Box flexDirection="row">
             <Spinner label={cancelling ? t('Cancelling') : activeSpinnerSummary ? `${t('Thinking')} · ${activeSpinnerSummary}` : t('Thinking')} startedAt={startedAt} />
-            <Text dimColor> · {runtime.config.keybinds.thinking.spec} / alt+t{runtime.config.thinkingClickCollapse ? ` · ${t('click to toggle')}` : ''}</Text>
+            <Text dimColor> · {runtime.config.keybinds.thinking.spec} / tab{runtime.config.thinkingClickCollapse ? ` · ${t('click to toggle')}` : ''}</Text>
           </Box>
           {showThinking && lastThinkingEntryId === undefined ? (
             <Box flexDirection="column" paddingLeft={2}>
@@ -1212,7 +1201,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
       {queued.map((q, i) => (
         <Text key={`${i}-${q}`} dimColor>{t('  ⏳ queued: {q}', { q })}</Text>
       ))}
-      <PromptInput disabled={!!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu || !!listPicker} history={history} cwd={runtime.cwd} onSubmit={onPrompt} extraCommands={extraCommands} injected={injected} vim={runtime.config.editor === 'vim'} />
+      <PromptInput disabled={!!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu || !!listPicker} history={history} cwd={runtime.cwd} onSubmit={onPrompt} onEmptyTab={toggleThinking} extraCommands={extraCommands} injected={injected} vim={runtime.config.editor === 'vim'} />
       <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} reasoning={reasoning} />
     </Box>
   )
