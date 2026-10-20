@@ -6,6 +6,7 @@ import { color } from './theme'
 import { t } from '../i18n'
 
 const PREVIEW_LINES = 5
+const DIFF_PREVIEW_LINES = 20
 
 export interface ToolBlockProps {
   tool: string
@@ -47,8 +48,21 @@ export function ToolBlock({ tool, target, output, display, isError, done, expand
         </Box>
       ) : null}
       {isDiff ? (
-        <Box marginLeft={3}>
-          <DiffView diff={display!} />
+        <Box flexDirection="column" marginLeft={3}>
+          {(() => {
+            const diffLines = display!.split('\n')
+            const shownDiff = expanded ? diffLines : diffLines.slice(0, DIFF_PREVIEW_LINES)
+            return (
+              <>
+                <DiffView diff={shownDiff.join('\n')} />
+                {diffLines.length > shownDiff.length ? (
+                  <Text dimColor>{t('… {n} more lines ({bind})', { n: diffLines.length - shownDiff.length, bind: moreBind })}</Text>
+                ) : expanded && diffLines.length > DIFF_PREVIEW_LINES ? (
+                  <Text dimColor>{t('… ({bind} to collapse)', { bind: moreBind })}</Text>
+                ) : null}
+              </>
+            )
+          })()}
         </Box>
       ) : output && (isError || tool === 'bash' || expanded) && !(isTask && !isError) ? (
         <Box flexDirection="column" marginLeft={3}>

@@ -2,7 +2,7 @@ import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import type { ModelGroup } from '../models'
 import { isFocusReport } from './focusReport'
-import { isMouseControlInput } from './thinkingMouse'
+import { isMouseControlInput, parseMouseWheel } from './thinkingMouse'
 import { color } from './theme'
 import { t } from '../i18n'
 
@@ -23,12 +23,24 @@ export function ModelPicker({ groups, current, onPick }: { groups: ModelGroup[];
     for (const m of models) rows.push({ kind: 'model', ref: `${g.providerId}/${m}`, label: m })
   }
   const selectable = rows.flatMap((r, i) => (r.kind === 'model' ? [i] : []))
-  const cursor = selectable[Math.min(index, selectable.length - 1)] ?? -1
+  const clampedIndex = Math.min(index, Math.max(0, selectable.length - 1))
+  const cursor = selectable[clampedIndex] ?? -1
 
   useInput((input, key) => {
+    const wheel = parseMouseWheel(input)
+    if (wheel === 'up') {
+      setIndex(Math.max(0, clampedIndex - 1))
+      return
+    }
+    if (wheel === 'down') {
+      setIndex(Math.min(Math.max(0, selectable.length - 1), clampedIndex + 1))
+      return
+    }
     if (isMouseControlInput(input)) return
-    if (key.upArrow) setIndex((i) => Math.max(0, i - 1))
-    else if (key.downArrow) setIndex((i) => Math.min(selectable.length - 1, i + 1))
+    if (key.upArrow) setIndex(Math.max(0, clampedIndex - 1))
+    else if (key.downArrow) setIndex(Math.min(Math.max(0, selectable.length - 1), clampedIndex + 1))
+    else if (key.pageUp) setIndex(Math.max(0, clampedIndex - VISIBLE))
+    else if (key.pageDown) setIndex(Math.min(Math.max(0, selectable.length - 1), clampedIndex + VISIBLE))
     else if (key.return) {
       const row = rows[cursor]
       if (row?.kind === 'model') onPick(row.ref)

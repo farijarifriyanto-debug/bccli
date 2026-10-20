@@ -1,5 +1,7 @@
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
+import { isFocusReport } from './focusReport'
+import { isMouseControlInput, parseMouseWheel } from './thinkingMouse'
 import { color } from './theme'
 import { t } from '../i18n'
 
@@ -15,9 +17,21 @@ const MARK = { ready: '✓', error: '✗', starting: '…', off: '○' }
 
 export function McpMenu({ items, onPick }: { items: McpMenuItem[]; onPick(name: string | undefined): void }) {
   const [index, setIndex] = useState(0)
-  useInput((_input, key) => {
+  useInput((input, key) => {
+    const wheel = parseMouseWheel(input)
+    if (wheel === 'up') {
+      setIndex((i) => Math.max(0, i - 1))
+      return
+    }
+    if (wheel === 'down') {
+      setIndex((i) => Math.min(items.length - 1, i + 1))
+      return
+    }
+    if (isMouseControlInput(input) || isFocusReport(input)) return
     if (key.upArrow) setIndex((i) => Math.max(0, i - 1))
     else if (key.downArrow) setIndex((i) => Math.min(items.length - 1, i + 1))
+    else if (key.pageUp) setIndex((i) => Math.max(0, i - 10))
+    else if (key.pageDown) setIndex((i) => Math.min(items.length - 1, i + 10))
     else if (key.return) onPick(items[index]?.name)
     else if (key.escape) onPick(undefined)
   })

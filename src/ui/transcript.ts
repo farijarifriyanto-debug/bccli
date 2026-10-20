@@ -86,7 +86,10 @@ export function applyEvent(t: Transcript, event: AgentEvent): Transcript {
     case 'text': {
       const last = t.live.at(-1)
       if (last?.kind === 'assistant') return flushLines({ ...t, live: [...t.live.slice(0, -1), { ...last, text: last.text + event.delta }] })
-      return flushLines({ ...t, live: [...t.live, entry({ kind: 'assistant', text: event.delta })] })
+      return flushLines({
+        done: [...t.done, ...t.live.filter((e) => !isEmptyCont(e))],
+        live: [entry({ kind: 'assistant', text: event.delta })],
+      })
     }
     case 'thinking': {
       const last = t.live.at(-1)

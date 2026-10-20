@@ -74,3 +74,35 @@ test('model picker ignores SGR mouse escape sequences in filter', async () => {
   expect(lastFrame()).toContain('glm-5.3-flash')
   expect(lastFrame()).not.toContain('[<0;32;14M')
 })
+
+test('model picker and provider menu scroll with 2-finger touchpad wheel and PageDown/PageUp', async () => {
+  const { stdin, lastFrame } = render(<ModelPicker groups={groups} current="bc-cloud/glm-5.3-flash" onPick={() => {}} />)
+  await tick()
+  expect(lastFrame()).toContain('› glm-5.3-flash')
+  stdin.write('\x1b[<65;10;10M')
+  await tick()
+  expect(lastFrame()).toContain('› deepseek-v4-flash')
+  stdin.write('\x1b[<64;10;10M')
+  await tick()
+  expect(lastFrame()).toContain('› glm-5.3-flash')
+  stdin.write('\x1b[6~')
+  await tick()
+  expect(lastFrame()).toContain('› vendor/model-')
+
+  const onPickProvider = vi.fn()
+  const p = render(
+    <ProviderMenu
+      entries={[
+        { id: 'bc-cloud', name: 'BotConnector Cloud', ready: true, baseURL: 'https://api.botconnector.id/v1' },
+        { id: 'groq', name: 'Groq', ready: false, baseURL: 'https://api.groq.com/openai/v1' },
+      ]}
+      onPick={onPickProvider}
+    />,
+  )
+  await tick()
+  p.stdin.write('\x1b[<65;10;10M')
+  await tick()
+  p.stdin.write('\r')
+  await tick()
+  expect(onPickProvider).toHaveBeenCalledWith('groq')
+})

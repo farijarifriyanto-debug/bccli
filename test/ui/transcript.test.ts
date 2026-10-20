@@ -109,3 +109,11 @@ test('a pipe inside a code block does not hold anything back', () => {
   t = endTurn(t)
   expect(t.live).toEqual([])
 })
+
+test('thinking moves to done immediately when assistant text starts streaming', () => {
+  let t = applyEvent(empty, { type: 'thinking', delta: 'sedang berpikir' })
+  expect(t.live).toMatchObject([{ kind: 'thinking', text: 'sedang berpikir' }])
+  t = applyEvent(t, { type: 'text', delta: 'Halo' })
+  expect(t.done).toMatchObject([{ kind: 'thinking', text: 'sedang berpikir' }])
+  expect(t.live).toMatchObject([{ kind: 'assistant', text: 'Halo' }])
+})
