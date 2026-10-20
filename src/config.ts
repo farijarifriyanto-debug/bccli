@@ -293,7 +293,7 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
     permissionMode: global.permissionMode ?? DEFAULT_CONFIG.permissionMode,
     reasoning: global.reasoning ?? DEFAULT_CONFIG.reasoning,
     thinkingVisible: global.thinkingVisible === true,
-    thinkingClickCollapse: global.thinkingClickCollapse === true,
+    thinkingClickCollapse: global.thinkingClickCollapse !== false,
     sessionRetentionDays: resolvedSessionRetentionDays(global),
     maxSteps: resolvedMaxSteps(global),
     hooks: global.hooks,

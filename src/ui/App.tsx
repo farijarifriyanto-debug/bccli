@@ -36,7 +36,7 @@ import { type ProviderEntry, ProviderMenu } from './ProviderMenu'
 import { PermissionPrompt } from './PermissionPrompt'
 import { PromptInput } from './PromptInput'
 import { Spinner } from './Spinner'
-import { clickedThinking, parseThinkingReports } from './thinkingMouse'
+import { clickedThinking, hasMouseWheelSequence, parseThinkingReports } from './thinkingMouse'
 import { StatusBar } from './StatusBar'
 import { ACCENT, color } from './theme'
 import { CATALOG, fillTemplate } from '../mcp/catalog'
@@ -110,17 +110,44 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   const [showToolOutput, setShowToolOutput] = useState(false)
   const [staticKey, setStaticKey] = useState(0)
   const [, setConfigRev] = useState(0)
-  const liveThinkingEntryId = transcript.live.findLast((e) => e.kind === 'thinking' && !!e.text.trim())?.id
+  const lastUserIdx = transcript.done.findLastIndex((e) => e.kind === 'user')
   const { stdin } = useStdin()
   const { stdout } = useStdout()
+  const isRealTty = Boolean(stdout?.isTTY && 'fd' in stdout)
+  const maxLiveLines = Math.max(8, (stdout?.rows ?? 24) - 10)
+  const maxSplitIdxRef = useRef(0)
   const refreshStatic = useCallback(() => {
     if (stdout?.isTTY && 'fd' in stdout) {
       stdout.write('\x1b[2J\x1b[3J\x1b[H')
     }
+    maxSplitIdxRef.current = 0
     setStaticKey((k) => k + 1)
   }, [stdout])
+  let splitIdx = Math.max(maxSplitIdxRef.current, lastUserIdx > 0 ? lastUserIdx : 0)
+  if (isRealTty) {
+    const entryLines = (e: Entry): number => {
+      if (e.kind === 'thinking') return showThinking ? Math.min(maxLiveLines, e.text.split('\n').length + 2) : 2
+      if (e.kind === 'tool') return showToolOutput ? Math.min(maxLiveLines, (e.output ?? e.display ?? '').split('\n').length + 2) : 5
+      if (e.kind === 'assistant' || e.kind === 'notice' || e.kind === 'user') return e.text.split('\n').length + 1
+      return 2
+    }
+    const liveLines = transcript.live.reduce((acc, e) => acc + entryLines(e), 0)
+    let doneLines = transcript.done.slice(splitIdx).reduce((acc, e) => acc + entryLines(e), 0)
+    while (splitIdx < transcript.done.length - 1 && doneLines + liveLines > maxLiveLines) {
+      doneLines -= entryLines(transcript.done[splitIdx])
+      splitIdx++
+    }
+    maxSplitIdxRef.current = splitIdx
+  }
+  const staticDone = transcript.done.slice(0, splitIdx)
+  const activeTurnDone = transcript.done.slice(splitIdx)
+  const activeTurnEntries = [...activeTurnDone, ...transcript.live]
+  const lastThinkingEntryId = activeTurnEntries.findLast((e) => e.kind === 'thinking' && !!e.text.trim())?.id
+  const hasThinking = lastThinkingEntryId !== undefined || transcript.done.some((e) => e.kind === 'thinking' && !!e.text.trim())
   const liveRootRef = useRef<DOMElement>(null)
   const thinkingTargetRef = useRef<DOMElement>(null)
+  const spinnerTargetRef = useRef<DOMElement>(null)
+  const thinkingEntryRefs = useRef(new Map<number, DOMElement>())
   const [injected, setInjected] = useState<{ text: string; n: number } | undefined>()
   useEffect(() => runtime.todos.subscribe(setTodos), [runtime])
   const extraCommands = [
@@ -215,16 +242,54 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
     [runtime, notice],
   )
 
+  const toggleThinking = useCallback(() => {
+    // Keep this callback stable while the mouse reporter is active; the Ink
+    // frame reflows on expansion and React otherwise tears the reporter down.
+    const next = !showThinkingRef.current
+    showThinkingRef.current = next
+    setShowThinking(next)
+    if (maxSplitIdxRef.current > 0) refreshStatic()
+    try {
+      writeGlobalConfig({ thinkingVisible: next }, runtime.env)
+    } catch (error) {
+      notice(t('Could not save thinking visibility: {error}', { error: (error as Error).message }), 'warn')
+    }
+    // Do not append to transcript.done: Ink <Static> is write-once scrollback.
+  }, [runtime, notice, refreshStatic])
+
   const runSlashCommand = useCallback(
     async (name: string, args: string) => {
       switch (name) {
         case 'help':
           notice(helpText(runtime))
           return
+        case 'thinking':
+        case 't': {
+          const v = args.trim().toLowerCase()
+          if (v === 'on' || v === 'true') {
+            if (!showThinkingRef.current) toggleThinking()
+          } else if (v === 'off' || v === 'false') {
+            if (showThinkingRef.current) toggleThinking()
+          } else {
+            toggleThinking()
+          }
+          return
+        }
+        case 'output':
+        case 'o':
+          setShowToolOutput((prev) => !prev)
+          if (maxSplitIdxRef.current > 0) refreshStatic()
+          return
         case 'exit':
+        case 'quit':
           exit()
           return
         case 'clear':
+          controller.current?.abort()
+          controller.current = null
+          setQueued([])
+          setBusy(false)
+          setCancelling(false)
           runtime.agent.clear()
           setTokens(0)
           setShowToolOutput(false)
@@ -324,6 +389,11 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           return
         }
         case 'new':
+          controller.current?.abort()
+          controller.current = null
+          setQueued([])
+          setBusy(false)
+          setCancelling(false)
           runtime.newSession()
           setTokens(0)
           setShowToolOutput(false)
@@ -681,7 +751,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           notice(t('Unknown command: /{name}. Type /help.', { name }), 'warn')
       }
     },
-    [runtime, notice, exit, version, runTurn, ask, refreshStatic],
+    [runtime, notice, exit, version, runTurn, ask, refreshStatic, toggleThinking],
   )
   // A failing command (locked file, unwritable folder) must not take the whole app down.
   const runSlash = useCallback(
@@ -728,7 +798,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
       // parseSlash lowercases the typed name, so match file names case-insensitively.
       const command = runtime.commands.find((c) => c.name.toLowerCase() === slash.name)
       const skill = runtime.skills.find((s) => s.name.toLowerCase() === slash.name)
-      if (SLASH_COMMANDS.some((b) => b.name === slash.name) || (!command && !skill)) void runSlash(slash.name, slash.args)
+      if (SLASH_COMMANDS.some((b) => b.name === slash.name) || slash.name === 't' || slash.name === 'output' || slash.name === 'o' || slash.name === 'quit' || (!command && !skill)) void runSlash(slash.name, slash.args)
       else if (command) void runTurn(expandCommand(command, slash.args))
       else if (skill) {
         let body: string
@@ -746,10 +816,34 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
 
   const onPrompt = useCallback(
     (text: string) => {
-      if (busy) setQueued((q) => [...q, text])
-      else submit(text)
+      if (!busy) {
+        submit(text)
+        return
+      }
+      // Menu, inspection, config, and toggle slash commands (plus #memory) have
+      // nothing to do with queueing a new AI turn — execute them immediately!
+      if (text.startsWith('#') && text.slice(1).trim()) {
+        submit(text)
+        return
+      }
+      const slash = parseSlash(text)
+      if (slash) {
+        const turnMutating = new Set(['init', 'pr', 'compact', 'rewind', 'undo', 'redo', 'resume'])
+        const isCustomTurn =
+          !SLASH_COMMANDS.some((b) => b.name === slash.name) &&
+          slash.name !== 't' &&
+          slash.name !== 'output' &&
+          slash.name !== 'o' &&
+          slash.name !== 'quit' &&
+          (runtime.commands.some((c) => c.name.toLowerCase() === slash.name) || runtime.skills.some((s) => s.name.toLowerCase() === slash.name))
+        if (!turnMutating.has(slash.name) && !isCustomTurn) {
+          submit(text)
+          return
+        }
+      }
+      setQueued((q) => [...q, text])
     },
-    [busy, submit],
+    [busy, submit, runtime],
   )
 
   useEffect(() => {
@@ -766,21 +860,6 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
       submit(initialPrompt)
     }
   }, [initialPrompt, submit])
-
-  const toggleThinking = useCallback(() => {
-    // Keep this callback stable while the mouse reporter is active; the Ink
-    // frame reflows on expansion and React otherwise tears the reporter down.
-    const next = !showThinkingRef.current
-    showThinkingRef.current = next
-    setShowThinking(next)
-    refreshStatic()
-    try {
-      writeGlobalConfig({ thinkingVisible: next }, runtime.env)
-    } catch (error) {
-      notice(t('Could not save thinking visibility: {error}', { error: (error as Error).message }), 'warn')
-    }
-    // Do not append to transcript.done: Ink <Static> is write-once scrollback.
-  }, [runtime, notice, refreshStatic])
 
   // Ensure real TTY starts with mouse tracking off (so native mouse wheel,
   // 2-finger touchpad scroll, and drag-to-copy work) and bracketed paste on.
@@ -803,50 +882,67 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
     }
   }, [scrollableModalOpen, stdout])
 
-  // Ink has no mouse handler: temporarily enable SGR left-click reports while
-  // Thinking is active. Cursor-position response maps Ink's live layout to
-  // terminal coordinates; historical Static scrollback remains keyboard-only.
-  // Opt-in (thinkingClickCollapse): mouse reporting makes the terminal stop
-  // turning drag into a text selection, so it stays off unless asked for.
+  // Ink has no mouse handler: enable SGR left-click reports while Thinking is
+  // visible on screen. If the user scrolls with a 2-finger touchpad or mouse
+  // wheel (\x1b[<64..67;x;yM), immediately suspend ?1000l so the terminal
+  // scrolls its native scrollback buffer, then re-enable after scroll idle.
   useEffect(() => {
     const modalOpen = !!(pending || planAsk || picker || listPicker || mcpMenu || providerMenu || prompt)
-    if (!runtime.config.thinkingClickCollapse || !busy || modalOpen || !stdin.isTTY || !stdout.isTTY || !thinkingTargetRef.current) return
+    if (!runtime.config.thinkingClickCollapse || (!busy && !hasThinking) || modalOpen || !stdin.isTTY || !stdout.isTTY) return
     let click: { x: number; y: number } | undefined
     let mouseBuffer = ''
+    let wheelTimer: ReturnType<typeof setTimeout> | undefined
     const onData = (data: Buffer | string) => {
+      const chunk = String(data)
+      if (hasMouseWheelSequence(chunk)) {
+        stdout.write('\x1b[?1000l\x1b[?1006l')
+        if (wheelTimer) clearTimeout(wheelTimer)
+        wheelTimer = setTimeout(() => {
+          stdout.write('\x1b[?1000h\x1b[?1006h')
+        }, 1200)
+      }
       // Windows ConPTY can split or combine the SGR mouse and cursor replies.
       // Keep an incomplete escape sequence across chunks and process both
       // reports when they arrive in the same chunk.
-      mouseBuffer += String(data)
+      mouseBuffer += chunk
       const reports = parseThinkingReports(mouseBuffer)
       mouseBuffer = reports.rest.slice(-80)
       for (const report of reports.events) {
         if (report.type === 'mouse') {
           click = report.press
           stdout.write('\x1b[6n')
-        } else if (click && liveRootRef.current && thinkingTargetRef.current) {
+        } else if (click && liveRootRef.current) {
           const current = click
           click = undefined
           const root = measureElement(liveRootRef.current)
-          const target = measureElement(thinkingTargetRef.current)
-          if (clickedThinking(current, report.cursor.row, root.height, target)) toggleThinking()
+          const candidates: DOMElement[] = []
+          if (thinkingTargetRef.current) candidates.push(thinkingTargetRef.current)
+          if (spinnerTargetRef.current) candidates.push(spinnerTargetRef.current)
+          for (const el of thinkingEntryRefs.current.values()) {
+            if (!candidates.includes(el)) candidates.push(el)
+          }
+          if (candidates.some((el) => clickedThinking(current, report.cursor.row, root.height, measureElement(el)))) {
+            toggleThinking()
+          }
         }
       }
     }
     stdin.on('data', onData)
     stdout.write('\x1b[?1000h\x1b[?1006h')
     return () => {
+      if (wheelTimer) clearTimeout(wheelTimer)
       stdin.off('data', onData)
       stdout.write('\x1b[?1000l\x1b[?1006l')
     }
-  }, [busy, pending, planAsk, picker, listPicker, mcpMenu, providerMenu, prompt, stdin, stdout, toggleThinking, runtime.config.thinkingClickCollapse])
+  }, [busy, hasThinking, pending, planAsk, picker, listPicker, mcpMenu, providerMenu, prompt, stdin, stdout, toggleThinking, runtime.config.thinkingClickCollapse])
 
   useInput((input, key) => {
+    const modalOpen = !!(pending || planAsk || picker || listPicker || mcpMenu || providerMenu || prompt)
     if (key.tab && key.shift) {
       const next = nextMode(runtime.agent.permissions.mode)
       runtime.agent.permissions.mode = next
       setMode(next)
-    } else if (key.escape && busy && !pending && !planAsk) {
+    } else if (key.escape && busy && !modalOpen) {
       controller.current?.abort()
       setCancelling(true)
       if (queued.length) {
@@ -863,11 +959,11 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           notice(t('No image on the clipboard.'), 'warn')
         }
       })()
-    } else if (matchKeybind(runtime.config.keybinds.thinking, input, key)) {
+    } else if (matchKeybind(runtime.config.keybinds.thinking, input, key) || (key.meta && !key.ctrl && input.toLowerCase() === 't')) {
       toggleThinking()
     } else if (matchKeybind(runtime.config.keybinds.toolOutput, input, key)) {
       setShowToolOutput((prev) => !prev)
-      refreshStatic()
+      if (maxSplitIdxRef.current > 0) refreshStatic()
     } else if (key.ctrl && input.toLowerCase() === 'l') {
       refreshStatic()
     }
@@ -938,8 +1034,6 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
     setAsks((q) => q.slice(1))
   }
 
-  const isRealTty = Boolean(stdout?.isTTY && 'fd' in stdout)
-  const maxLiveLines = Math.max(8, (stdout?.rows ?? 24) - 10)
   const capLiveMarkdown = (raw: string): string => {
     if (!isRealTty) return raw
     const lines = raw.split('\n')
@@ -997,12 +1091,21 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
         const shownText = isLive && isRealTty && allLines.length > maxLiveLines
           ? `… (${allLines.length - maxLiveLines} lines above) …\n${allLines.slice(-maxLiveLines).join('\n')}`
           : text
-        const isTarget = e.id === liveThinkingEntryId
+        const isTarget = e.id === lastThinkingEntryId
         return (
-          <Box key={e.id} ref={isTarget ? thinkingTargetRef : undefined} marginTop={1} flexDirection="column">
+          <Box
+            key={e.id}
+            ref={(el) => {
+              if (isTarget) thinkingTargetRef.current = el
+              if (el) thinkingEntryRefs.current.set(e.id, el)
+              else thinkingEntryRefs.current.delete(e.id)
+            }}
+            marginTop={1}
+            flexDirection="column"
+          >
             <Box flexDirection="row">
               <Text dimColor>{showThinking ? t('✻ Thinking') : t('✻ Thinking · {n} lines', { n: lines })}</Text>
-              <Text dimColor> · {runtime.config.keybinds.thinking.spec}{runtime.config.thinkingClickCollapse ? ` · ${t('click to toggle')}` : ''}</Text>
+              <Text dimColor> · {runtime.config.keybinds.thinking.spec} / alt+t{runtime.config.thinkingClickCollapse ? ` · ${t('click to toggle')}` : ''}</Text>
             </Box>
             {showThinking ? (
               <Box flexDirection="column" paddingLeft={2}>
@@ -1040,15 +1143,23 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
 
   return (
     <Box ref={liveRootRef} flexDirection="column">
-      <Static key={staticKey} items={transcript.done}>{renderEntry}</Static>
+      <Static key={staticKey} items={staticDone}>{renderEntry}</Static>
+      {activeTurnDone.map(renderEntry)}
       {transcript.live.map(renderEntry)}
       {busy && !pending && !planAsk ? (
-        <Box ref={liveThinkingEntryId === undefined ? thinkingTargetRef : undefined} marginTop={1} flexDirection="column">
+        <Box
+          ref={(el) => {
+            spinnerTargetRef.current = el
+            if (lastThinkingEntryId === undefined) thinkingTargetRef.current = el
+          }}
+          marginTop={1}
+          flexDirection="column"
+        >
           <Box flexDirection="row">
             <Spinner label={cancelling ? t('Cancelling') : activeSpinnerSummary ? `${t('Thinking')} · ${activeSpinnerSummary}` : t('Thinking')} startedAt={startedAt} />
-            <Text dimColor> · {runtime.config.keybinds.thinking.spec}{runtime.config.thinkingClickCollapse ? ` · ${t('click to toggle')}` : ''}</Text>
+            <Text dimColor> · {runtime.config.keybinds.thinking.spec} / alt+t{runtime.config.thinkingClickCollapse ? ` · ${t('click to toggle')}` : ''}</Text>
           </Box>
-          {showThinking && liveThinkingEntryId === undefined ? (
+          {showThinking && lastThinkingEntryId === undefined ? (
             <Box flexDirection="column" paddingLeft={2}>
               <Text dimColor>{t('Model: {model} · reasoning: {level}', { model: runtime.modelRef, level: reasoning })}</Text>
               {activeToolSummary ? <Text dimColor>{`▶ ${activeToolSummary}`}</Text> : null}

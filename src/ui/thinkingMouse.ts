@@ -40,7 +40,7 @@ export function clickedThinking(
   // Windows Terminal layouts (prompt/spinner reflow). Accept the header at
   // either of the two adjacent rows, never arbitrary summary lines.
   return (click.y === row || click.y === row - 1) &&
-    click.x >= col && click.x < col + Math.min(target.width, 46)
+    click.x >= col && click.x < col + Math.min(target.width, 72)
 }
 
 /** Parse SGR or Urxvt mouse wheel / 2-finger touchpad vertical scroll events after Ink strips ESC. */
@@ -53,6 +53,11 @@ export function parseMouseWheel(input: string): 'up' | 'down' | undefined {
   if (dir === 0) return 'up'
   if (dir === 1) return 'down'
   return undefined
+}
+
+/** Detect raw SGR/Urxvt wheel packets in a raw stdin data chunk (before ESC is stripped). */
+export function hasMouseWheelSequence(chunk: string): boolean {
+  return chunk.includes('\x1b[') && /\[<?6[4567];\d+;\d+[mM]/.test(chunk)
 }
 
 /** Ink useInput receives these control reports too; they must not enter the prompt. */
