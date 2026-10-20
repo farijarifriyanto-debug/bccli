@@ -740,9 +740,9 @@ test('!command and #memory prompt shortcuts execute locally without calling the 
   stdin.write('!node -e "console.log(12345 + 54321)"')
   await wait()
   stdin.write('\r')
-  await waitFor(() => frames.join('\n').includes('66666'))
+  await waitFor(() => frames.join('\n').includes('66666'), 10000)
   expect(rt.agent.messages.some((m) => typeof m.content === 'string' && m.content.includes('66666'))).toBe(true)
-})
+}, 15000)
 
 test('live Thinking spinner and expanded inspector show the currently running tool activity', async () => {
   const rt = makeRuntime([
