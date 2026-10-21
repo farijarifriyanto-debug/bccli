@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import WebSocket from 'ws'
-import { serveBanner, startServe } from '../src/serve'
+import type { Provider, ToolCall } from '../src/provider'
+import { type ServeHandle, serveBanner, startServe } from '../src/serve'
+import type { ServerFrame } from '../src/serveProtocol'
 import { api, connectMux, isItem, raw, scripted, withServe } from './helpers/serve'
 
 test('banner serve: token dari user tidak ikut dicetak, token acak dicetak', () => {
@@ -251,4 +253,126 @@ test('attach lintas-restart: turn lanjutan memakai model sesi dari JSONL, bukan 
   } finally {
     await h2.close()
   }
+})
+
+// ---- display forwarding di tool_result (Plan A: docs/superpowers/plans/2026-10-21-serve-display-forwarding.md) ----
+
+const toolCall = (name: string, args: unknown, id = `tc-${Math.random().toString(36).slice(2)}`): ToolCall => ({
+  id,
+  name,
+  arguments: JSON.stringify(args),
+})
+
+// Provider stub: tiap giliran mengeluarkan satu batch tool calls, lalu reply teks final.
+function toolsProvider(script: ToolCall[][]): Provider {
+  let n = 0
+  return {
+    async chat(req) {
+      const calls = script[n++]
+      if (calls) return { text: '', toolCalls: calls, usage: { inputTokens: 1, outputTokens: 1 } }
+      req.onText?.('done')
+      return { text: 'done', toolCalls: [], usage: { inputTokens: 1, outputTokens: 1 } }
+    },
+    async listModels() {
+      return ['serve-model']
+    },
+  }
+}
+
+// withServe menyembunyikan cwd; test display butuh file nyata di disk → scaffold sendiri.
+async function withServeCwd(
+  files: Record<string, string>,
+  provider: Provider,
+  fn: (ctx: { h: ServeHandle; base: string; cwd: string }) => Promise<void>,
+): Promise<void> {
+  const home = mkdtempSync(join(tmpdir(), 'bccli-display-home-'))
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-display-cwd-'))
+  for (const [name, content] of Object.entries(files)) writeFileSync(join(cwd, name), content)
+  const h = await startServe({
+    port: 0,
+    cwd,
+    provider,
+    env: { BCCLI_HOME: home, BOTCONNECTOR_API_KEY: 'k' } as NodeJS.ProcessEnv,
+  })
+  try {
+    await fn({ h, base: `http://127.0.0.1:${h.port}`, cwd })
+  } finally {
+    await h.close()
+  }
+}
+
+const toolResultOf = (tool: string) => (f: ServerFrame): boolean => {
+  if (!isItem('tool_result')(f)) return false
+  const v = (f as unknown as { value: { tool?: string } }).value
+  return v.tool === tool
+}
+
+const itemValue = (f: unknown): Record<string, unknown> => (f as { value: Record<string, unknown> }).value
+
+async function openTurn(h: ServeHandle, base: string): Promise<{ mux: Awaited<ReturnType<typeof connectMux>>; id: string }> {
+  const created = (await (
+    await api(base, h.token, '/v1/sessions', { permissionMode: 'bypassPermissions' })
+  ).json()) as { id: string }
+  const mux = await connectMux(h)
+  mux.send({ type: 'open', streamId: 'st1', target: `session:${created.id}` })
+  await mux.wait(isItem('ready'))
+  return { mux, id: created.id }
+}
+
+test('tool_result meneruskan display: diff edit sampai ke 2 klien mux, ringkasan result.toolCalls tetap tanpa display', async () => {
+  await withServeCwd({ 'a.txt': 'x\n' }, toolsProvider([
+    [toolCall('read', { path: 'a.txt' })],
+    [toolCall('edit', { path: 'a.txt', old_string: 'x', new_string: 'y' })],
+  ]), async ({ h, base }) => {
+    const { mux, id } = await openTurn(h, base)
+    const mux2 = await connectMux(h)
+    mux2.send({ type: 'open', streamId: 'st1', target: `session:${id}` })
+    await mux2.wait(isItem('ready'))
+    const post = await api(base, h.token, `/v1/sessions/${id}/messages`, { prompt: 'go' })
+    expect(post.status).toBe(202)
+
+    const hit = await mux.wait(toolResultOf('edit'))
+    const item = itemValue(hit)
+    expect(typeof item.display).toBe('string')
+    // formatDiff (src/diff.ts): "    1 - x" / "    1 + y"
+    expect(item.display as string).toMatch(/- x/)
+    expect(item.display as string).toMatch(/\+ y/)
+
+    const hit2 = await mux2.wait(toolResultOf('edit'))
+    expect(itemValue(hit2).display).toBe(item.display)
+
+    const result = await mux.wait(isItem('result'))
+    const calls = itemValue(result).toolCalls as Record<string, unknown>[]
+    expect(calls.length).toBe(2)
+    expect(Object.keys(calls[1]!).sort()).toEqual(['isError', 'name', 'output', 'target'])
+    mux.ws.close()
+    mux2.ws.close()
+  })
+})
+
+test('tool_result tanpa display dari tool (bash): key display tidak muncul sama sekali', async () => {
+  await withServeCwd({}, toolsProvider([[toolCall('bash', { command: 'echo hi' })]]), async ({ h, base }) => {
+    const { mux, id } = await openTurn(h, base)
+    await api(base, h.token, `/v1/sessions/${id}/messages`, { prompt: 'go' })
+    const hit = await mux.wait(toolResultOf('bash'))
+    expect('display' in itemValue(hit)).toBe(false)
+    mux.ws.close()
+  })
+})
+
+test('display oversized dipotong di cap 100k karakter + marker [truncated]', async () => {
+  const big = 'x'.repeat(150_000)
+  await withServeCwd({ 'a.txt': big }, toolsProvider([
+    [toolCall('read', { path: 'a.txt' })],
+    [toolCall('edit', { path: 'a.txt', old_string: big, new_string: 'short' })],
+  ]), async ({ h, base }) => {
+    const { mux, id } = await openTurn(h, base)
+    await api(base, h.token, `/v1/sessions/${id}/messages`, { prompt: 'go' })
+    const hit = await mux.wait(toolResultOf('edit'))
+    const display = itemValue(hit).display as string
+    expect(typeof display).toBe('string')
+    expect(display.endsWith('\n[truncated]')).toBe(true)
+    expect(display.length).toBeLessThanOrEqual(100_000 + '\n[truncated]'.length)
+    mux.ws.close()
+  })
 })

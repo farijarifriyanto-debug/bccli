@@ -61,6 +61,9 @@ interface WireToolCall {
 
 const MAX_BODY_BYTES = 1024 * 1024
 
+// Cap display (diff edit / ringkasan tool) agar frame mux tetap jauh di bawah limit 256KB (serveProtocol).
+const DISPLAY_MAX = 100_000
+
 function json(res: ServerResponse, status: number, value: unknown): void {
   const body = JSON.stringify(value)
   res.writeHead(status, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) })
@@ -417,7 +420,17 @@ export async function startServe(opts: ServeOptions = {}): Promise<ServeHandle> 
             call.output = event.output
             call.isError = event.isError
           }
-          broadcast(s, { type: 'tool_result', tool: event.tool, output: event.output, isError: event.isError })
+          const item: Record<string, unknown> = {
+            type: 'tool_result',
+            tool: event.tool,
+            output: event.output,
+            isError: event.isError,
+          }
+          if (typeof event.display === 'string') {
+            item.display =
+              event.display.length > DISPLAY_MAX ? `${event.display.slice(0, DISPLAY_MAX)}\n[truncated]` : event.display
+          }
+          broadcast(s, item)
           break
         }
         case 'usage':
