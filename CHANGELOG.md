@@ -3,6 +3,11 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## 0.4.9 - 2026-10-21
+
+### Added
+- **Serve: `tool_result` items now forward the optional `display` field (`src/serve.ts`)**: the same human-facing rendering the TUI shows (unified diff for `edit`, short summaries for `read`/`grep`/`glob`/`fetch`/`write`), broadcast to every mux client of the session. Capped at 100,000 characters with a trailing `\n[truncated]` marker; the key is absent when the tool provides none (e.g. `bash`). Additive - existing clients are unaffected, and the turn summary `result.toolCalls[]` still does not carry `display`.
+
 ## 0.4.8 - 2026-10-20
 
 Keep terminal mouse tracking (`\x1b[?1000h`) off by default so mouse drag-to-copy and native 2-finger touchpad scrolling always work 100% of the time, and add single-key `Tab` (on an empty prompt) plus `alt+t` and `/thinking` (`/t`) to open/close `Thinking` effortlessly in both Windows Terminal and Termius on VPS.
