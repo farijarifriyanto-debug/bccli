@@ -339,7 +339,7 @@ test('tool_result meneruskan display: diff edit sampai ke 2 klien mux, ringkasan
     expect(item.display as string).toMatch(/\+ y/)
 
     const hit2 = await mux2.wait(toolResultOf('edit'))
-    expect(itemValue(hit2).display).toBe(item.display)
+    expect(itemValue(hit2)).toEqual(item)
 
     const result = await mux.wait(isItem('result'))
     const calls = itemValue(result).toolCalls as Record<string, unknown>[]
@@ -372,7 +372,8 @@ test('display oversized dipotong di cap 100k karakter + marker [truncated]', asy
     const display = itemValue(hit).display as string
     expect(typeof display).toBe('string')
     expect(display.endsWith('\n[truncated]')).toBe(true)
-    expect(display.length).toBeLessThanOrEqual(100_000 + '\n[truncated]'.length)
+    // Pin nilai cap persis (bukan hanya batas atas): DISPLAY_MAX regresi ke bawah = docs/CHANGELOG diam-diam bohong.
+    expect(display.length).toBe(100_000 + '\n[truncated]'.length)
     mux.ws.close()
   })
 })
