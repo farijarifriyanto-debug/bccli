@@ -70,7 +70,7 @@ socket yang tidak balas pong sebelum interval berikutnya di-terminate.
 
 ```jsonc
 → { "type": "open", "streamId": "s1", "target": "session:2026-10-07T…-ab12cd" }
-← { "type": "item", "streamId": "s1", "value": { "type": "ready", "sessionId": "…", "host": { "home": "…", "version": "0.4.8" } } }
+← { "type": "item", "streamId": "s1", "value": { "type": "ready", "sessionId": "…", "host": { "home": "…", "version": "0.4.9" } } }
 // POST /v1/sessions/:id/messages { "prompt": "…" } → 202 { turnId }
 ← { "type": "item", "streamId": "s1", "value": { "type": "text", "delta": "Halo" } }
 ← { "type": "item", "streamId": "s1", "value": { "type": "result", "text": "Halo", "toolCalls": [], "usage": { "inputTokens": 12, "outputTokens": 4 }, "stopReason": "done" } }
@@ -88,11 +88,18 @@ Item `result` menandai SELESAI TURN — stream tetap terbuka untuk turn berikutn
 | `ready` | `sessionId`, `host{home,version}` | pertama setelah `open` (listener sudah terpasang sebelumnya) |
 | `text` / `thinking` | `delta` | streaming token |
 | `tool_use` | `tool`, `target` | tool mulai |
-| `tool_result` | `tool`, `output`, `isError` | tool selesai |
+| `tool_result` | `tool`, `output`, `isError`, `display?` | tool selesai |
 | `usage` | `inputTokens`, `outputTokens` | kumulatif per sesi |
 | `approval_request` | `requestId`, `tool`, `kind`, `target`, `preview?` | izin dibutuhkan (mode `ask`) |
 | `error` | `message` | error agent (stream tetap terbuka) |
 | `result` | `text`, `toolCalls[]`, `usage`, `stopReason` | akhir turn (`done`/`aborted`/`stepLimit`/`budgetExceeded`) |
+
+Field opsional `display` (string) pada `tool_result` = rendering ringkas untuk
+manusia yang sama dengan yang ditampilkan TUI — diff terpadu untuk `edit`,
+ringkasan pendek untuk tool seperti `read`/`grep`/`glob`/`fetch`/`write`.
+Key `display` TIDAK ada bila tool tidak menghasilkannya (mis. `bash`). Nilai
+`display` dibatasi maksimum 100.000 karakter; bila dipotong, diakhiri marker
+`\n[truncated]`. Ringkasan turn `result.toolCalls[]` tidak membawa `display`.
 
 ### Replay & disiplin reconnect
 
