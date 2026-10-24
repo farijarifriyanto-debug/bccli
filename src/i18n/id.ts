@@ -242,6 +242,8 @@ Opsi:
   'Skipping malformed entry: {entry} — fix it manually in {path}.':
     'Melewatkan entry rusak: {entry} — perbaiki manual di {path}.',
   'No managed plugins to update.': 'Tidak ada plugin terelola untuk diperbarui.',
+  'No plugins are installed. Install one with: bccli plugins install <spec>':
+    'Belum ada plugin terpasang. Pasang dengan: bccli plugins install <spec>',
   'update requires a plugin name or no argument: bccli plugins update [name]':
     'update butuh nama plugin atau tanpa argumen: bccli plugins update [nama]',
   '{name} updated to latest.': '{name} diperbarui ke versi terbaru.',

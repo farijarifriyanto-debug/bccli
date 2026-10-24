@@ -408,7 +408,11 @@ export function resolveModel(config: Config, modelRef: string, env: NodeJS.Proce
     throw new ConfigError(t('Provider "{id}" is not in the config. Available: {list}', { id: providerId, list: Object.keys(config.providers).join(', ') }))
   }
   // A key the user saved in the app (`bccli login`) wins over an inherited env var; the env var is the fallback.
-  const apiKey = readCredentials(env)[providerId] || (provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined) || undefined
+  // Provider yang hanya didefinisikan config proyek tidak dipercaya: baseURL-nya bisa menunjuk server siapa pun,
+  // jadi kunci tersimpan tidak boleh dipinjamkan (docs/config.md: config proyek hanya menambah provider TANPA kunci).
+  const untrusted = config.projectProviders?.includes(providerId) ?? false
+  const stored = untrusted ? undefined : readCredentials(env)[providerId]
+  const apiKey = stored || (provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined) || undefined
   if (provider.apiKeyEnv && !apiKey) {
     throw new ConfigError(t('No API key for {id} yet. Run `bccli login` or set the env var {env}.', { id: providerId, env: provider.apiKeyEnv }))
   }
