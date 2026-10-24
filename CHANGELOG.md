@@ -3,6 +3,26 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## 0.4.10 - 2026-10-24
+
+Rilis perbaikan dari audit fungsional: keamanan kredensial, dua kegagalan yang membuat bccli mengklaim hasil yang tidak ada, dan kerapian perintah.
+
+### Fixed
+- **Keamanan: config proyek tidak lagi bisa membelokkan kunci API tersimpan (`src/config.ts`)**: provider yang hanya didefinisikan `<repo>/.bccli/config.json` tidak lagi memakai kredensial tersimpan, sesuai yang sudah tertulis di `docs/config.md`. Sebelumnya repo berisi config jahat dapat mengarahkan `baseURL` ke server lain dan menerima kunci milik pengguna. Provider preset/global tetap memakai kunci tersimpan.
+- **Stream terpotong tidak lagi dianggap selesai (`src/provider.ts`)**: stream chat-completions yang ditutup tanpa `finish_reason` maupun `[DONE]` kini gagal dengan pesan jelas (exit 1), bukan mengembalikan jawaban separuh sebagai sukses.
+- **Permintaan yang menggantung kini dibatalkan (`src/provider.ts`)**: batas diam untuk fase header dan pembacaan stream (default 60 detik, `BCCLI_HTTP_IDLE_TIMEOUT_MS`). Sebelumnya `-p` bisa menunggu tanpa batas.
+- **`bccli plugins list` kosong** kini memberi pesan eksplisit, bukan keluaran kosong.
+- **`bccli provider add`** tidak lagi menyimpan entri provider kustom yang gagal verifikasi kunci.
+- **Pesan error** untuk 401/403/404/429/5xx didahului saran tindakan; detail mentah tetap disertakan.
+
+### Added
+- **`bccli mcp add <name> --command <cmd>`** memasang server MCP stdio lokal, dengan `--args "…"` dan `--value KEY=VAL` untuk env. Sebelumnya hanya katalog dan `--url` HTTP.
+- **`--fail-on-tool-error`** (mode `-p`): tool call yang gagal menghasilkan exit code 1, untuk CI. Default tetap 0 karena model boleh memulihkan diri dalam satu giliran.
+- **`SIGBREAK`** (Ctrl-Break Windows) diperlakukan seperti Ctrl-C: membatalkan giliran dan keluar dengan kode 1.
+
+### Changed
+- Enam tes UI yang sebelumnya timeout diam-diam lalu tetap lulus kini memeriksa keadaan yang benar-benar teramati; `waitFor` gagal dengan label kondisi.
+
 ## 0.4.9 - 2026-10-21
 
 ### Added
