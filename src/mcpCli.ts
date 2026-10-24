@@ -59,9 +59,25 @@ export async function runMcpCommand(args: CliArgs, deps: CliDeps): Promise<numbe
     deps.out(t('{name} installed ({url}).', { name, url: args.url }))
     return 0
   }
+  if (args.stdioCommand) {
+    // Server stdio lokal (dulu hanya bisa lewat katalog atau HTTP): --command <cmd> [--args "…"] [--value KEY=VAL]
+    const env = Object.fromEntries(
+      args.values.filter((v) => v.includes('=')).map((v) => [v.slice(0, v.indexOf('=')), v.slice(v.indexOf('=') + 1)]),
+    )
+    const serverArgs = (args.stdioArgs ?? '').split(/\s+/).filter(Boolean)
+    addGlobalServer(home, name, {
+      command: args.stdioCommand,
+      ...(serverArgs.length ? { args: serverArgs } : {}),
+      ...(Object.keys(env).length ? { env } : {}),
+    })
+    deps.out(t('{name} installed (stdio: {command}).', { name, command: args.stdioCommand }))
+    return 0
+  }
   const entry = CATALOG.find((c) => c.name === name)
   if (!entry) {
-    deps.err(t('{name} is not in the catalog. For another remote server use: bccli mcp add {name} --url <url>', { name }))
+    deps.err(
+      t('{name} is not in the catalog. For another server use: bccli mcp add {name} --url <url> (HTTP) or bccli mcp add {name} --command <cmd> (stdio).', { name }),
+    )
     return 1
   }
   const values = Object.fromEntries(args.values.map((v) => [v.slice(0, v.indexOf('=')), v.slice(v.indexOf('=') + 1)]))

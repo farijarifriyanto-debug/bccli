@@ -71,3 +71,15 @@ test('the candidate key is what gets verified, also for custom providers without
   expect(seen).toEqual(['Bearer sk-new'])
   expect(readCredentials(d.env)).toEqual({ corp: 'sk-new' })
 })
+
+test('provider add yang gagal verifikasi tidak menyimpan entri provider baru', async () => {
+  const d = deps('sk-salah', 401)
+  expect(await run(['add', 'kustom', '--url', 'http://127.0.0.1:9/v1'], d)).toBe(1)
+  expect(loadConfig(d.cwd, d.env).providers.kustom).toBeUndefined()
+})
+
+test('provider add yang lolos verifikasi tetap menyimpan entri provider baru', async () => {
+  const d = deps('sk-benar', 200)
+  expect(await run(['add', 'kustom2', '--url', 'http://127.0.0.1:9/v1'], d)).toBe(0)
+  expect(loadConfig(d.cwd, d.env).providers.kustom2?.baseURL).toBe('http://127.0.0.1:9/v1')
+})

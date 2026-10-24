@@ -85,3 +85,19 @@ test('unknown action mentions serve', async () => {
   expect(await run(['bogus', 'x'], d)).toBe(1)
   expect(d.errors.join('\n')).toContain('serve')
 })
+
+test('add --command memasang server stdio lokal (dengan args dan env)', async () => {
+  const d = deps()
+  expect(await run(['add', 'lokal', '--command', 'node', '--args', 'server.js --flag', '--value', 'TOKEN=abc'], d)).toBe(0)
+  const servers = readMcpFile(join(d.home, 'mcp.json'))
+  expect(servers.lokal).toEqual({ command: 'node', args: ['server.js', '--flag'], env: { TOKEN: 'abc' } })
+  expect(d.lines.join('\n')).toContain('stdio')
+})
+
+test('tanpa katalog, --url, atau --command: pesan menyebut kedua jalur', async () => {
+  const d = deps()
+  expect(await run(['add', 'entah'], d)).toBe(1)
+  const text = d.errors.join('\n')
+  expect(text).toContain('--url')
+  expect(text).toContain('--command')
+})

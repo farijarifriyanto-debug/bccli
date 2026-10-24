@@ -324,6 +324,14 @@ Opsi:
   'No API key for {id} yet. Run `bccli login` or set the env var {env}.': 'API key untuk {id} belum ada. Jalankan `bccli login` atau set env {env}.',
   'Error from the provider: {message}': 'Error dari provider: {message}',
   'Cannot connect to {url}: {error}': 'Tidak bisa terhubung ke {url}: {error}',
+  'The API key was rejected. Check the key for this provider (bccli login) or its API key environment variable.':
+    'Kunci API ditolak. Periksa kunci provider ini (bccli login) atau env var kuncinya.',
+  'Model or endpoint not found. Check the model name and the provider base URL.':
+    'Model atau endpoint tidak ditemukan. Periksa nama model dan base URL provider.',
+  'Rate limit reached. Wait a moment, or switch model with /model.':
+    'Batas laju tercapai. Tunggu sebentar, atau ganti model dengan /model.',
+  'The provider is having trouble. Try again, or switch model with /model.':
+    'Penyedia sedang bermasalah. Coba lagi, atau ganti model dengan /model.',
   'The provider did not respond within {seconds}s. Check the connection, then try again.':
     'Penyedia tidak merespons dalam {seconds} detik. Periksa koneksi, lalu coba lagi.',
   'The provider stopped sending data for {seconds}s. The answer above may be incomplete; try again.':
@@ -356,7 +364,9 @@ Opsi:
   'Usage: bccli mcp {action} <name>': 'Pemakaian: bccli mcp {action} <nama>',
   '{name} removed.': '{name} dihapus.',
   '{name} installed ({url}).': '{name} terpasang ({url}).',
-  '{name} is not in the catalog. For another remote server use: bccli mcp add {name} --url <url>': '{name} tidak ada di katalog. Untuk server remote lain pakai: bccli mcp add {name} --url <url>',
+  '{name} installed (stdio: {command}).': '{name} terpasang (stdio: {command}).',
+  '{name} is not in the catalog. For another server use: bccli mcp add {name} --url <url> (HTTP) or bccli mcp add {name} --command <cmd> (stdio).':
+    '{name} tidak ada di katalog. Untuk server lain pakai: bccli mcp add {name} --url <url> (HTTP) atau bccli mcp add {name} --command <cmd> (stdio).',
   '{name} installed. Active in the next bccli session.': '{name} terpasang. Aktif di sesi bccli berikutnya.',
   'control a browser (open pages, click, fill forms, screenshot)': 'kontrol browser (buka halaman, klik, isi form, screenshot)',
   'up-to-date library documentation': 'dokumentasi library terbaru',
