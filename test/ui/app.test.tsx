@@ -479,7 +479,8 @@ test('typing while the agent works queues the message and runs it after the turn
   // jadi tunggu efek yang bisa diamati: provider dipanggil untuk pesan kedua.
   await waitFor(() => seen.length === 2)
   expect(seen).toEqual(['satu', 'dua'])
-  expect(lastFrame()).not.toContain('antri:')
+  // Label antrian baru hilang satu render setelah provider dipanggil — tunggu, jangan langsung assert.
+  await waitFor(() => !(lastFrame() ?? '').includes('antri:'))
 
   block()
   await send('tiga')
