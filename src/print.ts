@@ -26,7 +26,7 @@ export async function runPrint(
   rt: Runtime,
   prompt: string,
   io: { out: Writer; err: Writer } = { out: process.stdout, err: process.stderr },
-  opts: { allowAll?: boolean; outputFormat?: OutputFormat } = {},
+  opts: { allowAll?: boolean; outputFormat?: OutputFormat; failOnToolError?: boolean } = {},
 ): Promise<number> {
   const format: OutputFormat = opts.outputFormat ?? 'text'
   const emit = (line: Record<string, unknown>) => io.out.write(`${JSON.stringify(line)}\n`)
@@ -65,6 +65,9 @@ export async function runPrint(
         break
       case 'toolEnd':
         if (event.isError) io.err.write(`  ✗ ${event.output.split('\n')[0]}\n`)
+        // Model boleh memulihkan diri setelah tool gagal, jadi default-nya tidak menggagalkan run.
+        // Untuk CI, --fail-on-tool-error membuat kegagalan tool apa pun berarti rc=1.
+        if (event.isError && opts.failOnToolError) failed = true
         if ((event.tool === 'edit' || event.tool === 'write') && !event.isError) edited = true
         if (format === 'stream-json') emit({ type: 'tool_result', tool: toolNames.get(event.id), isError: !!event.isError, output: event.output })
         break
@@ -95,6 +98,11 @@ export async function runPrint(
   const controller = new AbortController()
   const onSigint = () => controller.abort()
   process.once('SIGINT', onSigint)
+  // Ctrl-Break di Windows mengirim SIGBREAK, bukan SIGINT. Tanpa handler ini proses mati
+  // tanpa cleanup dan tanpa pesan; perlakukan sama seperti Ctrl-C.
+  const onSigbreak = () => controller.abort()
+  const useSigbreak = process.platform === 'win32'
+  if (useSigbreak) process.once('SIGBREAK', onSigbreak)
   const start = await runHooks(rt.config.hooks, 'SessionStart', {}, { env: rt.env, cwd: rt.cwd })
   for (const warning of start.warnings) io.err.write(`${warning}\n`)
   await rt.emitPlugins('SessionStart')
@@ -119,6 +127,7 @@ export async function runPrint(
     }
   } finally {
     process.off('SIGINT', onSigint)
+    if (useSigbreak) process.off('SIGBREAK', onSigbreak)
   }
   const stop = await runHooks(rt.config.hooks, 'Stop', {}, { env: rt.env, cwd: rt.cwd })
   for (const warning of stop.warnings) io.err.write(`${warning}\n`)

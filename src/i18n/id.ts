@@ -136,6 +136,7 @@ Options:
   -r, --resume                  pick a session to continue
       --allow-all               run all tools without asking for permission
       --allowed-tools <a,b>     tools allowed without asking: bash, edit, fetch
+      --fail-on-tool-error      with -p: exit 1 when any tool call fails (for CI)
   -w, --worktree <name>        run in git worktree ../<repo>.worktrees/<name> (created, or reused if it exists)
       --output-format <fmt>     text | json | stream-json for -p (machine-readable output)
       --permission-mode <mode>  default | acceptEdits | plan | allowAll
@@ -166,6 +167,7 @@ Opsi:
   -r, --resume                  pilih sesi untuk dilanjutkan
       --allow-all               jalankan semua alat tanpa minta izin
       --allowed-tools <a,b>     alat yang boleh tanpa izin: bash, edit, fetch
+      --fail-on-tool-error      dengan -p: keluar 1 bila ada tool gagal (untuk CI)
   -w, --worktree <name>        jalankan di git worktree ../<repo>.worktrees/<name> (dibuat, atau dipakai ulang jika ada)
       --output-format <fmt>     text | json | stream-json untuk -p (output mesin)
       --permission-mode <mode>  default | acceptEdits | plan | allowAll
