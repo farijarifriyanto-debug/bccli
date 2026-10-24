@@ -9,6 +9,10 @@ export interface CliArgs {
   command: 'run' | 'login' | 'models' | 'update' | 'acp' | 'serve' | 'plugins' | 'gh-bot' | 'provider' | 'mcp' | 'connect' | 'disconnect' | 'integrations' | 'completion' | 'stats' | 'export' | 'import' | 'pr'
   subArgs: string[]
   url?: string
+  /** `bccli mcp add <name> --command <cmd>`: server stdio, bukan HTTP. */
+  stdioCommand?: string
+  /** Argumen untuk server stdio (dipisah spasi). */
+  stdioArgs?: string
   name?: string
   keyEnv?: string
   values: string[]
@@ -117,6 +121,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
       continue: { type: 'boolean', short: 'c' },
       resume: { type: 'boolean', short: 'r' },
       'allow-all': { type: 'boolean' },
+      command: { type: 'string' },
+      args: { type: 'string' },
       'fail-on-tool-error': { type: 'boolean' },
       'allowed-tools': { type: 'string' },
       worktree: { type: 'string', short: 'w' },
@@ -206,6 +212,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
     logout: !!values.logout,
     subArgs: ['models', 'plugins', 'gh-bot', 'provider', 'mcp', 'connect', 'disconnect', 'integrations', 'completion', 'stats', 'export', 'import', 'pr'].includes(command) ? rest : [],
     url: values.url,
+    stdioCommand: values.command,
+    stdioArgs: values.args,
     name: values.name,
     keyEnv: values['key-env'],
     values: values.value ?? [],

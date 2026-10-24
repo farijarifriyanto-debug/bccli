@@ -169,6 +169,15 @@ function httpIdleMs(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 60_000
 }
 
+/** Kalimat yang bisa ditindaklanjuti untuk status HTTP yang sering muncul; detail mentah tetap disertakan. */
+function statusHint(status: number): string | undefined {
+  if (status === 401 || status === 403) return t('The API key was rejected. Check the key for this provider (bccli login) or its API key environment variable.')
+  if (status === 404) return t('Model or endpoint not found. Check the model name and the provider base URL.')
+  if (status === 429) return t('Rate limit reached. Wait a moment, or switch model with /model.')
+  if (status >= 500) return t('The provider is having trouble. Try again, or switch model with /model.')
+  return undefined
+}
+
 /**
  * Small models sometimes get stuck emitting the same few characters forever.
  * Returns where the loop starts when the tail is one short unit (1-12 chars, not just
@@ -1215,7 +1224,9 @@ export function createProvider(options: ProviderOptions): Provider {
         if (Number.isFinite(secs) && secs > 0 && secs <= 30) retryAfterWaitMs = Math.ceil(secs * 1000)
       }
       const text = await res.text().catch(() => '')
-      lastError = new ProviderError(t('{status} from {url}: {message}', { status: res.status, url: baseURL, message: errorMessage(text) }), res.status)
+      const raw = t('{status} from {url}: {message}', { status: res.status, url: baseURL, message: errorMessage(text) })
+      const hint = statusHint(res.status)
+      lastError = new ProviderError(hint ? `${hint} (${raw})` : raw, res.status)
       const deterministicQuota429 =
         res.status === 429 && /"code"\s*:\s*"(?:luna_monthly_quota_exhausted|plan_allowance_exhausted)"/i.test(text)
       if (!retryable(res.status) || deterministicQuota429) throw lastError

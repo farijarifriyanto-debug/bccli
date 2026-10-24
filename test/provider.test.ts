@@ -1301,3 +1301,22 @@ test('stream yang berhenti mengirim data ditolak, tidak menggantung', async () =
     delete process.env.BCCLI_HTTP_IDLE_TIMEOUT_MS
   }
 })
+
+test('status 401/429/5xx memberi kalimat yang bisa ditindaklanjuti, detail mentah tetap ada', async () => {
+  const cases: [number, RegExp][] = [
+    [401, /API key was rejected|Kunci API ditolak/],
+    [429, /Rate limit reached|Batas laju tercapai/],
+    [503, /having trouble|sedang bermasalah/],
+  ]
+  for (const [status, hint] of cases) {
+    const p = createProvider({
+      baseURL: 'http://x/v1',
+      model: 'm',
+      retryDelayMs: 0,
+      fetch: async () => new Response(JSON.stringify({ error: { message: 'upstream detail' } }), { status }),
+    })
+    const err = await p.chat({ messages: [{ role: 'user', content: 'hi' }] }).catch((e: Error) => e)
+    expect(String(err)).toMatch(hint)
+    expect(String(err)).toContain(String(status)) // detail mentah tetap disertakan
+  }
+})

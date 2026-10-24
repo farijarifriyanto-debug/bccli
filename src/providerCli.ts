@@ -51,7 +51,10 @@ export async function runProviderCommand(args: CliArgs, deps: CliDeps): Promise<
     return 1
   }
   const preset = PRESETS.find((p) => p.id === id)
-  if (!preset && !config.providers[id]) {
+  // Entri provider kustom hanya boleh tersimpan bila kuncinya lolos verifikasi; kalau gagal,
+  // config dikembalikan seperti semula supaya repo/global config tidak menyimpan provider mati.
+  const createdEntry = !preset && !config.providers[id]
+  if (createdEntry) {
     if (!args.url) {
       deps.err(t('{id} is not a preset. For a custom provider add --url <OpenAI-compatible base URL>.', { id }))
       return 1
@@ -65,6 +68,7 @@ export async function runProviderCommand(args: CliArgs, deps: CliDeps): Promise<
   const key = needsKey ? await deps.readSecret(t('API key for {id} (leave empty if not needed): ', { id })) : ''
   const result = await addProviderKey(id, key, deps)
   if (!result.ok) {
+    if (createdEntry) removeGlobalProvider(id, deps.env)
     deps.err(result.error)
     return 1
   }
