@@ -11,9 +11,12 @@ import { readMcpFile } from '../../src/mcp/config'
 import { App } from '../../src/ui/App'
 
 const wait = (ms = 60) => new Promise((r) => setTimeout(r, ms))
-async function waitFor(check: () => boolean, timeoutMs = 3000) {
+// Batas 3 dtk terlalu ketat saat runner lambat (Windows CI): waitFor dulu pulang diam-diam,
+// lalu kegagalan muncul sebagai assertion isi berkas yang menyesatkan. Naikkan batas dan gagal dengan pesan jelas.
+async function waitFor(check: () => boolean, timeoutMs = 6000) {
   const end = Date.now() + timeoutMs
   while (!check() && Date.now() < end) await wait(20)
+  if (!check()) throw new Error(`waitFor tidak terpenuhi dalam ${timeoutMs} ms: ${check.toString().slice(0, 100)}`)
 }
 
 function scripted(steps: Completion[]): Provider {
@@ -283,7 +286,8 @@ test('answering [s] turns the status bar to allow all', async () => {
   await waitFor(() => frames.some((f) => f.includes('[s] ya semua')))
   await wait()
   stdin.write('s')
-  await waitFor(() => frames.some((f) => f.includes('selesai')))
+  // Jawaban model dirender lewat <Static> (tidak masuk frame), jadi tunggu efek yang teramati di state.
+  await waitFor(() => rt.agent.messages.some((m) => typeof m.content === 'string' && m.content.includes('selesai')))
   expect(lastFrame()).toContain('⏵⏵ allow all')
 })
 
@@ -471,7 +475,9 @@ test('typing while the agent works queues the message and runs it after the turn
   expect(lastFrame()).toContain('antri: dua')
   expect(seen).toEqual(['satu'])
   release()
-  await waitFor(() => frames.some((f) => f.includes('jawab 2')))
+  // Teks percakapan dirender lewat <Static>, yang tidak muncul di frame ink-testing-library;
+  // jadi tunggu efek yang bisa diamati: provider dipanggil untuk pesan kedua.
+  await waitFor(() => seen.length === 2)
   expect(seen).toEqual(['satu', 'dua'])
   expect(lastFrame()).not.toContain('antri:')
 
@@ -521,7 +527,7 @@ test('Thinking uses one reversible panel; repeated ctrl+t does not append duplic
   }
   expect(rt.agent.messages.at(-1)).toEqual({ role: 'assistant', content: 'Jawabannya 391.' })
   await slash(stdin, '/clear')
-  await waitFor(() => (lastFrame() ?? '').includes('Percakapan dibersihkan.'))
+  await waitFor(() => rt.agent.messages.length === 0)
   expect(lastFrame()).not.toContain('baris satu')
   expect(lastFrame()).not.toContain('klik untuk buka/tutup')
 })
@@ -549,7 +555,7 @@ test('mouse reporting stays off by default so terminal drag-to-copy and touchpad
   expect(frames.join('')).not.toContain('\x1b[?1000h')
   expect(lastFrame()).not.toContain('klik untuk buka/tutup')
   release?.()
-  await waitFor(() => (lastFrame() ?? '').includes('MOCK_OK'))
+  await waitFor(() => rt.agent.messages.some((m) => typeof m.content === 'string' && m.content.includes('MOCK_OK')))
   unmount()
 }, 20000)
 
@@ -597,7 +603,7 @@ test('SGR mouse click toggles live Thinking without inserting control bytes into
   expect(closed).toBe(true)
   expect(lastFrame()).not.toContain('Model:')
   release?.()
-  await waitFor(() => (lastFrame() ?? '').includes('MOCK_OK'))
+  await waitFor(() => rt.agent.messages.some((m) => typeof m.content === 'string' && m.content.includes('MOCK_OK')))
   expect(rt.agent.messages.filter((message) => message.role === 'user')).toHaveLength(1)
   unmount()
 }, 20000)
@@ -911,8 +917,10 @@ test('/rewind removes the rewound turn from the visible transcript and /resume a
 test('menu slash commands (/help, /model, /thinking) execute immediately while AI is thinking instead of being queued, and Esc closes menu without aborting turn', async () => {
   const rt = makeRuntime([])
   let releaseTurn: (() => void) | undefined
+  let started = false
   rt.agent.provider = {
     async chat(req) {
+      started = true
       req.onThinking?.('PIKIRAN_SEDANG_JALAN_19_BARIS')
       await new Promise<void>((r) => {
         releaseTurn = r
@@ -929,7 +937,8 @@ test('menu slash commands (/help, /model, /thinking) execute immediately while A
   stdin.write('buat aplikasi multimedia')
   await wait()
   stdin.write('\r')
-  await waitFor(() => (lastFrame() ?? '').includes('Thinking'))
+  // Giliran sudah berjalan begitu provider dipanggil; panel thinking tidak dirender saat thinkingVisible=false.
+  await waitFor(() => started)
 
   // Run /help while AI is still thinking -> must show help immediately, NOT "queued: /help"
   await slash(stdin, '/help')
@@ -937,9 +946,10 @@ test('menu slash commands (/help, /model, /thinking) execute immediately while A
   expect(lastFrame()).not.toContain('queued: /help')
   expect(lastFrame()).not.toContain('antri: /help')
 
-  // Run /model while AI is still thinking -> must open ModelPicker immediately, NOT "queued: /model"
+  // Picker menanyakan daftar model ke provider jaringan; di tes offline ia menampilkan baris gagal.
+  // Yang penting diuji: picker TERBUKA seketika (tidak diantrikan), bukan isi daftar modelnya.
   await slash(stdin, '/model')
-  await waitFor(() => (lastFrame() ?? '').includes('kimi-k3'))
+  await waitFor(() => /Pilih model|Choose a model|tidak bisa dihubungi|could not be reached|kimi-k3/i.test(lastFrame() ?? ''))
   expect(lastFrame()).not.toContain('queued: /model')
   expect(lastFrame()).not.toContain('antri: /model')
 
@@ -997,6 +1007,6 @@ test('2-finger touchpad wheel during active mouse reporting immediately releases
   const raw = frames.join('')
   expect(raw.lastIndexOf('\x1b[?1000l')).toBeGreaterThan(raw.lastIndexOf('\x1b[?1000h'))
   releaseTurn?.()
-  await waitFor(() => frames.some((f) => f.includes('selesai')))
+  await waitFor(() => rt.agent.messages.some((m) => typeof m.content === 'string' && m.content.includes('selesai')))
   unmount()
 })
