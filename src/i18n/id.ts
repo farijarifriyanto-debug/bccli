@@ -322,6 +322,12 @@ Opsi:
   'No API key for {id} yet. Run `bccli login` or set the env var {env}.': 'API key untuk {id} belum ada. Jalankan `bccli login` atau set env {env}.',
   'Error from the provider: {message}': 'Error dari provider: {message}',
   'Cannot connect to {url}: {error}': 'Tidak bisa terhubung ke {url}: {error}',
+  'The provider did not respond within {seconds}s. Check the connection, then try again.':
+    'Penyedia tidak merespons dalam {seconds} detik. Periksa koneksi, lalu coba lagi.',
+  'The provider stopped sending data for {seconds}s. The answer above may be incomplete; try again.':
+    'Penyedia berhenti mengirim data selama {seconds} detik. Jawaban di atas mungkin tidak lengkap; coba lagi.',
+  'The response ended before it finished (no finish_reason or [DONE]). The answer above is incomplete; try again.':
+    'Respons berakhir sebelum selesai (tanpa finish_reason atau [DONE]). Jawaban di atas tidak lengkap; coba lagi.',
   '{status} from {url}: {message}': '{status} dari {url}: {message}',
   'Request failed': 'Permintaan gagal',
   'Connection closed before the response finished.': 'Koneksi ditutup sebelum respons selesai.',

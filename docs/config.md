@@ -19,6 +19,7 @@ Pembatasan itu disengaja: repo yang kamu clone (misalnya saat BCCLI dipakai untu
 | `allow` | daftar rule izin (lihat bagian Izin) | `[]` | |
 | `reasoning` | `"auto"` \| `"off"` \| `"low"` \| `"medium"` \| `"high"` \| `"max"` | `"auto"` | `auto` tidak mengirim override apa pun ke provider. |
 | `language` | `"en"` \| `"id"` | `"en"` | Presedensi: `--lang` → `BCCLI_LANG` → kunci ini → `en`. |
+| — (env) | `BCCLI_HTTP_IDLE_TIMEOUT_MS` | `60000` | Batas diam tanpa byte masuk untuk satu permintaan HTTP: fase header dan saat membaca stream. Lewat batas ini permintaan dibatalkan dengan pesan jelas, bukan menggantung. |
 | `vision` | `true` \| `false` | `true` | Lampirkan gambar dari disk sebagai part vision. |
 | `networkPolicy` | `"allow"` \| `"offline"` | `"allow"` | `offline` memblokir perintah internet yang dikenal di tool bash. |
 | `maxSteps` | angka > 0 (langkah per giliran) | `null` | `null`/`0` = tanpa batas (BCCLI berhenti saat model berhenti atau Esc). |

@@ -163,6 +163,12 @@ function outputReasoningSummary(items?: readonly unknown[]): string {
 
 const retryable = (status: number) => status === 429 || status >= 500
 
+/** Batas diam (tanpa byte masuk) untuk satu permintaan HTTP. Atur lewat BCCLI_HTTP_IDLE_TIMEOUT_MS. */
+function httpIdleMs(): number {
+  const raw = Number(process.env.BCCLI_HTTP_IDLE_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 60_000
+}
+
 /**
  * Small models sometimes get stuck emitting the same few characters forever.
  * Returns where the loop starts when the tail is one short unit (1-12 chars, not just
@@ -223,7 +229,7 @@ const toUsage = (u?: RawUsage): Usage | undefined =>
       }
     : undefined
 
-async function readStream(res: Response, onText?: (delta: string) => void, onThinking?: (delta: string) => void): Promise<Completion> {
+async function readStream(res: Response, onText?: (delta: string) => void, onThinking?: (delta: string) => void, signal?: AbortSignal): Promise<Completion> {
   let text = ''
   let thinking = ''
   const splitter = new ThinkSplitter()
@@ -240,6 +246,7 @@ async function readStream(res: Response, onText?: (delta: string) => void, onThi
   }
   let usage: Usage | undefined
   let finishReason: string | undefined
+  let sawDone = false
   const calls: ToolCall[] = []
   const byIndex = new Map<number, ToolCall>()
   let current: ToolCall | undefined
@@ -249,7 +256,11 @@ async function readStream(res: Response, onText?: (delta: string) => void, onThi
   const handle = (line: string) => {
     if (!line.startsWith('data:')) return
     const data = line.slice(5).trim()
-    if (!data || data === '[DONE]') return
+    if (!data) return
+    if (data === '[DONE]') {
+      sawDone = true
+      return
+    }
     let event: {
       choices?: {
         delta?: { content?: string; reasoning_content?: string; reasoning?: string; thinking?: string; tool_calls?: RawToolCall[] }
@@ -286,19 +297,51 @@ async function readStream(res: Response, onText?: (delta: string) => void, onThi
       if (tc.function?.arguments) target.arguments += tc.function.arguments
     }
   }
-  for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
-    buffer += decoder.decode(chunk, { stream: true })
-    let newline = buffer.indexOf('\n')
-    while (newline >= 0 && loopAt < 0) {
-      handle(buffer.slice(0, newline).trim())
-      buffer = buffer.slice(newline + 1)
-      newline = buffer.indexOf('\n')
+  // Baca badan respons dengan penjaga diam: koneksi yang berhenti mengirim data tidak boleh
+  // menggantung selamanya (dulu hanya bisa dibatalkan Ctrl-C).
+  const iterator = (res.body as unknown as AsyncIterable<Uint8Array>)[Symbol.asyncIterator]()
+  const idle = httpIdleMs()
+  // Esc/Ctrl-C harus tetap memutus badan respons, tanpa meninggalkan listener di sinyal pemanggil.
+  const onAbort = () => void iterator.return?.()
+  if (signal?.aborted) onAbort()
+  else signal?.addEventListener('abort', onAbort)
+  try {
+    for (;;) {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const stalled = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new ProviderError(t('The provider stopped sending data for {seconds}s. The answer above may be incomplete; try again.', { seconds: String(Math.round(idle / 1000)) }))),
+          idle,
+        )
+      })
+      let step: IteratorResult<Uint8Array>
+      try {
+        step = await Promise.race([iterator.next(), stalled])
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+      if (step.done) break
+      buffer += decoder.decode(step.value, { stream: true })
+      let newline = buffer.indexOf('\n')
+      while (newline >= 0 && loopAt < 0) {
+        handle(buffer.slice(0, newline).trim())
+        buffer = buffer.slice(newline + 1)
+        newline = buffer.indexOf('\n')
+      }
+      // Stop reading (and cancel the request) instead of streaming the loop until the provider's limit.
+      if (loopAt >= 0) return { text: text.slice(0, loopAt), toolCalls: [], thinking: thinking || undefined, usage, finishReason: 'repetition' }
     }
-    // Stop reading (and cancel the request) instead of streaming the loop until the provider's limit.
-    if (loopAt >= 0) return { text: text.slice(0, loopAt), toolCalls: [], thinking: thinking || undefined, usage, finishReason: 'repetition' }
+  } finally {
+    signal?.removeEventListener('abort', onAbort)
+    void iterator.return?.()
   }
   handle(buffer.trim())
   emit(splitter.flush())
+  // Tanpa finish_reason DAN tanpa [DONE] berarti penyedia menutup stream di tengah jalan.
+  // Dulu jawaban separuh itu dikembalikan seolah sukses; sekarang jangan klaim sukses palsu.
+  if (!sawDone && !finishReason) {
+    throw new ProviderError(t('The response ended before it finished (no finish_reason or [DONE]). The answer above is incomplete; try again.'))
+  }
   const toolCalls = calls.map((call, index) => ({ ...call, id: call.id || `call_${index}` }))
   return { text, toolCalls, thinking: thinking || undefined, usage, finishReason }
 }
@@ -1140,12 +1183,30 @@ export function createProvider(options: ProviderOptions): Provider {
         await sleep(delay, signal)
       }
       let res: Response
+      // Penjaga diam untuk fase header: penyedia yang menerima koneksi tapi tidak pernah menjawab
+      // dulu membuat `-p` menunggu tanpa batas. Controller sendiri supaya batas ini tidak memotong
+      // stream panjang; sinyal pemanggil (Esc/Ctrl-C) tetap diteruskan.
+      const idleAbort = new AbortController()
+      const forwardAbort = () => idleAbort.abort(signal?.reason)
+      if (signal?.aborted) forwardAbort()
+      else signal?.addEventListener('abort', forwardAbort)
+      const idle = httpIdleMs()
+      const headerTimer = setTimeout(() => idleAbort.abort(new Error('idle-timeout')), idle)
       try {
-        res = await doFetch(`${baseURL}${path}`, { method: 'POST', headers, body: JSON.stringify(body), signal })
+        res = await doFetch(`${baseURL}${path}`, { method: 'POST', headers, body: JSON.stringify(body), signal: idleAbort.signal })
       } catch (error) {
         if (signal?.aborted) throw error
+        if (idleAbort.signal.aborted) {
+          throw new ProviderError(
+            t('The provider did not respond within {seconds}s. Check the connection, then try again.', { seconds: String(Math.round(idle / 1000)) }),
+          )
+        }
         lastError = new ProviderError(t('Cannot connect to {url}: {error}', { url: baseURL, error: (error as Error).message }))
         continue
+      } finally {
+        clearTimeout(headerTimer)
+        // Badan respons dipantau readStream lewat sinyal yang sama; jangan tinggalkan listener di sini.
+        signal?.removeEventListener('abort', forwardAbort)
       }
       if (res.ok) return res
       const retryHeader = res.headers.get('retry-after')
@@ -1210,7 +1271,7 @@ export function createProvider(options: ProviderOptions): Provider {
       )
       if ((res.headers.get('content-type') ?? '').includes('application/json')) return readJson(res, onText, onThinking)
       if (!res.body) throw new ProviderError(t('Empty response from the provider'))
-      return readStream(res, onText, onThinking)
+      return readStream(res, onText, onThinking, signal)
     },
     async listModels() {
       const res = await doFetch(`${baseURL}/models`, { headers })

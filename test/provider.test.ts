@@ -4,7 +4,8 @@ import { completionAssistantMessage, createProvider, hasPendingProgrammaticRepla
 import type { ToolDefinition } from '../src/tools/index'
 
 function sse(events: unknown[]): Response {
-  const body = events.map((e) => `data: ${typeof e === 'string' ? e : JSON.stringify(e)}\n\n`).join('')
+  // Provider yang patuh menutup stream dengan [DONE] (atau finish_reason); helper ini mewakili mereka.
+  const body = events.map((e) => `data: ${typeof e === 'string' ? e : JSON.stringify(e)}\n\n`).join('') + 'data: [DONE]\n\n'
   return new Response(body, { headers: { 'content-type': 'text/event-stream' } })
 }
 const chunk = (delta: object, extra: object = {}) => ({ choices: [{ delta, ...extra }] })
@@ -1255,4 +1256,48 @@ test('Responses SSE preserves streamed function_call_arguments.delta when output
   expect(hasPendingProgrammaticReplay([progMsg])).toBe(true)
   expect(hasPendingProgrammaticReplay([progMsg, { role: 'tool', tool_call_id: 'c1', content: 'Cancelled by the user.' }])).toBe(false)
   expect(hasPendingProgrammaticReplay([progMsg, { role: 'user', content: 'new turn' }])).toBe(false)
+})
+
+test('stream yang ditutup tanpa finish_reason/[DONE] ditolak, bukan dianggap selesai', async () => {
+  const truncated = 'data: {"choices":[{"delta":{"content":"jawaban separuh"}}]}\n\n'
+  const p = createProvider({
+    baseURL: 'http://x/v1',
+    model: 'm',
+    fetch: async () => new Response(truncated, { headers: { 'content-type': 'text/event-stream' } }),
+  })
+  await expect(p.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow(/finish_reason|\[DONE\]/)
+})
+
+test('penyedia yang tidak pernah menjawab dibatalkan oleh batas diam fase header', async () => {
+  process.env.BCCLI_HTTP_IDLE_TIMEOUT_MS = '60'
+  try {
+    const hanging = (_url: string, init?: RequestInit) =>
+      new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+      })
+    const p = createProvider({ baseURL: 'http://x/v1', model: 'm', fetch: hanging as unknown as typeof fetch, retryDelayMs: 0 })
+    await expect(p.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow(/did not respond within|tidak merespons/)
+  } finally {
+    delete process.env.BCCLI_HTTP_IDLE_TIMEOUT_MS
+  }
+})
+
+test('stream yang berhenti mengirim data ditolak, tidak menggantung', async () => {
+  process.env.BCCLI_HTTP_IDLE_TIMEOUT_MS = '60'
+  try {
+    const neverCloses = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"a"}}]}\n\n'))
+        // sengaja tidak ditutup: meniru koneksi yang berhenti mengirim
+      },
+    })
+    const p = createProvider({
+      baseURL: 'http://x/v1',
+      model: 'm',
+      fetch: async () => new Response(neverCloses, { headers: { 'content-type': 'text/event-stream' } }),
+    })
+    await expect(p.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow(/stopped sending data|berhenti mengirim data/)
+  } finally {
+    delete process.env.BCCLI_HTTP_IDLE_TIMEOUT_MS
+  }
 })

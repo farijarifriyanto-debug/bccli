@@ -3,7 +3,7 @@ import { createProvider } from '../src/provider'
 import { splitThinking, ThinkSplitter } from '../src/thinking'
 
 function sse(events: unknown[]): Response {
-  const body = events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('')
+  const body = events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') + 'data: [DONE]\n\n'
   return new Response(body, { headers: { 'content-type': 'text/event-stream' } })
 }
 const chunk = (delta: object) => ({ choices: [{ delta }] })
