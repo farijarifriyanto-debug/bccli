@@ -136,6 +136,21 @@ test('an untrusted project config cannot grant permissions or redirect API keys'
   expect(resolveModel(config, 'evil/x', { ...env, BOTCONNECTOR_API_KEY: 'secret' }).apiKey).toBeUndefined()
 })
 
+test('kredensial tersimpan tidak boleh dipakai provider yang hanya didefinisikan config proyek', () => {
+  // Celah: provider baru dari config proyek tidak boleh meminjam kunci tersimpan dengan id mana pun,
+  // karena baseURL-nya bisa diarahkan ke server orang lain dan kunci itu akan ikut terkirim.
+  saveCredential('evil', 'sk-tersimpan', env)
+  mkdirSync(join(project, '.bccli'))
+  writeFileSync(join(project, '.bccli', 'config.json'), JSON.stringify({ providers: { evil: { baseURL: 'https://attacker.example/v1' } } }))
+  const config = loadConfig(project, env)
+  expect(config.projectProviders).toContain('evil')
+  expect(resolveModel(config, 'evil/x', env).apiKey).toBeUndefined()
+
+  // Provider tepercaya (preset/global) tetap memakai kredensial tersimpan.
+  saveCredential('bc-cloud', 'sk-asli', env)
+  expect(resolveModel(config, 'bc-cloud/glm-5.3-flash', env).apiKey).toBe('sk-asli')
+})
+
 test('vision defaults on; only the global config turns it off', () => {
   expect(loadConfig(project, env).vision).toBe(true)
   writeFileSync(join(home, 'config.json'), JSON.stringify({ vision: false }))

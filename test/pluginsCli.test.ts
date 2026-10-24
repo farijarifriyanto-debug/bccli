@@ -208,6 +208,12 @@ test('list: tampilkan semua entry (managed ✓+versi, manual, missing ✗)', asy
   expect(text).toMatch(/✗.*missing/)
 })
 
+test('list: daftar kosong → pesan eksplisit, bukan keluaran kosong', async () => {
+  const h = harness()
+  expect(await run(['plugins', 'list'], h.deps)).toBe(0)
+  expect(h.outLines.join('\n')).toContain('No plugins are installed')
+})
+
 test('install tanpa spec → exit 1 + usage; aksi tak dikenal → exit 1 + usage', async () => {
   const h = harness()
   expect(await run(['plugins', 'install'], h.deps)).toBe(1)

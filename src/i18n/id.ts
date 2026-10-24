@@ -136,6 +136,7 @@ Options:
   -r, --resume                  pick a session to continue
       --allow-all               run all tools without asking for permission
       --allowed-tools <a,b>     tools allowed without asking: bash, edit, fetch
+      --fail-on-tool-error      with -p: exit 1 when any tool call fails (for CI)
   -w, --worktree <name>        run in git worktree ../<repo>.worktrees/<name> (created, or reused if it exists)
       --output-format <fmt>     text | json | stream-json for -p (machine-readable output)
       --permission-mode <mode>  default | acceptEdits | plan | allowAll
@@ -166,6 +167,7 @@ Opsi:
   -r, --resume                  pilih sesi untuk dilanjutkan
       --allow-all               jalankan semua alat tanpa minta izin
       --allowed-tools <a,b>     alat yang boleh tanpa izin: bash, edit, fetch
+      --fail-on-tool-error      dengan -p: keluar 1 bila ada tool gagal (untuk CI)
   -w, --worktree <name>        jalankan di git worktree ../<repo>.worktrees/<name> (dibuat, atau dipakai ulang jika ada)
       --output-format <fmt>     text | json | stream-json untuk -p (output mesin)
       --permission-mode <mode>  default | acceptEdits | plan | allowAll
@@ -242,6 +244,8 @@ Opsi:
   'Skipping malformed entry: {entry} — fix it manually in {path}.':
     'Melewatkan entry rusak: {entry} — perbaiki manual di {path}.',
   'No managed plugins to update.': 'Tidak ada plugin terelola untuk diperbarui.',
+  'No plugins are installed. Install one with: bccli plugins install <spec>':
+    'Belum ada plugin terpasang. Pasang dengan: bccli plugins install <spec>',
   'update requires a plugin name or no argument: bccli plugins update [name]':
     'update butuh nama plugin atau tanpa argumen: bccli plugins update [nama]',
   '{name} updated to latest.': '{name} diperbarui ke versi terbaru.',
@@ -320,6 +324,12 @@ Opsi:
   'No API key for {id} yet. Run `bccli login` or set the env var {env}.': 'API key untuk {id} belum ada. Jalankan `bccli login` atau set env {env}.',
   'Error from the provider: {message}': 'Error dari provider: {message}',
   'Cannot connect to {url}: {error}': 'Tidak bisa terhubung ke {url}: {error}',
+  'The provider did not respond within {seconds}s. Check the connection, then try again.':
+    'Penyedia tidak merespons dalam {seconds} detik. Periksa koneksi, lalu coba lagi.',
+  'The provider stopped sending data for {seconds}s. The answer above may be incomplete; try again.':
+    'Penyedia berhenti mengirim data selama {seconds} detik. Jawaban di atas mungkin tidak lengkap; coba lagi.',
+  'The response ended before it finished (no finish_reason or [DONE]). The answer above is incomplete; try again.':
+    'Respons berakhir sebelum selesai (tanpa finish_reason atau [DONE]). Jawaban di atas tidak lengkap; coba lagi.',
   '{status} from {url}: {message}': '{status} dari {url}: {message}',
   'Request failed': 'Permintaan gagal',
   'Connection closed before the response finished.': 'Koneksi ditutup sebelum respons selesai.',

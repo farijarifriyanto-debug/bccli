@@ -159,7 +159,7 @@ async function main(): Promise<number> {
     }
     await rt.startMcp(plan.start)
     try {
-      return await runPrint(rt, finalPrompt, undefined, { allowAll: args.allowAll, outputFormat: args.outputFormat })
+      return await runPrint(rt, finalPrompt, undefined, { allowAll: args.allowAll, outputFormat: args.outputFormat, failOnToolError: args.failOnToolError })
     } finally {
       await rt.mcp.stop()
     }

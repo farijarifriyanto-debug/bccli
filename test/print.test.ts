@@ -235,3 +235,46 @@ test('json and stream-json replace recovered textToolCalls via textReplace and i
   expect(streamEvents.filter((e) => e.type === 'thinking_delta').map((e) => e.delta)).toEqual(['thinking-step-1'])
   expect(streamEvents.filter((e) => e.type === 'text_delta').map((e) => e.delta)).toEqual(['part-A ', 'part-B'])
 })
+
+test('kegagalan tool tidak menggagalkan run secara default (model boleh memulihkan)', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-p-'))
+  const rt = createRuntime({
+    cwd,
+    args: parseCliArgs(['-p', 'go']),
+    env: env(),
+    provider: provider([{ text: '', toolCalls: [{ id: '1', name: 'nope', arguments: '{}' }] }, { text: 'selesai', toolCalls: [] }]),
+  })
+  const o = io()
+  expect(await runPrint(rt, 'go', o.io)).toBe(0)
+  expect(o.err.join('')).toContain('✗')
+})
+
+test('--fail-on-tool-error membuat kegagalan tool menjadi exit code 1 (untuk CI)', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-p-'))
+  const rt = createRuntime({
+    cwd,
+    args: parseCliArgs(['-p', 'go']),
+    env: env(),
+    provider: provider([{ text: '', toolCalls: [{ id: '1', name: 'nope', arguments: '{}' }] }, { text: 'selesai', toolCalls: [] }]),
+  })
+  const o = io()
+  expect(await runPrint(rt, 'go', o.io, { failOnToolError: true })).toBe(1)
+})
+
+test.runIf(process.platform === 'win32')('SIGBREAK (Ctrl-Break Windows) membatalkan run seperti SIGINT', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-p-'))
+  const blocking: Provider = {
+    async chat(req) {
+      return new Promise((_, reject) => {
+        req.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+      })
+    },
+    async listModels() {
+      return []
+    },
+  }
+  const rt = createRuntime({ cwd, args: parseCliArgs(['-p', 'go']), env: env(), provider: blocking })
+  setTimeout(() => process.emit('SIGBREAK'), 80)
+  const o = io()
+  expect(await runPrint(rt, 'go', o.io)).toBe(1)
+})

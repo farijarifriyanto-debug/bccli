@@ -20,6 +20,8 @@ export interface CliArgs {
   continue: boolean
   resume: boolean
   allowAll: boolean
+  /** `-p` untuk CI: kegagalan tool apa pun membuat exit code 1. */
+  failOnToolError: boolean
   allowedTools: string[]
   worktree?: string
   outputFormat?: 'text' | 'json' | 'stream-json'
@@ -84,6 +86,7 @@ Options:
   -r, --resume                  pick a session to continue
       --allow-all               run all tools without asking for permission
       --allowed-tools <a,b>     tools allowed without asking: bash, edit, fetch
+      --fail-on-tool-error      with -p: exit 1 when any tool call fails (for CI)
   -w, --worktree <name>        run in git worktree ../<repo>.worktrees/<name> (created, or reused if it exists)
       --output-format <fmt>     text | json | stream-json for -p (machine-readable output)
       --permission-mode <mode>  default | acceptEdits | plan | allowAll
@@ -114,6 +117,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
       continue: { type: 'boolean', short: 'c' },
       resume: { type: 'boolean', short: 'r' },
       'allow-all': { type: 'boolean' },
+      'fail-on-tool-error': { type: 'boolean' },
       'allowed-tools': { type: 'string' },
       worktree: { type: 'string', short: 'w' },
       'output-format': { type: 'string' },
@@ -187,6 +191,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     continue: !!values.continue,
     resume: !!values.resume,
     allowAll: !!values['allow-all'],
+    failOnToolError: !!values['fail-on-tool-error'],
     allowedTools: (values['allowed-tools'] ?? '')
       .split(',')
       .map((s) => s.trim())

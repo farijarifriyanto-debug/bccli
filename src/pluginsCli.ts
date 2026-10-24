@@ -76,6 +76,10 @@ function listAction(deps: PluginsDeps): number {
   } catch (error) {
     return readFailure('list', error as Error, deps)
   }
+  if (!entries.length) {
+    deps.out(t('No plugins are installed. Install one with: bccli plugins install <spec>'))
+    return 0
+  }
   const home = bccliHome(deps.env)
   for (const entry of entries) {
     const managed = isManagedEntry(entry)

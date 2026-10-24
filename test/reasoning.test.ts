@@ -9,7 +9,7 @@ import { reasoningCapability, reasoningPayload } from '../src/reasoning'
 import { ALL_TOOLS } from '../src/tools/index'
 
 function sse(events: unknown[] = []): Response {
-  const body = events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('')
+  const body = events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') + 'data: [DONE]\n\n'
   return new Response(body, { headers: { 'content-type': 'text/event-stream' } })
 }
 
