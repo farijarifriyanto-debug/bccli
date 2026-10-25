@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 import { diffLines, formatDiff } from '../diff'
-import { errorCode, recordFileMtime, resolvePath } from './paths'
+import { errorCode, isFileModifiedSinceRead, recordFileMtime, resolvePath } from './paths'
 import { defineTool } from './types'
 import { t } from '../i18n'
 
@@ -18,7 +18,11 @@ export const writeTool = defineTool({
   target: (input) => input.path,
   async validate(input, ctx) {
     const abs = resolvePath(ctx.cwd, input.path)
-    return existsSync(abs) && !ctx.readFiles.has(abs) ? `${input.path} already exists. Read it with read before overwriting it.` : undefined
+    if (existsSync(abs) && !ctx.readFiles.has(abs)) return `${input.path} already exists. Read it with read before overwriting it.`
+    // Same rule as edit: a file that changed after the read must not be overwritten with
+    // stale content (a formatter, a git checkout or another agent may have rewritten it).
+    if (isFileModifiedSinceRead(ctx.readFiles, abs)) return `${input.path} has been modified since it was last read. Read it again before overwriting it.`
+    return undefined
   },
   async preview(input, ctx) {
     const abs = resolvePath(ctx.cwd, input.path)
@@ -29,6 +33,9 @@ export const writeTool = defineTool({
     const abs = resolvePath(ctx.cwd, input.path)
     if (existsSync(abs) && !ctx.readFiles.has(abs)) {
       return { output: `${input.path} already exists. Read it with read before overwriting it.`, isError: true }
+    }
+    if (isFileModifiedSinceRead(ctx.readFiles, abs)) {
+      return { output: `${input.path} has been modified since it was last read. Read it again before overwriting it.`, isError: true }
     }
     try {
       await ctx.checkpoint?.(abs)
