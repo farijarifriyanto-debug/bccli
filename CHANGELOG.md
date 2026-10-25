@@ -3,6 +3,23 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## 0.4.14 - 2026-10-25
+
+Migrasi ke **Ink 8.0.0** (dari 7.1.1), menggantikan PR dependabot #68 yang CI-nya merah.
+
+### Changed
+- **`ink` 8.0.0**: React 19.3 sudah terpenuhi; `minWidth`/`maxWidth` kita sudah numerik. Dua breaking change yang kena sudah ditangani (`src/ui/tty.ts` baru): properti TTY (`isTTY`, `fd`, `columns`, `rows`) tidak lagi ada di tipe stream, jadi `isTtyStream`/`isRealTty`/`streamColumns` menjadi satu-satunya tempat membaca properti itu — tanpa `as any`, dan fake stdout `ink-testing-library` (tanpa `isTTY`/`fd`) tetap dianggap non-TTY.
+- **Budget baris live** (`App.tsx`) memakai `useWindowSize()`; **lebar Markdown** (`Markdown.tsx`) dibaca dari `streamColumns` saat render, bukan satu listener `resize` per blok pesan (mencegah `MaxListenersExceededWarning` di transkrip panjang; diuji di ConPTY).
+
+### Removed
+- **`parseMouseWheel`, `isMouseControlInput`, `src/ui/focusReport.ts`, dan cabang wheel di 7 komponen + `LinePrompt`**: Ink 8 membuang sequence terminal tak dikenal (mouse, focus in/out, cursor position) sebelum `useInput`, sehingga guard dan cabang itu menjadi kode mati. Konsekuensinya **tidak terasa di terminal**: mouse reporting memang dimatikan default sejak 0.4.8 (`\x1b[?1000l`) agar wheel, 2-finger scroll, dan drag-to-copy tetap native — handler wheel picker karenanya sudah tidak pernah menerima input. Panah, PageUp/PageDown, dan filter ketik tetap menggerakkan picker. Bila nanti wheel di dalam picker diinginkan, itu harus jadi keputusan UX baru (mouse capture saat modal terbuka), bukan pemulihan perilaku lama.
+- Klik blok **Thinking** tetap ada: listener `stdin.on('data')` masih menerima chunk di Ink 8 (Ink membaca lewat `readable`+`read()`, listener `data` tetap mendapat byte yang sama).
+
+### Verification
+- `typecheck` bersih, `lint` exit 0, **1002 tes lulus** (1 skip), coverage 88,24 / 79,55 / 87,66 / 90,64 (gate 85/77/85/87), `build` sukses, CI 3 OS hijau.
+- Uji terminal nyata lewat ConPTY (`node dist/cli.js`, 100x30): mount, `ctrl+l` (layar bersih), `/help`, `/model` picker, panah pindah pilihan, wheel tidak menggeser & tidak ter-echo, filter ketik, bracketed paste, resize 60x24, `ctrl+c` exit 0; startup menulis `?1000l` + `?2004h`; `bccli serve` → `GET /health` 200 dan 401 tanpa token.
+- Belum terverifikasi: klik Thinking dengan turn model sungguhan, `ctrl+y` (OSC52), `bccli -p` dengan model sungguhan, drag-to-copy manual.
+
 ## 0.4.13 - 2026-10-25
 
 Rilis perbaikan cepat untuk 0.4.12.
