@@ -3,6 +3,17 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## Unreleased
+
+Tiga perbaikan dari audit keamanan: dua jalur yang berjalan tanpa prompt dan satu yang bisa menghapus config user.
+
+### Security
+- **Fallback model hanya dari config global (`src/config.ts`)**: `.bccli/config.json` milik repo hasil clone tidak lagi bisa menambahkan `fallbackModels`. Sebelumnya satu repo berisi config jahat dapat membuat percakapan penuh (system prompt + isi file) dikirim ke `baseURL` miliknya pada 429/5xx pertama, tanpa kunci dan tanpa prompt; `-m` pun tidak melindungi karena fallback selalu ditambahkan.
+- **Menulis file rahasia tetap minta izin di `acceptEdits` (`src/permissions.ts`)**: cabang `edit` pada deteksi file rahasia tidak pernah aktif kecuali `BC_TOOL_POLICY_ENFORCE=true`, sehingga `write .env` / `*.pem` / `credentials.*` di dalam proyek langsung dijalankan tanpa prompt padahal `read .env` bertanya. Sekarang `read` dan `edit` memakai aturan yang sama; `allowAll` tetap satu-satunya mode tanpa prompt dan `[a]` tidak lagi ditawarkan untuk file rahasia.
+
+### Fixed
+- **`bccli disconnect` tidak menimpa config yang kamu ubah setelah connect (`src/integrationCli.ts`)**: state integrasi kini menyimpan sha256 isi file yang ditulis saat connect, dan `disconnect` hanya me-restore backup selama file itu masih sama. Bila berubah, file dibiarkan utuh dan pesan menyebut path + cara melepas bagian BCCLI secara manual. State dari versi lama (tanpa hash) tetap memakai perilaku lama.
+
 ## 0.4.10 - 2026-10-24
 
 Rilis perbaikan dari audit fungsional: keamanan kredensial, dua kegagalan yang membuat bccli mengklaim hasil yang tidak ada, dan kerapian perintah.

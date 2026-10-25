@@ -1,4 +1,5 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { parseDocument } from 'yaml'
 import type { CliArgs } from './args'
@@ -17,7 +18,8 @@ export interface IntegrationDeps {
 
 interface StateRecord {
   target: IntegrationTarget
-  files: Array<{ path: string; backup?: string; created: boolean }>
+  /** `hash` is the content BCCLI wrote at connect time; disconnect compares against it. */
+  files: Array<{ path: string; backup?: string; created: boolean; hash?: string }>
   createdAt: string
 }
 
@@ -85,7 +87,21 @@ function safeBackup(path: string, env: NodeJS.ProcessEnv): { backup?: string; cr
 function writeState(target: IntegrationTarget, state: StateRecord, env: NodeJS.ProcessEnv): void {
   const path = statePath(target, env)
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 })
+  // Hash what BCCLI just wrote. disconnect only restores the backup while the file still
+  // matches this hash, so a config the user edited afterwards is never overwritten.
+  const files = state.files.map((file) => {
+    const hash = hashFile(file.path)
+    return hash ? { ...file, hash } : file
+  })
+  writeFileSync(path, `${JSON.stringify({ ...state, files }, null, 2)}\n`, { mode: 0o600 })
+}
+
+function hashFile(path: string): string | undefined {
+  try {
+    return createHash('sha256').update(readFileSync(path)).digest('hex')
+  } catch {
+    return undefined
+  }
 }
 
 function readState(target: IntegrationTarget, env: NodeJS.ProcessEnv): StateRecord | null {
@@ -700,7 +716,20 @@ function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {
     deps.out(t('{target}: not managed by BCCLI yet.', { target }))
     return
   }
+  let leftBehind = 0
   for (const file of [...state.files].reverse()) {
+    // A file the user changed after connect must never be replaced by the stale backup:
+    // that would delete every setting they added in the meantime. Leave it and say so.
+    if (file.hash !== undefined && hashFile(file.path) !== file.hash) {
+      leftBehind++
+      deps.err(
+        t(
+          '{target}: {path} changed after BCCLI connected it, so the old backup was not copied over it. Remove the BCCLI part (provider "botconnector" or the marked block) from that file by hand.',
+          { target, path: file.path },
+        ),
+      )
+      continue
+    }
     if (file.backup && existsSync(file.backup)) {
       mkdirSync(dirname(file.path), { recursive: true })
       copyFileSync(file.backup, file.path)
@@ -709,7 +738,14 @@ function disconnect(target: IntegrationTarget, deps: IntegrationDeps): void {
     }
   }
   rmSync(statePath(target, deps.env), { force: true })
-  deps.out(t('{target}: the BotConnector integration was removed and the config restored.', { target }))
+  deps.out(
+    leftBehind
+      ? t(
+          '{target}: the BotConnector integration was removed. {n} file(s) were left untouched (see above); delete the BCCLI entries in them by hand for a clean removal.',
+          { target, n: String(leftBehind) },
+        )
+      : t('{target}: the BotConnector integration was removed and the config restored.', { target }),
+  )
 }
 
 function listIntegrations(deps: IntegrationDeps): void {

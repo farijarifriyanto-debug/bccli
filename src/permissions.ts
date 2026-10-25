@@ -97,8 +97,12 @@ export class Permissions {
 
   /** Rules that "[a] allow for this session" would add; undefined when it must always be asked. */
   rulesFor(req: PermissionRequest): string[] | undefined {
-    // Secret files are never grantable, the same way destructive commands are not.
-    if (requiresSensitiveToolApproval(req) && (req.kind === 'read' || process.env.BC_TOOL_POLICY_ENFORCE === 'true'))
+    // Secret files are never grantable, the same way destructive commands are not — for
+    // writes as much as reads, or acceptEdits would silently rewrite .env / private keys.
+    if (
+      requiresSensitiveToolApproval(req) &&
+      (req.kind === 'read' || req.kind === 'edit' || process.env.BC_TOOL_POLICY_ENFORCE === 'true')
+    )
       return undefined
     if (req.kind === 'edit') return this.editInProject(req.target) ? ['edit(project)'] : undefined
     if (req.kind === 'fetch') {
@@ -125,9 +129,11 @@ export class Permissions {
 
   check(req: PermissionRequest): Decision {
     if (this.mode === 'plan' && req.kind !== 'read') return 'deny'
-    // A secret file is not read silently: the blank "reads are allowed" default does not
-    // cover it, and allowAll (an explicit user choice) is the only mode without prompts.
-    if (req.kind === 'read' && this.mode !== 'allowAll' && requiresSensitiveToolApproval(req)) return 'ask'
+    // A secret file is neither read nor written silently: the blank "reads are allowed"
+    // default does not cover it, and acceptEdits must not swallow the write either.
+    // allowAll (an explicit user choice) is the only mode without prompts.
+    if ((req.kind === 'read' || req.kind === 'edit') && this.mode !== 'allowAll' && requiresSensitiveToolApproval(req))
+      return 'ask'
     if (process.env.BC_TOOL_POLICY_ENFORCE === 'true' && requiresSensitiveToolApproval(req)) return 'ask'
     if (req.kind === 'read') return 'allow'
     if (this.mode === 'allowAll') return 'allow'

@@ -245,3 +245,17 @@ test('sensitive approval policy is default OFF to preserve existing CLI behavior
     if (previous !== undefined) process.env.BC_TOOL_POLICY_ENFORCE = previous
   }
 })
+
+test('writing a secret file asks in acceptEdits: only reads were protected before', () => {
+  const cwd = '/work/app'
+  const write = (target: string) => ({ tool: 'write', kind: 'edit' as const, target })
+  const accept = new Permissions('acceptEdits', [], cwd)
+  // A secret file is never a silent write, and it is never offered as a session grant.
+  expect(accept.check(write('.env'))).toBe('ask')
+  expect(accept.check(write('src/.env.local'))).toBe('ask')
+  expect(accept.rulesFor(write('.env'))).toBeUndefined()
+  // Ordinary project edits keep their acceptEdits behaviour.
+  expect(accept.check(write('src/a.ts'))).toBe('allow')
+  // allowAll stays the explicit "no prompts" choice, the same as for secret reads.
+  expect(new Permissions('allowAll', [], cwd).check(write('.env'))).toBe('allow')
+})
