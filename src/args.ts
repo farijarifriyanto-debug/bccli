@@ -80,7 +80,7 @@ Usage:
   bccli import <file>          import a session JSONL into the current project
   bccli pr <number> [--repo owner/name] [task]   check out a GitHub PR and run a task on it
   bccli integrations             show the status of external agent integrations
-  bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible, openclaw, hermes
+  bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, openclaw, hermes, crush, kilo, cursor, openai-cli, openai-sdk, openai-compatible
   bccli disconnect <agent>       remove an integration and restore the previous config
 
 Options:

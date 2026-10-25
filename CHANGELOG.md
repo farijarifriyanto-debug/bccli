@@ -3,6 +3,11 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## Unreleased
+
+### Added
+- **`bccli connect crush` dan `bccli connect kilo` (`src/integrationCli.ts`)**: Crush mendapat blok terkelola di `crushrc` (`provider add botconnector` + `model add` per model katalog dengan `--context-window`, `--default-max-tokens`, `--can-reason`, `--supports-images`), dan Kilo Code mendapat layer `kilo.json` (`@ai-sdk/openai-compatible`, kunci lewat `{file:…}`, model map dengan `tool_call`/`reasoning`/`modalities`/`limit`). Keduanya memakai katalog model live (bukan daftar hardcode), menerima alias `kilocode`/`kilo-code`, muncul di `bccli integrations`, dan `disconnect` memulihkan config seperti integrasi lain. Di-port dari branch `feat/hermes-openclaw-integration-20261005` yang tidak pernah dibuatkan PR.
+
 ## 0.4.11 - 2026-10-25
 
 Rilis dari audit menyeluruh: keamanan (dua jalur yang berjalan tanpa prompt dan satu yang bisa menghapus config integrasi), kebenaran hasil (`write`, config integrasi, stats, biaya cache), dan kebersihan (`read`, tugas background, stream Responses, sesi `gh-bot`, echo login, kunci UI) — ditutup dengan dua keputusan pemilik (statistik token cache dan aktivasi plugin).
