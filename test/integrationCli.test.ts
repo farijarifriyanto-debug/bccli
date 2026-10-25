@@ -379,3 +379,55 @@ test('integrations list includes openclaw and hermes', () => {
   expect(output.join('\n')).toContain('openclaw\tnot connected')
   expect(output.join('\n')).toContain('hermes\tnot connected')
 })
+
+test('disconnect never copies the old backup over a config the user edited after connecting', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  const dir = join(e.HOME, '.config', 'opencode')
+  mkdirSync(dir, { recursive: true })
+  const configPath = join(dir, 'opencode.json')
+  writeFileSync(configPath, '{"theme":"original"}\n')
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [{ id: 'glm-5.3-flash' }],
+  }), { status: 200 }))
+  const deps = { env: e, cwd: e.HOME, out: () => {}, err: () => {}, fetch }
+  await runIntegrationCommand(parseCliArgs(['connect', 'opencode']), deps)
+
+  // The user keeps working after the connect: their own settings must survive disconnect.
+  const edited = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>
+  edited.theme = 'user-edited'
+  edited.mcp = { keep: true }
+  writeFileSync(configPath, JSON.stringify(edited))
+
+  const errs: string[] = []
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'opencode']), { ...deps, err: (s: string) => errs.push(s) })
+
+  const after = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>
+  expect(after.theme).toBe('user-edited')
+  expect(after.mcp).toEqual({ keep: true })
+  expect(errs.join('\n')).toContain(configPath)
+})
+
+test('a state file written by an older BCCLI (no hash) still restores the backup', async () => {
+  // Back-compat guard for the hash field: installs upgraded from 0.4.10 keep working.
+  const e = env()
+  const dir = join(e.HOME, '.config', 'opencode')
+  mkdirSync(dir, { recursive: true })
+  const configPath = join(dir, 'opencode.json')
+  writeFileSync(configPath, '{"theme":"after-connect"}\n')
+  const stateDir = join(e.BCCLI_HOME, 'integrations')
+  mkdirSync(stateDir, { recursive: true })
+  const backup = join(stateDir, 'opencode.json.1.bak')
+  writeFileSync(backup, '{"theme":"before"}\n')
+  writeFileSync(join(stateDir, 'opencode.state.json'), JSON.stringify({
+    target: 'opencode',
+    createdAt: new Date().toISOString(),
+    files: [{ path: configPath, backup, created: false }],
+  }))
+  const errs: string[] = []
+  await runIntegrationCommand(parseCliArgs(['disconnect', 'opencode']), {
+    env: e, cwd: e.HOME, out: () => {}, err: (s: string) => errs.push(s), fetch: vi.fn(),
+  })
+  expect(readFileSync(configPath, 'utf8')).toBe('{"theme":"before"}\n')
+  expect(errs).toEqual([])
+})

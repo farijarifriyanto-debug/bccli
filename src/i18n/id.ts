@@ -420,6 +420,8 @@ Opsi:
   'API key: env {env} only (via key_env; a plaintext key in config.yaml is never written).': 'API key: hanya env {env} (melalui key_env; key plaintext tidak pernah ditulis ke config.yaml).',
   '{target}: not managed by BCCLI yet.': '{target}: belum dikelola oleh BCCLI.',
   '{target}: the BotConnector integration was removed and the config restored.': '{target}: integrasi BotConnector dilepas dan config dipulihkan.',
+  '{target}: {path} changed after BCCLI connected it, so the old backup was not copied over it. Remove the BCCLI part (provider "botconnector" or the marked block) from that file by hand.': '{target}: {path} berubah setelah BCCLI menyambungkannya, jadi backup lama tidak ditimpa ke file itu. Hapus bagian BCCLI (provider "botconnector" atau blok bertanda) dari file tersebut secara manual.',
+  '{target}: the BotConnector integration was removed. {n} file(s) were left untouched (see above); delete the BCCLI entries in them by hand for a clean removal.': '{target}: integrasi BotConnector dilepas. {n} file tidak disentuh (lihat di atas); hapus entri BCCLI di dalamnya secara manual agar bersih.',
   'Custom commands:': 'Perintah custom:',
   'Skills:': 'Skill:',
   'shift+tab  switch permission mode    esc  cancel the turn': 'shift+tab  ganti mode izin    esc  batalkan giliran',
