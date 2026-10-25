@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -313,8 +313,11 @@ test('factory stepLimit: provider selalu toolCall → berhenti + post 0× (termi
   }
 })
 
-test('env diteruskan: BCCLI_HOME tmp → sesi tercipta di home tmp', async () => {
+test('env diteruskan: config dari BCCLI_HOME tmp dibaca (maxSteps) dan job tidak menulis sesi', async () => {
   const home = mkdtempSync(join(tmpdir(), 'bccli-ghb-'))
+  // Nilai tidak sah hanya ada di config home temp: ConfigError-nya membuktikan runtime membaca
+  // config dari BCCLI_HOME (bukan snapshot proses), tanpa bergantung pada file sesi.
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ maxSteps: -1 }))
   const { provider } = textProvider()
   const { gh } = fakeGh()
   const errLines: string[] = []
@@ -332,15 +335,35 @@ test('env diteruskan: BCCLI_HOME tmp → sesi tercipta di home tmp', async () =>
     const base = `http://127.0.0.1:${h.port}`
     const raw = Buffer.from(JSON.stringify(commentPayload('/bccli env')))
     expect((await send(base, '/github', { method: 'POST', headers: headersFor(raw, 'd-env'), body: raw })).status).toBe(202)
-    for (let i = 0; i < 100; i++) {
-      if (existsSync(join(home, 'sessions'))) break
-      await new Promise((r) => setTimeout(r, 25))
-    }
-    expect(errLines.join('\n')).toBe('') // tidak ada error job tersembunyi
-    expect(existsSync(join(home, 'sessions'))).toBe(true) // runtime memakai env, bukan snapshot
+    for (let i = 0; i < 100 && !errLines.length; i++) await new Promise((r) => setTimeout(r, 25))
+    expect(errLines.join('\n')).toContain('maxSteps')
+    expect(existsSync(join(home, 'sessions'))).toBe(false) // draft satu-kali tidak meninggalkan sesi
   } finally {
     await h.close()
   }
+})
+
+test('a webhook job leaves no session file behind in BCCLI_HOME', async () => {
+  const { provider, requests } = textProvider()
+  const { gh } = fakeGh()
+  const env = seededEnv()
+  const h = await startGhBot({
+    port: 0, config: cfg(), getSecret: () => SECRET, provider, gh, env, out: () => {}, err: () => {},
+  })
+  try {
+    const raw = Buffer.from(JSON.stringify(commentPayload('/bccli hi')))
+    const res = await send(`http://127.0.0.1:${h.port}`, '/github', {
+      method: 'POST', headers: headersFor(raw, 'd-nofile'), body: raw,
+    })
+    expect(res.status).toBe(202)
+    for (let i = 0; i < 60 && requests.length < 1; i++) await new Promise((r) => setTimeout(r, 25))
+    expect(requests).toHaveLength(1)
+  } finally {
+    await h.close()
+  }
+  // Each comment used to create ~/.bccli/sessions/<slug>/<stamp>.jsonl that nobody resumes.
+  const sessions = join(env.BCCLI_HOME as string, 'sessions')
+  expect(existsSync(sessions) ? readdirSync(sessions) : []).toEqual([])
 })
 
 test('fetch injectable: spy terpakai ke server HTTP lokal palsu (revisi #3)', async () => {

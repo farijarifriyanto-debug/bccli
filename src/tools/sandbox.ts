@@ -27,6 +27,35 @@ export function darwinProfile(cwd: string, network: boolean): string {
 }
 
 /**
+ * One bwrap invocation. The Windows path only prefixes it with `wsl.exe --` and translates
+ * the cwd to its /mnt/<drive> form, so the sandbox flags live in exactly one place.
+ */
+function bwrapArgv(cwd: string, network: boolean, command: string): string[] {
+  return [
+    'bwrap',
+    '--ro-bind',
+    '/',
+    '/',
+    '--dev-bind',
+    '/dev',
+    '/dev',
+    '--proc',
+    '/proc',
+    '--bind',
+    cwd,
+    cwd,
+    '--tmpfs',
+    '/tmp',
+    '--die-with-parent',
+    ...(network ? [] : ['--unshare-net']),
+    '--',
+    '/bin/bash',
+    '-c',
+    command,
+  ]
+}
+
+/**
  * Wrap a shell command in the platform sandbox, or undefined when the platform has none
  * (the caller then refuses to run it sandboxed rather than silently running it raw).
  */
@@ -38,55 +67,10 @@ export function sandboxArgv(
     return ['sandbox-exec', '-p', darwinProfile(opts.cwd, opts.network), '/bin/bash', '-c', command]
   }
   if (opts.platform === 'linux') {
-    return [
-      'bwrap',
-      '--ro-bind',
-      '/',
-      '/',
-      '--dev-bind',
-      '/dev',
-      '/dev',
-      '--proc',
-      '/proc',
-      '--bind',
-      opts.cwd,
-      opts.cwd,
-      '--tmpfs',
-      '/tmp',
-      '--die-with-parent',
-      ...(opts.network ? [] : ['--unshare-net']),
-      '--',
-      '/bin/bash',
-      '-c',
-      command,
-    ]
+    return bwrapArgv(opts.cwd, opts.network, command)
   }
   if (opts.platform === 'win32' && (opts.wslBwrap || process.env.BCCLI_WIN32_WSL_SANDBOX === '1')) {
-    const wslCwd = winPathToWsl(opts.cwd)
-    return [
-      'wsl.exe',
-      '--',
-      'bwrap',
-      '--ro-bind',
-      '/',
-      '/',
-      '--dev-bind',
-      '/dev',
-      '/dev',
-      '--proc',
-      '/proc',
-      '--bind',
-      wslCwd,
-      wslCwd,
-      '--tmpfs',
-      '/tmp',
-      '--die-with-parent',
-      ...(opts.network ? [] : ['--unshare-net']),
-      '--',
-      '/bin/bash',
-      '-c',
-      command,
-    ]
+    return ['wsl.exe', '--', ...bwrapArgv(winPathToWsl(opts.cwd), opts.network, command)]
   }
   return undefined
 }

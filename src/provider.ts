@@ -634,6 +634,7 @@ async function readResponsesStream(
   res: Response,
   onText?: (delta: string) => void,
   onThinking?: (delta: string) => void,
+  signal?: AbortSignal,
 ): Promise<Completion> {
   let text = ''
   let thinking = ''
@@ -735,17 +736,30 @@ async function readResponsesStream(
     }
   }
 
-  for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
-    buffer += decoder.decode(chunk, { stream: true })
-    let newline = buffer.indexOf('\n')
-    while (newline >= 0 && loopAt < 0) {
-      handle(buffer.slice(0, newline).trim())
-      buffer = buffer.slice(newline + 1)
-      newline = buffer.indexOf('\n')
+  // Esc/Ctrl-C must stop the body, not only the UI: the agent hides late output, but without
+  // this the socket keeps downloading the whole response in the background.
+  const iterator = (res.body as unknown as AsyncIterable<Uint8Array>)[Symbol.asyncIterator]()
+  const onAbort = () => void iterator.return?.()
+  if (signal?.aborted) onAbort()
+  else signal?.addEventListener('abort', onAbort)
+  try {
+    for (;;) {
+      const step = await iterator.next()
+      if (step.done) break
+      buffer += decoder.decode(step.value, { stream: true })
+      let newline = buffer.indexOf('\n')
+      while (newline >= 0 && loopAt < 0) {
+        handle(buffer.slice(0, newline).trim())
+        buffer = buffer.slice(newline + 1)
+        newline = buffer.indexOf('\n')
+      }
+      if (loopAt >= 0) {
+        return { text: text.slice(0, loopAt), toolCalls: [], usage, finishReason: 'repetition' }
+      }
     }
-    if (loopAt >= 0) {
-      return { text: text.slice(0, loopAt), toolCalls: [], usage, finishReason: 'repetition' }
-    }
+  } finally {
+    signal?.removeEventListener('abort', onAbort)
+    void iterator.return?.()
   }
   handle(buffer.trim())
   return {
@@ -1272,7 +1286,7 @@ export function createProvider(options: ProviderOptions): Provider {
         if ((res.headers.get('content-type') ?? '').includes('application/json')) return readResponsesJson(res, onThinking)
         if (!res.body) throw new ProviderError(t('Empty response from the provider'))
         // Only provider-supplied summary deltas are surfaced, never hidden raw reasoning.
-        return readResponsesStream(res, onText, onThinking)
+        return readResponsesStream(res, onText, onThinking, signal)
       }
 
       const res = await post(

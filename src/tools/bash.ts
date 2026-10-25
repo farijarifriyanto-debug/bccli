@@ -60,7 +60,13 @@ interface BackgroundTask {
 const backgrounds = new Map<number, BackgroundTask>()
 let nextBackgroundId = 1
 
-function startBackground(command: string | string[], cwd: string, env?: NodeJS.ProcessEnv, shell?: ShellSpec): BackgroundTask {
+function startBackground(
+  command: string | string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv | undefined,
+  shell: ShellSpec | undefined,
+  maxRetained: number,
+): BackgroundTask {
   const child = spawnChild(command, cwd, env, shell)
   const task: BackgroundTask = {
     id: nextBackgroundId++,
@@ -80,6 +86,12 @@ function startBackground(command: string | string[], cwd: string, env?: NodeJS.P
     if (child.pid !== undefined) killProcessTree(child.pid)
   }
   backgrounds.set(task.id, task)
+  // A long session must not keep every finished task (and its captured output) forever:
+  // once the cap is reached, drop the oldest finished ones. A running task is never dropped.
+  for (const [id, other] of backgrounds) {
+    if (backgrounds.size <= maxRetained) break
+    if (id !== task.id && other.status === 'exited') backgrounds.delete(id)
+  }
   const onData = (data: string) => {
     let s = data
     if (task.head.length < HALF) {
@@ -333,6 +345,8 @@ export interface BashToolOptions {
   platform?: NodeJS.Platform
   /** Test hook: fake environment / file lookup used to pick the Windows shell. */
   shellDeps?: Partial<ShellDeps>
+  /** How many finished background tasks are kept for polling (default 50). */
+  maxRetainedTasks?: number
 }
 
 const SHELL_NOTE: Record<ShellSpec['name'], string> = {
@@ -344,6 +358,7 @@ const SHELL_NOTE: Record<ShellSpec['name'], string> = {
 export function createBashTool(options: BashToolOptions = {}) {
   const offline = options.networkPolicy === 'offline'
   const sandbox = options.sandbox === true
+  const maxRetained = options.maxRetainedTasks ?? 50
   const platform = options.platform ?? process.platform
   const shell = resolveShell({ platform, env: process.env, exists: existsSync, ...options.shellDeps })
   const childEnv = offline ? offlineEnv() : undefined
@@ -388,7 +403,7 @@ export function createBashTool(options: BashToolOptions = {}) {
       }
       if (input.background) {
         if (!input.command) return { output: 'The "command" argument is required to start a background task.', isError: true }
-        const task = startBackground(exec, ctx.cwd, childEnv, shell)
+        const task = startBackground(exec, ctx.cwd, childEnv, shell, maxRetained)
         return {
           output: `Background task #${task.id} started: ${input.command}\nPoll it with {task_id: ${task.id}}; stop it with {task_id: ${task.id}, kill: true}.`,
         }

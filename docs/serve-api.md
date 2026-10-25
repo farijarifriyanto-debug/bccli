@@ -30,6 +30,12 @@ Dua lapis, terpisah status — berlaku untuk SEMUA request HTTP dan upgrade WS:
 
 Token tidak pernah lewat query string. Tanpa TLS (localhost-only).
 
+**Batas kepercayaan:** pemegang token adalah klien tepercaya di mesin yang sama. `POST /v1/sessions`
+menerima `cwd` dari klien (IDE boleh membuka folder proyek mana pun) dan boleh memakai
+`permissionMode: "bypassPermissions"`, jadi **jangan bagikan token ke proses atau pengguna lain** —
+token itu setara akses menjalankan tool di akun OS ini. Server tidak membatasi `cwd` ke subtree
+saat start karena alur IDE yang sah bekerja lintas folder.
+
 ## Endpoint unary (JSON)
 
 | Method & path | Body | Respons |

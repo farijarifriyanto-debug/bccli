@@ -1,4 +1,4 @@
-﻿import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
@@ -6,7 +6,7 @@ import { ConfigError, globalConfigPath, readGlobalPlugins, updateGlobalConfig } 
 
 const env = () => ({ BCCLI_HOME: mkdtempSync(join(tmpdir(), 'bccli-cfg-')) } as NodeJS.ProcessEnv)
 
-test('updateGlobalConfig: file belum ada â†’ dibuat dengan hasil mutate', () => {
+test('updateGlobalConfig: file belum ada → dibuat dengan hasil mutate', () => {
   const e = env()
   updateGlobalConfig(e, (cfg) => {
     cfg.plugins = ['./plugins/node_modules/foo']
@@ -25,7 +25,7 @@ test('updateGlobalConfig: kunci lain dipertahankan', () => {
   expect(raw).toMatchObject({ model: 'gmi/x', providers: { gmi: {} }, plugins: ['./a', './b'] })
 })
 
-test('updateGlobalConfig: mutate throw â†’ file tidak berubah, tidak ada sisa .tmp', () => {
+test('updateGlobalConfig: mutate throw → file tidak berubah, tidak ada sisa .tmp', () => {
   const e = env()
   writeFileSync(globalConfigPath(e), JSON.stringify({ plugins: ['./keep'] }))
   expect(() =>
@@ -46,7 +46,7 @@ test('updateGlobalConfig sukses tidak meninggalkan file .tmp', () => {
   expect(existsSync(globalConfigPath(e))).toBe(true)
 })
 
-test('readGlobalPlugins: file tak ada â†’ []; tipe salah â†’ ConfigError; JSON korup â†’ ConfigError', () => {
+test('readGlobalPlugins: file tak ada → []; tipe salah → ConfigError; JSON korup → ConfigError', () => {
   const e = env()
   expect(readGlobalPlugins(e)).toEqual([])
   writeFileSync(globalConfigPath(e), JSON.stringify({ plugins: 'nope' }))
@@ -56,7 +56,7 @@ test('readGlobalPlugins: file tak ada â†’ []; tipe salah â†’ ConfigErr
   expect(() => readGlobalPlugins(e)).toThrow('config.json')
 })
 
-test('updateGlobalConfig: JSON korup â†’ ConfigError berisi path, file tidak diubah atau dipindah', () => {
+test('updateGlobalConfig: JSON korup -> ConfigError berisi path, file tidak diubah atau dipindah', () => {
   const e = env()
   writeFileSync(globalConfigPath(e), '{corrupt')
   expect(() =>
