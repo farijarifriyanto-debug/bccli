@@ -173,7 +173,9 @@ export function aggregateSessions(home: string, opts: AggregateOptions): StatsRo
         row.usageOutputTokens += usageOut
         row.cachedInputTokens += cachedIn
         row.cacheWriteTokens += cacheWrite
-        row.sessionTotals.push(usageIn + usageOut + cachedIn + cacheWrite)
+        // prompt_tokens already includes cache reads (and writes): adding them here would
+        // count the same tokens twice in Avg/Median. Cache stays visible on its own lines.
+        row.sessionTotals.push(usageIn + usageOut)
       } else {
         row.inputTokens += estIn
         row.outputTokens += estOut
