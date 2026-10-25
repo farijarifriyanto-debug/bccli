@@ -126,7 +126,7 @@ Usage:
   bccli import <file>          import a session JSONL into the current project
   bccli pr <number> [--repo owner/name] [task]   check out a GitHub PR and run a task on it
   bccli integrations             show the status of external agent integrations
-  bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible, openclaw, hermes
+  bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, openclaw, hermes, crush, kilo, cursor, openai-cli, openai-sdk, openai-compatible
   bccli disconnect <agent>       remove an integration and restore the previous config
 
 Options:
@@ -157,7 +157,7 @@ Pemakaian:
   bccli provider list|add <id>|remove <id>   kelola provider (custom: --url <url> [--name N] [--key-env ENV])
   bccli mcp list|add <nama>|remove <nama>|auth <nama>|logout <nama>|serve [--base-url <url>]    kelola server MCP, atau layani tools akun ini lewat stdio
   bccli integrations             lihat status integrasi agent eksternal
-  bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, cursor, openai-cli, openai-sdk, openai-compatible, openclaw, hermes
+  bccli connect <agent>          opencode, aider, cline, dsh, codex, claude-code, openclaw, hermes, crush, kilo, cursor, openai-cli, openai-sdk, openai-compatible
   bccli disconnect <agent>       lepas integrasi dan pulihkan config sebelumnya
 
 Opsi:
@@ -385,7 +385,12 @@ Opsi:
   '-p mode needs a task, e.g. bccli -p "explain this repo"': 'Mode -p butuh tugas, contoh: bccli -p "jelaskan repo ini"',
   'Project MCP server "{name}" skipped (not approved yet; run interactive bccli once to approve it).': 'Server MCP project "{name}" dilewati (belum diizinkan; jalankan bccli interaktif sekali untuk menyetujuinya).',
   'Interactive mode needs a terminal. For scripts/CI use: bccli -p "task"': 'Mode interaktif butuh terminal. Untuk skrip/CI pakai: bccli -p "tugas"',
-  'Agent must be one of: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code, openclaw, hermes': 'Agent harus salah satu dari: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code, openclaw, hermes',
+  'Agent must be one of: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code, openclaw, hermes, crush, kilo': 'Agent harus salah satu dari: opencode, aider, cline, deepseek-harness (dsh), cursor, openai-cli, openai-sdk, openai-compatible, codex, claude-code, openclaw, hermes, crush, kilo',
+  'Crush already has a botconnector provider outside the BCCLI block: {path}': 'Crush sudah memiliki provider botconnector di luar blok BCCLI: {path}',
+  'Crush is connected to BotConnector ({n} models available; large model {model}).': 'Crush terhubung ke BotConnector ({n} model tersedia; model large {model}).',
+  'The Kilo global kilo.json is not valid JSON: {path}': 'kilo.json global Kilo tidak valid JSON: {path}',
+  'Kilo already has a provider "{id}" with a different endpoint.': 'Kilo sudah memiliki provider "{id}" dengan endpoint lain.',
+  'Kilo Code is connected to BotConnector ({n} models available; suggested model {model}).': 'Kilo Code terhubung ke BotConnector ({n} model tersedia; model yang disarankan {model}).',
   'Cannot determine the home directory.': 'Home directory tidak dapat ditentukan.',
   'No BotConnector API key yet. Run bccli login bc-cloud first.': 'API key BotConnector belum tersedia. Jalankan bccli login bc-cloud terlebih dahulu.',
   'Could not load the BotConnector model catalog (HTTP {status}).': 'Katalog model BotConnector gagal dimuat (HTTP {status}).',
