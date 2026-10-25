@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+﻿import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, vi } from 'vitest'
+import { parse as parseYaml } from 'yaml'
 import { parseCliArgs } from '../src/args'
 import { saveCredential } from '../src/config'
 import { runIntegrationCommand } from '../src/integrationCli'
@@ -430,4 +431,23 @@ test('a state file written by an older BCCLI (no hash) still restores the backup
   })
   expect(readFileSync(configPath, 'utf8')).toBe('{"theme":"before"}\n')
   expect(errs).toEqual([])
+})
+
+test('connect hermes keeps the other keys of an existing model block', async () => {
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  const hermesHome = join(e.HOME, '.hermes-merge')
+  mkdirSync(hermesHome, { recursive: true })
+  // A Hermes user who already tuned their model settings.
+  writeFileSync(join(hermesHome, 'config.yaml'), ['model:', '  default: claude-sonnet', '  provider: anthropic', '  temperature: 0.2', ''].join('\n'))
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [{ id: 'glm-5.3-flash' }],
+  }), { status: 200 }))
+  await runIntegrationCommand(parseCliArgs(['connect', 'hermes']), {
+    env: { ...e, HERMES_HOME: hermesHome }, cwd: e.HOME, out: () => {}, err: () => {}, fetch,
+  })
+  const doc = parseYaml(readFileSync(join(hermesHome, 'config.yaml'), 'utf8')) as { model: Record<string, unknown> }
+  expect(doc.model.temperature).toBe(0.2)
+  expect(doc.model.provider).toBe('custom:botconnector-cloud')
+  expect(doc.model.default).toBe('glm-5.3-flash')
 })

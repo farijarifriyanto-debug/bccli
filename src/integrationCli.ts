@@ -696,7 +696,16 @@ async function connectHermes(deps: IntegrationDeps): Promise<void> {
     discover_models: true,
     models: Object.fromEntries(models.map((id) => [id, {}])),
   })
-  doc.setIn(['model'], { default: model, provider: `custom:${HERMES_PROVIDER_ID}` })
+  // Only point the default model at us: a `model` mapping may already hold the user's own
+  // keys (temperature, limits, ...), and replacing the whole block would delete them.
+  const providerRef = `custom:${HERMES_PROVIDER_ID}`
+  const currentModel = doc.getIn(['model'])
+  if (currentModel && typeof currentModel === 'object' && !Array.isArray(currentModel)) {
+    doc.setIn(['model', 'default'], model)
+    doc.setIn(['model', 'provider'], providerRef)
+  } else {
+    doc.setIn(['model'], { default: model, provider: providerRef })
+  }
 
   mkdirSync(hermesHome, { recursive: true })
   writeFileSync(path, doc.toString())
