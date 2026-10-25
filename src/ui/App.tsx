@@ -1132,7 +1132,9 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
 
   return (
     <Box ref={liveRootRef} flexDirection="column">
-      <Static key={staticKey} items={staticDone}>{renderEntry}</Static>
+      {/* Namespaced key: entry ids start at 0 too and are siblings of this element in the same
+          Box, so a bare numeric `staticKey` collides with the header entry on early renders. */}
+      <Static key={`static-${staticKey}`} items={staticDone}>{renderEntry}</Static>
       {activeTurnDone.map(renderEntry)}
       {transcript.live.map(renderEntry)}
       {busy && !pending && !planAsk ? (

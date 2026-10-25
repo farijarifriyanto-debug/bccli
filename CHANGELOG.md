@@ -23,6 +23,7 @@ Tiga perbaikan dari audit keamanan: dua jalur yang berjalan tanpa prompt dan sat
 - **Turn yang dibatalkan berhenti mengunduh (`src/provider.ts`)**: jalur Responses native (Luna) kini memakai sinyal pembatalan seperti jalur chat-completions; sebelumnya Esc hanya menyembunyikan output sementara socket terus membaca respons.
 - **`gh-bot` tidak menulis sesi per komentar (`src/setup.ts`, `src/session.ts`)**: draft satu-kali tidak lagi membuat `~/.bccli/sessions/<slug>/*.jsonl` (dan folder kosong) untuk setiap komentar GitHub.
 - **Kode otorisasi OpenRouter terlihat saat diketik/di-paste (`src/login.ts`)**: raw mode mematikan echo dan tidak ada yang menulis balik, jadi input tidak terlihat; backspace kini juga menghapus di layar.
+- **Tidak ada lagi peringatan kunci ganda React di UI (`src/ui/App.tsx`)**: elemen `<Static>` memakai kunci angka yang dimulai dari 0, sama seperti id entri transkrip, dan keduanya bersaudara di Box yang sama — React memperingatkan "two children with the same key, 0" dan bisa menghilangkan/menggandakan satu baris transkrip. Kunci `<Static>` kini diberi prefiks `static-`.
 
 ## 0.4.10 - 2026-10-24
 
