@@ -556,3 +556,49 @@ test('connect kilo merges global config, maps capabilities, and uses a file secr
   expect(readFileSync(configPath, 'utf8')).toBe(original)
 })
 
+test('maps the live /models shape (botconnector_capabilities + botconnector_reasoning)', async () => {
+  // The live BotConnector catalog does not send `capabilities` as an array and has no
+  // context/max-token fields. Verified against GET https://api.botconnector.id/v1/models:
+  //   { id, botconnector_capabilities: { tools, reasoning }, botconnector_reasoning: { supported } }
+  const e = env()
+  saveCredential('bc-cloud', 'bc_live_secret', e)
+  const kiloPath = join(e.HOME, '.config', 'kilo', 'kilo.json')
+  const fetch = vi.fn(async () => new Response(JSON.stringify({
+    data: [
+      {
+        id: 'agnes-3.0-flash',
+        object: 'model',
+        botconnector_capabilities: { tools: true, reasoning: true },
+        botconnector_reasoning: { supported: true, mandatory: false, default_enabled: true, default_effort: 'high' },
+      },
+      {
+        id: 'gemma-4-26b-a4b-it-free',
+        object: 'model',
+        botconnector_capabilities: { tools: false, reasoning: false },
+        botconnector_reasoning: null,
+      },
+    ],
+  }), { status: 200 }))
+  const deps = { env: e, cwd: e.HOME, out: () => {}, err: () => {}, fetch }
+
+  await runIntegrationCommand(parseCliArgs(['connect', 'kilo']), deps)
+  const doc = JSON.parse(readFileSync(kiloPath, 'utf8')) as {
+    provider: { botconnector: { models: Record<string, Record<string, unknown>> } }
+  }
+  const models = doc.provider.botconnector.models
+  expect(models['agnes-3.0-flash']).toMatchObject({ name: 'agnes-3.0-flash', tool_call: true, reasoning: true })
+  expect(models['agnes-3.0-flash'].limit).toBeUndefined() // no invented context window
+  expect(models['gemma-4-26b-a4b-it-free']).toEqual({ name: 'gemma-4-26b-a4b-it-free' })
+
+  const crushPath = join(e.HOME, '.config', 'crush', 'crushrc')
+  await runIntegrationCommand(parseCliArgs(['connect', 'crush']), deps)
+  const rc = readFileSync(crushPath, 'utf8')
+  const agnes = rc.split('\n').find((line) => line.includes("model add 'botconnector/agnes-3.0-flash'")) ?? ''
+  const gemma = rc.split('\n').find((line) => line.includes("model add 'botconnector/gemma-4-26b-a4b-it-free'")) ?? ''
+  expect(agnes).toContain('--can-reason true')
+  expect(agnes).not.toContain('--supports-images')
+  expect(agnes).not.toContain('--context-window')
+  expect(gemma).not.toContain('--can-reason')
+})
+
+

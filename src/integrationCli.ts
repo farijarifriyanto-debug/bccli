@@ -125,6 +125,24 @@ interface BotConnectorModelEntry {
   input?: string[]
 }
 
+/**
+ * The live `/models` payload reports capabilities as flags, not as an array:
+ * `botconnector_capabilities: { tools, reasoning }` and `botconnector_reasoning: { supported }`.
+ * Older/other payloads sent `capabilities: ['Tools', …]`, which `botConnectorCatalog` keeps too.
+ */
+function capabilityFlags(item: Record<string, unknown>): string[] {
+  const names: string[] = []
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    !!value && typeof value === 'object' && !Array.isArray(value)
+  const flags = item.botconnector_capabilities
+  if (isRecord(flags)) {
+    for (const [name, enabled] of Object.entries(flags)) if (enabled === true) names.push(name)
+  }
+  const reasoning = item.botconnector_reasoning
+  if (isRecord(reasoning) && reasoning.supported === true && !names.includes('reasoning')) names.push('reasoning')
+  return names
+}
+
 async function botConnectorCatalog(deps: IntegrationDeps): Promise<BotConnectorModelEntry[]> {
   const config = loadConfig(deps.cwd, deps.env)
   const resolved = resolveModel(config, config.model, deps.env)
@@ -151,7 +169,7 @@ async function botConnectorCatalog(deps: IntegrationDeps): Promise<BotConnectorM
       contextWindow: num(item.contextWindow),
       max_tokens: num(item.max_tokens),
       maxTokens: num(item.maxTokens),
-      capabilities: strings(item.capabilities),
+      capabilities: [...(strings(item.capabilities) ?? []), ...capabilityFlags(item)],
       input: strings(item.input),
     }]
   })
