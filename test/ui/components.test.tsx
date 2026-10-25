@@ -137,3 +137,14 @@ test('ToolBlock truncates long diffs (> 20 lines) until expanded with ctrl+o', (
   const expanded = render(<ToolBlock tool="edit" target="a.ts" display={longDiff} done expanded={true} />).lastFrame()!
   expect(expanded).toContain('EDIT_LINE_25')
 })
+
+test('status bar labels the number as context and reports cache reads', () => {
+  const frame = render(<StatusBar mode="default" tokens={12345} cached={11000} busy={false} />).lastFrame()
+  expect(frame).toMatch(/12k tokens? (in context|dalam konteks)/)
+  expect(frame).toMatch(/11k (cached|dari cache)/)
+})
+
+test('status bar marks estimated context usage as approximate', () => {
+  const frame = render(<StatusBar mode="default" tokens={12345} estimated busy={false} />).lastFrame()
+  expect(frame).toMatch(/~12k tokens? (in context|dalam konteks)/)
+})

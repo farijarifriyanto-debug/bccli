@@ -48,7 +48,7 @@ function setup(scripts: Record<string, Completion[]>, extraAgents = [] as typeof
   const events: AgentEvent[] = []
   const agent = new Agent({ provider, tools: [...ALL_TOOLS, task], permissions, systemPrompt: 'PARENT-SYSTEM', cwd })
   agent.onEvent = (e) => events.push(e)
-  return { agent, events, requests, cwd }
+  return { agent, events, requests, cwd, task }
 }
 
 test('explore runs read-only in a fresh context and only its answer returns', async () => {
@@ -449,4 +449,10 @@ test('subagent synthesizes a summary when hitting maxSteps during tool calls, an
   )
   expect(r.output).toContain('SYNTHESIZED_FROM_STEP_LIMIT')
   expect(r.output).toContain('2-step limit')
+})
+
+test('task tool says which jobs a read-only agent cannot do, so the model picks general instead', () => {
+  const { task } = setup({})
+  expect(task.description).toMatch(/shell|ssh/i)
+  expect(task.description).toMatch(/read-only/i)
 })

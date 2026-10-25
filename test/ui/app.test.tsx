@@ -1044,3 +1044,18 @@ test('2-finger touchpad wheel during active mouse reporting immediately releases
   await waitFor(() => rt.agent.messages.some((m) => typeof m.content === 'string' && m.content.includes('selesai')))
   unmount()
 })
+
+test('status bar shows the context of the last call, not the session total', async () => {
+  const rt = makeRuntime([
+    { text: '', toolCalls: [{ id: '1', name: 'read', arguments: '{"path":"a.txt"}' }], usage: { inputTokens: 90_000, outputTokens: 2000 } },
+    { text: 'ok', toolCalls: [], usage: { inputTokens: 42_000, outputTokens: 100, cachedInputTokens: 40_000 } },
+  ])
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('baca a.txt')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => /42k\s+token/.test(frames.join('\n')))
+  expect(frames.join('\n')).not.toContain('132k')
+  expect(frames.join('\n')).toMatch(/40k\s+(cached|dari cache)/)
+})

@@ -3,6 +3,11 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## Unreleased
+
+### Fixed
+- **Token usage now distinguishes context from session totals**: the status bar shows the latest prompt size (and cache reads when reported), while `/cost` retains session totals. When the provider omits usage, the context estimate is marked approximate and includes the tool schema. The `task` tool now warns the model to use an agent with shell/network tools for remote or command-based work.
+
 ## 0.4.16 - 2026-10-25
 
 Tiga minor dari review 0.4.15.

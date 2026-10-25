@@ -17,7 +17,19 @@ export type AgentEvent =
   | { type: 'textReplace'; text: string }
   | { type: 'toolStart'; id: string; tool: string; target: string }
   | { type: 'toolEnd'; id: string; tool: string; output: string; display?: string; isError: boolean }
-  | { type: 'usage'; inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheWriteTokens?: number }
+  | {
+      type: 'usage'
+      inputTokens: number
+      outputTokens: number
+      cachedInputTokens?: number
+      cacheWriteTokens?: number
+      /** Prompt tokens of the most recent model call: the size of the context, not the session total. */
+      lastInputTokens?: number
+      /** Cache reads for the most recent model call, rather than the session total. */
+      lastCachedInputTokens?: number
+      /** True when the provider omitted usage and token counts use the local chars/4 estimate. */
+      estimated?: boolean
+    }
   | { type: 'compacted' }
   | { type: 'stepLimit'; maxSteps: number }
   | { type: 'budgetExceeded'; kind: 'tokens' | 'usd'; used: number; limit: number }
@@ -265,9 +277,14 @@ export class Agent {
             this.onEvent({ type: 'textReplace', text: recovered.text })
           }
         }
-        // Some gateways (incl. BotConnector) omit usage; estimate ~4 chars/token so /cost and compaction still work.
+        // Some gateways (incl. BotConnector) omit usage from the stream; estimate ~4 chars/token so /cost and
+        // compaction still work. The tool schema is part of every prompt, so leaving it out undercounts the turn.
+        const estimated = completion.usage === undefined
         const usage = completion.usage ?? {
-          inputTokens: estimateTokens(this.systemPrompt) + estimateTokens(JSON.stringify(this.messages)),
+          inputTokens:
+            estimateTokens(this.systemPrompt) +
+            estimateTokens(JSON.stringify(this.messages)) +
+            estimateTokens(JSON.stringify(this.turnDefinitions)),
           outputTokens:
             estimateTokens(completion.text) + (completion.toolCalls.length ? estimateTokens(JSON.stringify(completion.toolCalls)) : 0),
         }
@@ -276,7 +293,13 @@ export class Agent {
         this.totalUsage.cachedInputTokens = (this.totalUsage.cachedInputTokens ?? 0) + (usage.cachedInputTokens ?? 0)
         this.totalUsage.cacheWriteTokens = (this.totalUsage.cacheWriteTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
         this.lastInputTokens = usage.inputTokens
-        this.onEvent({ type: 'usage', ...this.totalUsage })
+        this.onEvent({
+          type: 'usage',
+          ...this.totalUsage,
+          lastInputTokens: usage.inputTokens,
+          lastCachedInputTokens: usage.cachedInputTokens ?? 0,
+          estimated,
+        })
         this.opts.onUsage?.(usage)
         this.push(completionAssistantMessage(completion))
         if (completion.finishReason === 'repetition') {
@@ -431,7 +454,7 @@ export class Agent {
         this.totalUsage.outputTokens += u.outputTokens
         this.totalUsage.cachedInputTokens = (this.totalUsage.cachedInputTokens ?? 0) + (u.cachedInputTokens ?? 0)
         this.totalUsage.cacheWriteTokens = (this.totalUsage.cacheWriteTokens ?? 0) + (u.cacheWriteTokens ?? 0)
-        this.onEvent({ type: 'usage', ...this.totalUsage })
+        this.onEvent({ type: 'usage', ...this.totalUsage, lastInputTokens: this.lastInputTokens })
         this.opts.onUsage?.(u)
       },
     }

@@ -687,3 +687,31 @@ test('compaction stubs old tool outputs in the summary request but keeps recent 
   // …and the recent turn's tool output is kept verbatim beside the summary (not only in the summary request).
   expect(agent.messages.some((m) => m.role === 'tool' && m.tool_call_id === 'c2' && m.content.startsWith('c'.repeat(60_000)))).toBe(true)
 })
+
+test('usage event reports the context size of the last turn, not the session total', async () => {
+  const { cwd, events, agent } = setup([
+    { text: '', toolCalls: [call('read', { path: 'a.txt' })], usage: { inputTokens: 1000, outputTokens: 10, cachedInputTokens: 800 } },
+    { text: 'done', toolCalls: [], usage: { inputTokens: 1200, outputTokens: 5, cachedInputTokens: 900 } },
+  ])
+  writeFileSync(join(cwd, 'a.txt'), 'hello')
+  await agent.run('baca a.txt', new AbortController().signal)
+  const usage = events.filter((e) => e.type === 'usage').at(-1)
+  expect(usage).toMatchObject({
+    inputTokens: 2200,
+    outputTokens: 15,
+    lastInputTokens: 1200,
+    lastCachedInputTokens: 900,
+    cachedInputTokens: 1700,
+    estimated: false,
+  })
+})
+
+test('usage fallback counts the tool schema the provider receives', async () => {
+  const { provider, events, agent } = setup([reply('done')])
+  await agent.run('hi', new AbortController().signal)
+  const usage = events.filter((e) => e.type === 'usage').at(-1) as { inputTokens: number }
+  const schemaTokens = Math.ceil(JSON.stringify(provider.requests[0].tools).length / 4)
+  expect(schemaTokens).toBeGreaterThan(500)
+  expect(usage.inputTokens).toBeGreaterThanOrEqual(schemaTokens)
+  expect(usage).toMatchObject({ estimated: true })
+})
