@@ -456,3 +456,14 @@ test('task tool says which jobs a read-only agent cannot do, so the model picks 
   expect(task.description).toMatch(/shell|ssh/i)
   expect(task.description).toMatch(/read-only/i)
 })
+
+test('task guidance does not contradict a project-defined explore agent', () => {
+  const customExplore = {
+    ...BUILTIN_AGENTS[0],
+    description: 'Shell-enabled repository agent',
+    tools: ['bash'],
+  }
+  const { task } = setup({}, [customExplore])
+  expect(task.description).toContain('- explore: Shell-enabled repository agent')
+  expect(task.description).not.toContain('explore is read-only')
+})

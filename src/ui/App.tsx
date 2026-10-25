@@ -91,7 +91,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   const [reasoning, setReasoning] = useState<ReasoningLevel>(runtime.reasoning)
   const [tokens, setTokens] = useState(runtime.agent.lastInputTokens)
   const [cachedTokens, setCachedTokens] = useState(runtime.agent.totalUsage.cachedInputTokens ?? 0)
-  const [tokensEstimated, setTokensEstimated] = useState(false)
+  const [tokensEstimated, setTokensEstimated] = useState(runtime.agent.lastInputEstimated)
   // Parallel tools (e.g. two subagents) can ask at the same time: queue them, show one at a time.
   const [asks, setAsks] = useState<{ id: number; request: PermissionAsk; resolve(a: PermissionAnswer): void }[]>([])
   const pending = asks[0] ?? null
@@ -456,7 +456,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
               setModelLabel(labelFor(runtime, runtime.modelRef))
               setTokens(runtime.agent.lastInputTokens)
               setCachedTokens(0)
-              setTokensEstimated(true)
+              setTokensEstimated(runtime.agent.lastInputEstimated)
               setShowToolOutput(false)
               setTranscript({ done: [entry({ kind: 'header' }), ...replayEntries(chosen.session.loadHistory())], live: [] })
               refreshStatic()

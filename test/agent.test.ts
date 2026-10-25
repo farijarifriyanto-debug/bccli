@@ -715,3 +715,45 @@ test('usage fallback counts the tool schema the provider receives', async () => 
   expect(usage.inputTokens).toBeGreaterThanOrEqual(schemaTokens)
   expect(usage).toMatchObject({ estimated: true })
 })
+
+test('aggregate child usage does not replace latest-call context metadata', async () => {
+  const { events, agent } = setup([
+    { text: '', toolCalls: [call('child_usage', {}, 'child_1')], usage: { inputTokens: 100, outputTokens: 2, cachedInputTokens: 80 } },
+    { text: 'done', toolCalls: [], usage: { inputTokens: 120, outputTokens: 3, cachedInputTokens: 90 } },
+  ])
+  agent.setTools([
+    ...ALL_TOOLS,
+    {
+      name: 'child_usage',
+      description: 'Add child usage to session totals',
+      schema: z.object({}),
+      kind: 'read',
+      target: () => 'child',
+      async run(_input, ctx) {
+        ctx.addUsage?.({ inputTokens: 500, outputTokens: 10, cachedInputTokens: 400 })
+        return { output: 'child done' }
+      },
+    },
+  ])
+  await agent.run('delegate a task', new AbortController().signal)
+  const usageEvents = events.filter((event) => event.type === 'usage')
+  expect(usageEvents).toHaveLength(3)
+  expect(usageEvents[1]).not.toHaveProperty('lastInputTokens')
+  expect(usageEvents[1]).not.toHaveProperty('lastCachedInputTokens')
+  expect(usageEvents[1]).not.toHaveProperty('estimated')
+  expect(usageEvents[2]).toMatchObject({ lastInputTokens: 120, lastCachedInputTokens: 90, estimated: false })
+})
+
+test('initial history seeds an approximate context estimate', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-history-context-'))
+  const agent = new Agent({
+    provider: scripted([]),
+    tools: ALL_TOOLS,
+    permissions: new Permissions('default', [], cwd),
+    systemPrompt: 'SYS',
+    cwd,
+    history: [{ role: 'user', content: 'previous conversation' }],
+  })
+  expect(agent.lastInputTokens).toBeGreaterThan(0)
+  expect(agent.lastInputEstimated).toBe(true)
+})

@@ -45,7 +45,7 @@ export function createTaskTool(opts: TaskToolOptions): Tool {
   }
   return defineTool({
     name: 'task',
-    description: `Delegate a self-contained sub-task. Choose an agent whose tools can complete it: explore is read-only (no shell/SSH/network/edit); use general for those jobs, or the run will fail after spending tokens. Available agents:\n${list}`,
+    description: `Delegate a self-contained sub-task. Choose an agent whose listed tools can complete it; a read-only agent cannot run shell/SSH/network commands or edit, and a failed run still spends tokens. Available agents:\n${list}`,
     schema: z.object({
       agent: z.string().describe('Agent name'),
       description: z.string().describe('3-6 word summary shown to the user'),

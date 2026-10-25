@@ -95,6 +95,7 @@ export class Agent {
   messages: ChatMessage[]
   totalUsage: Usage = { inputTokens: 0, outputTokens: 0 }
   lastInputTokens = 0
+  lastInputEstimated = false
   onEvent: (event: AgentEvent) => void = () => {}
   reasoning: ReasoningLevel
   askPermission: AskPermission = async () => 'no'
@@ -128,10 +129,15 @@ export class Agent {
     this.budgetModel = opts.budgetModel ?? ''
     this.systemPrompt = opts.systemPrompt
     this.reasoning = opts.reasoning ?? 'auto'
+    if (this.messages.length > 0) {
+      this.lastInputTokens = estimateMessages(this.messages) + estimateTokens(this.systemPrompt)
+      this.lastInputEstimated = true
+    }
   }
 
   setSystemPrompt(text: string): void {
     this.systemPrompt = text
+    if (this.lastInputEstimated) this.lastInputTokens = estimateMessages(this.messages) + estimateTokens(text)
   }
 
   setContextWindow(window: number): void {
@@ -179,6 +185,7 @@ export class Agent {
     // Seed the estimate so a resumed history that is already over the window compacts
     // before its first real request instead of failing with a provider 400.
     this.lastInputTokens = estimateMessages(messages) + estimateTokens(this.systemPrompt)
+    this.lastInputEstimated = messages.length > 0
   }
 
   clear(): void {
@@ -186,6 +193,7 @@ export class Agent {
     this.readFiles.clear()
     this.webBudget.reset()
     this.lastInputTokens = 0
+    this.lastInputEstimated = false
     this.opts.onReset?.()
   }
 
@@ -293,6 +301,7 @@ export class Agent {
         this.totalUsage.cachedInputTokens = (this.totalUsage.cachedInputTokens ?? 0) + (usage.cachedInputTokens ?? 0)
         this.totalUsage.cacheWriteTokens = (this.totalUsage.cacheWriteTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
         this.lastInputTokens = usage.inputTokens
+        this.lastInputEstimated = estimated
         this.onEvent({
           type: 'usage',
           ...this.totalUsage,
@@ -454,7 +463,7 @@ export class Agent {
         this.totalUsage.outputTokens += u.outputTokens
         this.totalUsage.cachedInputTokens = (this.totalUsage.cachedInputTokens ?? 0) + (u.cachedInputTokens ?? 0)
         this.totalUsage.cacheWriteTokens = (this.totalUsage.cacheWriteTokens ?? 0) + (u.cacheWriteTokens ?? 0)
-        this.onEvent({ type: 'usage', ...this.totalUsage, lastInputTokens: this.lastInputTokens })
+        this.onEvent({ type: 'usage', ...this.totalUsage })
         this.opts.onUsage?.(u)
       },
     }
