@@ -1,5 +1,7 @@
 import type { PermissionAnswer, PermissionAsk } from './agent'
+import { t } from './i18n'
 import type { Runtime } from './setup'
+import type { PlanDecision } from './tools/plan'
 
 export const ACP_PROTOCOL_VERSION = 1
 
@@ -248,19 +250,45 @@ export function runAcp(
 }
 
 /**
+ * A plan has no ACP primitive of its own, so it is asked through session/request_permission.
+ * 'yes' approves and keeps the normal per-tool prompts; 'session' also stops asking for edits
+ * for the rest of the session (acceptEdits). A plan answer never turns on allowAll, which stays
+ * an explicit user choice.
+ */
+export function planDecisionFrom(answer: PermissionAnswer): PlanDecision {
+  if (answer === 'no') return 'no'
+  if (answer === 'session') return 'acceptEdits'
+  return 'default'
+}
+
+export interface AcpRuntimeDeps {
+  /** Test seam: build the runtime without reading config/plugins. */
+  createRuntime?: (opts: { cwd: string; allowAll: boolean }) => Runtime
+}
+
+/**
  * Production agent: one bccli runtime per ACP session. Permission questions go to the editor
  * (session/request_permission); `allowAll` skips them and runs everything unasked.
  */
-export function runtimeAgent(cwd: string, allowAll = false): AcpAgent {
+export function runtimeAgent(cwd: string, allowAll = false, deps: AcpRuntimeDeps = {}): AcpAgent {
   let rt: Runtime | undefined
   return {
     async run(text, onChunk, signal, io) {
       if (!rt) {
-        const { parseCliArgs } = await import('./args')
-        const { createRuntime } = await import('./setup')
-        rt = createRuntime({ cwd, args: { ...parseCliArgs([]), allowAll } })
+        if (deps.createRuntime) rt = deps.createRuntime({ cwd, allowAll })
+        else {
+          const { parseCliArgs } = await import('./args')
+          const { createRuntime } = await import('./setup')
+          rt = createRuntime({ cwd, args: { ...parseCliArgs([]), allowAll } })
+        }
       }
-      if (io && !allowAll) rt.agent.askPermission = (req) => io.askPermission(req)
+      if (io && !allowAll) {
+        rt.agent.askPermission = (req) => io.askPermission(req)
+        // Without this the editor can never leave plan mode: the default handler answers 'no',
+        // exit_plan is rejected, and every write stays denied for the whole session.
+        rt.interaction.approvePlan = async (plan) =>
+          planDecisionFrom(await io.askPermission({ tool: 'exit_plan', kind: 'edit', target: t('plan'), preview: plan }))
+      }
       let turnError: string | undefined
       rt.agent.onEvent = (event) => {
         if (event.type === 'text') onChunk(event.delta)
