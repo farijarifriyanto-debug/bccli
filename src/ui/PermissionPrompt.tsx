@@ -2,8 +2,6 @@ import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import type { PermissionAnswer, PermissionAsk } from '../agent'
 import { DiffView } from './DiffView'
-import { isFocusReport } from './focusReport'
-import { isMouseControlInput, parseMouseWheel } from './thinkingMouse'
 import { color } from './theme'
 import { t } from '../i18n'
 
@@ -22,16 +20,6 @@ export function PermissionPrompt({
   const [offset, setOffset] = useState(0)
 
   useInput((input, key) => {
-    const wheel = parseMouseWheel(input)
-    if (wheel === 'up') {
-      setOffset((o) => Math.max(0, o - 2))
-      return
-    }
-    if (wheel === 'down') {
-      setOffset((o) => Math.min(maxOffset, o + 2))
-      return
-    }
-    if (isMouseControlInput(input) || isFocusReport(input)) return
     if (key.upArrow) {
       setOffset((o) => Math.max(0, o - 1))
       return

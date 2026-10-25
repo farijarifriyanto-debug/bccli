@@ -1,8 +1,6 @@
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import type { ModelGroup } from '../models'
-import { isFocusReport } from './focusReport'
-import { isMouseControlInput, parseMouseWheel } from './thinkingMouse'
 import { color } from './theme'
 import { t } from '../i18n'
 
@@ -27,16 +25,6 @@ export function ModelPicker({ groups, current, onPick }: { groups: ModelGroup[];
   const cursor = selectable[clampedIndex] ?? -1
 
   useInput((input, key) => {
-    const wheel = parseMouseWheel(input)
-    if (wheel === 'up') {
-      setIndex(Math.max(0, clampedIndex - 1))
-      return
-    }
-    if (wheel === 'down') {
-      setIndex(Math.min(Math.max(0, selectable.length - 1), clampedIndex + 1))
-      return
-    }
-    if (isMouseControlInput(input)) return
     if (key.upArrow) setIndex(Math.max(0, clampedIndex - 1))
     else if (key.downArrow) setIndex(Math.min(Math.max(0, selectable.length - 1), clampedIndex + 1))
     else if (key.pageUp) setIndex(Math.max(0, clampedIndex - VISIBLE))
@@ -48,7 +36,7 @@ export function ModelPicker({ groups, current, onPick }: { groups: ModelGroup[];
     else if (key.backspace || key.delete) {
       setFilter((f) => f.slice(0, -1))
       setIndex(0)
-    } else if (!key.ctrl && !key.meta && !key.tab && input && !isFocusReport(input)) {
+    } else if (!key.ctrl && !key.meta && !key.tab && input) {
       setFilter((f) => f + input)
       setIndex(0)
     }

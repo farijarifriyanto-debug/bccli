@@ -75,14 +75,18 @@ test('model picker ignores SGR mouse escape sequences in filter', async () => {
   expect(lastFrame()).not.toContain('[<0;32;14M')
 })
 
-test('model picker and provider menu scroll with 2-finger touchpad wheel and PageDown/PageUp', async () => {
+test('model picker and provider menu scroll with arrow keys/PageDown and leave mouse wheel to the terminal', async () => {
   const { stdin, lastFrame } = render(<ModelPicker groups={groups} current="bc-cloud/glm-5.3-flash" onPick={() => {}} />)
   await tick()
   expect(lastFrame()).toContain('› glm-5.3-flash')
+  // Ink 8 drops mouse sequences before useInput: the wheel must not move the cursor.
   stdin.write('\x1b[<65;10;10M')
   await tick()
+  expect(lastFrame()).toContain('› glm-5.3-flash')
+  stdin.write('\x1b[B')
+  await tick()
   expect(lastFrame()).toContain('› deepseek-v4-flash')
-  stdin.write('\x1b[<64;10;10M')
+  stdin.write('\x1b[A')
   await tick()
   expect(lastFrame()).toContain('› glm-5.3-flash')
   stdin.write('\x1b[6~')
@@ -100,7 +104,7 @@ test('model picker and provider menu scroll with 2-finger touchpad wheel and Pag
     />,
   )
   await tick()
-  p.stdin.write('\x1b[<65;10;10M')
+  p.stdin.write('\x1b[B')
   await tick()
   p.stdin.write('\r')
   await tick()

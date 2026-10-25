@@ -43,32 +43,9 @@ export function clickedThinking(
     click.x >= col && click.x < col + Math.min(target.width, 72)
 }
 
-/** Parse SGR or Urxvt mouse wheel / 2-finger touchpad vertical scroll events after Ink strips ESC. */
-export function parseMouseWheel(input: string): 'up' | 'down' | undefined {
-  const match = /^\[<?(\d+);\d+;\d+[mM]$/.exec(input)
-  if (!match) return undefined
-  const button = Number(match[1])
-  if ((button & 64) === 0) return undefined
-  const dir = button & 3
-  if (dir === 0) return 'up'
-  if (dir === 1) return 'down'
-  return undefined
-}
-
 /** Detect raw SGR/Urxvt wheel packets in a raw stdin data chunk (before ESC is stripped). */
 export function hasMouseWheelSequence(chunk: string): boolean {
   return chunk.includes('\x1b[') && /\[<?6[4567];\d+;\d+[mM]/.test(chunk)
-}
-
-/** Ink useInput receives these control reports too; they must not enter the prompt. */
-export function isMouseControlInput(input: string): boolean {
-  return (
-    /^\[<[\d;]*[mM]?$/.test(input) ||
-    /^\[(?:\d+;){2}\d+[mM]$/.test(input) ||
-    /^\[(?:\d+;)+\d*R?$/.test(input) ||
-    /^\[M[\s\S]{0,3}$/.test(input) ||
-    input.includes('\x1b[<')
-  )
 }
 
 
