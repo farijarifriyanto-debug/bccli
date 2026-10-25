@@ -43,11 +43,23 @@ export function clickedThinking(
     click.x >= col && click.x < col + Math.min(target.width, 72)
 }
 
-/** Detect raw SGR/Urxvt wheel packets in a raw stdin data chunk (before ESC is stripped). */
+/** Detect raw SGR wheel packets in a raw stdin data chunk (before ESC is stripped), used to suspend mouse capture. */
 export function hasMouseWheelSequence(chunk: string): boolean {
   return chunk.includes('\x1b[') && /\[<?6[4567];\d+;\d+[mM]/.test(chunk)
 }
 
+/**
+ * Sequence fragments Ink 8 does not recognise (mouse, cursor reports) are dropped when complete, but an incomplete
+ * escape is flushed as literal input after ~20 ms. That fragment must never be typed into a prompt or filter.
+ */
+export function isControlReportFragment(input: string): boolean {
+  return (
+    /^\[<[\d;]*[mM]?$/.test(input) ||
+    /^\[(?:\d+;){2}\d+[mM]$/.test(input) ||
+    /^\[(?:\d+;)+\d*R?$/.test(input) ||
+    /^\[M[\s\S]{0,3}$/.test(input)
+  )
+}
 
 /** Tokenize split/coalesced Windows ConPTY SGR presses and cursor reports. */
 export function parseThinkingReports(value: string): {

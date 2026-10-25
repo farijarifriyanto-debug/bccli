@@ -4,6 +4,7 @@ import { SLASH_COMMANDS } from '../commands'
 import { applyFileSuggestion, completeFile, listFileSuggestions } from './complete'
 import { EditableText } from './EditableText'
 import { applyEditKey, insert, type LineState, moveLine } from './lineEdit'
+import { isControlReportFragment } from './thinkingMouse'
 import { applyVim, type VimMode } from './vim'
 import { color } from './theme'
 import { t } from '../i18n'
@@ -63,6 +64,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
 
   useInput(
     (input, key) => {
+      if (isControlReportFragment(input)) return
       // While slash suggestions are open, arrows pick one, Enter runs it, Tab completes it, Esc closes it.
       if (suggestions.length) {
         if (key.escape) {

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { clickedThinking, parseCursorPosition, parseMousePress, parseThinkingReports } from '../../src/ui/thinkingMouse'
+import { clickedThinking, isControlReportFragment, parseCursorPosition, parseMousePress, parseThinkingReports } from '../../src/ui/thinkingMouse'
 
 test('SGR accepts only left press and ignores release, wheel and modified clicks', () => {
   expect(parseMousePress('\x1b[<0;12;17M')).toEqual({ x: 12, y: 17 })
@@ -19,8 +19,19 @@ test('cursor report locates live region; only target row and columns toggle', ()
   expect(clickedThinking({ x: 82, y: 18 }, 22, 8, rect)).toBe(false)
   expect(clickedThinking({ x: 7, y: 17 }, 22, 0, rect)).toBe(false)
 })
-test('coalesced mouse and cursor reports both reach the live disclosure', () => {
-  const parsed = parseThinkingReports('\x1b[<0;7;18M\x1b[22;1R')
+test('control reports Ink 8 flushes as fragments are recognised so they cannot be typed', () => {
+  expect(isControlReportFragment('[<0;12')).toBe(true)
+  expect(isControlReportFragment('[<0;12;17M')).toBe(true)
+  expect(isControlReportFragment('[22;1')).toBe(true)
+  expect(isControlReportFragment('[22;1R')).toBe(true)
+  expect(isControlReportFragment('[M #')).toBe(true)
+  expect(isControlReportFragment('hello')).toBe(false)
+  expect(isControlReportFragment('[')).toBe(false)
+  expect(isControlReportFragment('[1')).toBe(false)
+  expect(isControlReportFragment('/thinking')).toBe(false)
+})
+
+test('coalesced mouse and cursor reports both reach the live disclosure', () => {  const parsed = parseThinkingReports('\x1b[<0;7;18M\x1b[22;1R')
   expect(parsed.rest).toBe('')
   expect(parsed.events).toEqual([
     { type: 'mouse', press: { x: 7, y: 18 } },
