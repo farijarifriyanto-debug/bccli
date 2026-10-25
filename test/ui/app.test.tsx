@@ -747,9 +747,11 @@ test('!command and #memory prompt shortcuts execute locally without calling the 
   stdin.write('!node -e "console.log(12345 + 54321)"')
   await wait()
   stdin.write('\r')
-  await waitFor(() => frames.join('\n').includes('66666'), 10000)
+  // Spawning a shell + node on a loaded CI runner can take well over 10s (the Windows job has
+  // flaked here twice at 121 workers); wait for the output, not for a fixed budget.
+  await waitFor(() => frames.join('\n').includes('66666'), 25000)
   expect(rt.agent.messages.some((m) => typeof m.content === 'string' && m.content.includes('66666'))).toBe(true)
-}, 15000)
+}, 35000)
 
 test('live Thinking spinner and expanded inspector show the currently running tool activity', async () => {
   const rt = makeRuntime([
