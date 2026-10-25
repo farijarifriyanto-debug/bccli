@@ -42,3 +42,26 @@ test('usageCap config: valid forms pass, junk fails fast', () => {
   expect(() => load({ usageCap: { usd: 1, prices: { glm: { input: -1, output: 4 } } } })).toThrow(ConfigError)
   expect(() => load({ usageCap: {} })).toThrow(ConfigError) // kosong = tidak berguna
 })
+
+test('cached input tokens use their own price when the price table has one', () => {
+  const cap = { usd: 1, prices: { glm: { input: 10, output: 30, cachedInput: 1 } } }
+  // 500k prompt of which 500k was a cache read: 0.5 usd at the cache rate, not 5 usd.
+  expect(budgetStatus({ inputTokens: 500_000, outputTokens: 0, cachedInputTokens: 500_000 }, cap, 'bc-cloud/glm-5.3-flash')).toBeUndefined()
+  expect(budgetStatus({ inputTokens: 1_500_000, outputTokens: 0, cachedInputTokens: 1_500_000 }, cap, 'bc-cloud/glm-5.3-flash')).toEqual({ kind: 'usd', used: 1.5, limit: 1 })
+  // A gateway reporting more cached tokens than prompt tokens cannot bill past the prompt:
+  // 100k prompt billed fully cached = 0.1 usd, never 100k at the 10 usd input rate.
+  expect(budgetStatus({ inputTokens: 100_000, outputTokens: 0, cachedInputTokens: 200_000 }, cap, 'glm')).toBeUndefined()
+})
+
+test('without a cachedInput price the cached tokens keep costing the input price', () => {
+  const cap = { usd: 1, prices: { glm: { input: 2, output: 8 } } }
+  expect(budgetStatus({ inputTokens: 400_000, outputTokens: 100_000, cachedInputTokens: 300_000 }, cap, 'bc-cloud/glm-5.3-flash')).toEqual({ kind: 'usd', used: 1.6, limit: 1 })
+})
+
+test('usageCap prices accept an optional cachedInput rate and reject a negative one', () => {
+  expect(load({ usageCap: { usd: 2, prices: { glm: { input: 1, output: 4, cachedInput: 0.1 } } } }).usageCap).toEqual({
+    usd: 2,
+    prices: { glm: { input: 1, output: 4, cachedInput: 0.1 } },
+  })
+  expect(() => load({ usageCap: { usd: 2, prices: { glm: { input: 1, output: 4, cachedInput: -1 } } } })).toThrow(ConfigError)
+})

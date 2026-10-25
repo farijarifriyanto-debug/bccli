@@ -36,7 +36,7 @@ Pembatasan itu disengaja: repo yang kamu clone (misalnya saat BCCLI dipakai untu
 | `editor` | `"emacs"` \| `"vim"` | `"emacs"` | Gaya pengeditan prompt. |
 | `sandbox` | `"off"` \| `"on"` | `"off"` | Jalankan bash di sandbox OS (macOS `sandbox-exec` / Linux `bwrap`). |
 | `lsp` | `{ "servers": [{ "extensions": [".ts"], "command": "typescript-language-server", "args": ["--stdio"] }] }` | — | Dipakai tool diagnostics. |
-| `usageCap` | `{ "tokens": 2000000, "usd": 5, "prices": { "glm": { "input": 0.1, "output": 0.3 } } }` | — | Setidaknya satu dari `tokens`/`usd`. `usd` butuh `prices` (USD per 1 juta token; kunci = substring ref model, match pertama menang). Agen berhenti memanggil model setelah lewat batas. |
+| `usageCap` | `{ "tokens": 2000000, "usd": 5, "prices": { "glm": { "input": 0.1, "output": 0.3, "cachedInput": 0.02 } } }` | - | Setidaknya satu dari `tokens`/`usd`. `usd` butuh `prices` (USD per 1 juta token; kunci = substring ref model, **match pertama menang — tulis kunci paling spesifik lebih dulu**). `cachedInput` opsional untuk token cache; tanpa itu token cache dihitung dengan harga `input`. Model yang tidak cocok dengan kunci mana pun tidak dihitung, jadi batas `usd` tidak menegang — pakai `tokens` bila butuh pagar pasti. Agen berhenti memanggil model setelah lewat batas. |
 
 ## Izin: kunci `allow`
 

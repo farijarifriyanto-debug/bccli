@@ -180,6 +180,9 @@ function resolvedUsageCap(global: Partial<Config>): UsageCap | undefined {
       if (!price || !nonNegative(price.input) || !nonNegative(price.output)) {
         throw new ConfigError(t('usageCap.prices["{key}"] must have numeric input and output (USD per 1M tokens).', { key }))
       }
+      if (price.cachedInput !== undefined && !nonNegative(price.cachedInput)) {
+        throw new ConfigError(t('usageCap.prices["{key}"].cachedInput must be a number >= 0 (USD per 1M tokens).', { key }))
+      }
     }
   }
   if (tokens === undefined && usd === undefined) throw new ConfigError(t('usageCap needs at least one of: tokens, usd.'))
