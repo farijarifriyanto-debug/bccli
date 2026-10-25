@@ -107,7 +107,7 @@ const toolMsg = (...names: string[]) => ({
   m: { role: 'assistant', content: null, tool_calls: names.map((n, k) => ({ id: `c${k}_${n}`, type: 'function', function: { name: n, arguments: '{}' } })) },
 })
 
-test('sessions with recorded usage use it (incl. cache) instead of estimates', () => {
+test('sessions with recorded usage use it instead of estimates, without double counting cache', () => {
   const home = makeHome()
   writeSession(home, 'rec', 's.jsonl', [
     msg('user', 'x'.repeat(400)),
@@ -121,7 +121,9 @@ test('sessions with recorded usage use it (incl. cache) instead of estimates', (
   expect(rows[0].usageOutputTokens).toBe(60)
   expect(rows[0].cachedInputTokens).toBe(80)
   expect(rows[0].cacheWriteTokens).toBe(5)
-  expect(rows[0].sessionTotals).toEqual([265])
+  // prompt_tokens already includes cache reads, so the per-session total is input + output only;
+  // cache is reported on its own lines and would otherwise be counted twice.
+  expect(rows[0].sessionTotals).toEqual([180])
 })
 
 test('sessions without usage keep estimate basis and mixed rows sum both', () => {
