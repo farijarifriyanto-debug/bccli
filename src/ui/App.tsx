@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
-import { Box, Static, Text, measureElement, useApp, useInput, useStdin, useStdout, useWindowSize, type DOMElement } from 'ink'
+import { Box, Static, Text, measureElement, useApp, useInput, useStdin, useStdout, type DOMElement } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentEvent, PermissionAnswer, PermissionAsk } from '../agent'
 import { BUILTIN_AGENTS } from '../agents'
@@ -39,7 +39,8 @@ import { Spinner } from './Spinner'
 import { clickedThinking, hasMouseWheelSequence, parseThinkingReports } from './thinkingMouse'
 import { StatusBar } from './StatusBar'
 import { ACCENT, color } from './theme'
-import { isRealTty, isTtyStream } from './tty'
+import { isRealTty, isTtyStream, streamRows } from './tty'
+import { capLiveMarkdown } from './liveCap'
 import { CATALOG, fillTemplate } from '../mcp/catalog'
 import { addGlobalServer, globalMcpPath, readMcpFile, removeGlobalServer } from '../mcp/config'
 import { McpMenu, type McpMenuItem } from './McpMenu'
@@ -114,10 +115,10 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   const lastUserIdx = transcript.done.findLastIndex((e) => e.kind === 'user')
   const { stdin } = useStdin()
   const { stdout } = useStdout()
-  // Ink 8 no longer types `isTTY`/`rows` on the stream it hands out; ask the guards and the window hook instead.
+  // Ink 8 no longer types `isTTY`/`rows` on the stream it hands out; ask the guards instead. Ink already re-renders
+  // the tree on resize, so reading the height here is enough (no extra resize listener per app).
   const realStdout = isRealTty(stdout)
-  const { rows: windowRows } = useWindowSize()
-  const maxLiveLines = Math.max(8, windowRows - 10)
+  const maxLiveLines = Math.max(8, streamRows(stdout) - 10)
   const maxSplitIdxRef = useRef(0)
   const refreshStatic = useCallback(() => {
     if (realStdout) {
@@ -1026,15 +1027,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
     setAsks((q) => q.slice(1))
   }
 
-  const capLiveMarkdown = (raw: string): string => {
-    if (!isRealTty) return raw
-    const lines = raw.split('\n')
-    if (lines.length <= maxLiveLines) return raw
-    const hidden = lines.length - maxLiveLines
-    const headFence = lines.slice(0, hidden).find((l) => l.trimStart().startsWith('```'))
-    const prefix = headFence ? `${headFence}\n… (${hidden} lines above) …\n` : `… (${hidden} lines above) …\n`
-    return `${prefix}${lines.slice(-maxLiveLines).join('\n')}`
-  }
+  const capLive = (raw: string): string => capLiveMarkdown(raw, { isRealTty: realStdout, maxLines: maxLiveLines })
 
   const cwd = runtime.cwd.startsWith(homedir()) ? `~${runtime.cwd.slice(homedir().length)}` : runtime.cwd
   const renderEntry = (e: Entry) => {
@@ -1059,7 +1052,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           </Box>
         )
       case 'assistant': {
-        const displayText = isLive ? capLiveMarkdown(e.text) : e.text
+        const displayText = isLive ? capLive(e.text) : e.text
         if (e.cont) {
           return displayText ? (
             <Box key={e.id} paddingLeft={2}>

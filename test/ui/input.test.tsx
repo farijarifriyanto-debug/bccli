@@ -34,6 +34,21 @@ test('terminal focus in/out reports are not typed into the prompt', async () => 
   expect(lastFrame()).not.toMatch(/\[[IO]/)
 })
 
+test('an incomplete mouse report flushed as literal input never lands in the prompt', async () => {
+  const { stdin, lastFrame } = render(<PromptInput history={[]} cwd="." onSubmit={() => {}} />)
+  await tick()
+  stdin.write('ab')
+  await tick()
+  // Ink 8 flushes a dangling escape after ~20 ms as literal text; the fragment must not be typed.
+  stdin.write('\x1b[<0;12')
+  await tick()
+  stdin.write('\x1b[22;1')
+  await tick()
+  expect(lastFrame()).toContain('> ab')
+  expect(lastFrame()).not.toContain('0;12')
+  expect(lastFrame()).not.toContain('22;1')
+})
+
 test('backslash + enter inserts a newline', async () => {
   const onSubmit = vi.fn()
   const { stdin, lastFrame } = render(<PromptInput history={[]} cwd="." onSubmit={onSubmit} />)

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { isRealTty, isTtyStream, streamColumns } from '../../src/ui/tty'
+import { isRealTty, isTtyStream, streamColumns, streamRows } from '../../src/ui/tty'
 
 test('isTtyStream accepts only streams that report isTTY true', () => {
   expect(isTtyStream({ isTTY: true })).toBe(true)
@@ -21,4 +21,11 @@ test('streamColumns reads the TTY width at render time and falls back to 80', ()
   expect(streamColumns({ columns: 0 })).toBe(80)
   expect(streamColumns({})).toBe(80)
   expect(streamColumns(undefined)).toBe(80)
+})
+
+test('streamRows reads the TTY height at render time and falls back to 24', () => {
+  expect(streamRows({ rows: 40 })).toBe(40)
+  expect(streamRows({ rows: 0 })).toBe(24)
+  expect(streamRows({})).toBe(24)
+  expect(streamRows(undefined)).toBe(24)
 })

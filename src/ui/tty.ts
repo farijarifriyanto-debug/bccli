@@ -17,10 +17,16 @@ export function isRealTty(stream: unknown): boolean {
 }
 
 /**
- * Terminal width at render time. Reading it instead of listening to `resize` keeps one listener per app
- * (App's `useWindowSize`) rather than one per rendered message; App re-renders on resize and passes the new width down.
+ * Terminal width at render time. Reading it instead of listening to `resize` keeps the app to the single resize
+ * listener Ink already owns (it re-renders the tree on resize), instead of one listener per rendered message.
  */
 export function streamColumns(stream: unknown): number {
   const columns = typeof stream === 'object' && stream !== null ? (stream as { columns?: unknown }).columns : undefined
   return typeof columns === 'number' && columns > 0 ? columns : 80
+}
+
+/** Terminal height at render time; same reasoning as `streamColumns`. */
+export function streamRows(stream: unknown): number {
+  const rows = typeof stream === 'object' && stream !== null ? (stream as { rows?: unknown }).rows : undefined
+  return typeof rows === 'number' && rows > 0 ? rows : 24
 }

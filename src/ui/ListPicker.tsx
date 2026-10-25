@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import { color } from './theme'
+import { isControlReportFragment } from './thinkingMouse'
 import { t } from '../i18n'
 
 export interface ListItem {
@@ -18,6 +19,7 @@ export function ListPicker({ title, items, onPick }: { title: string; items: Lis
   const shown = items.filter((i) => i.label.toLowerCase().includes(filter.toLowerCase()))
   const cursor = Math.min(index, Math.max(0, shown.length - 1))
   useInput((input, key) => {
+    if (isControlReportFragment(input)) return
     if (key.upArrow) setIndex(Math.max(0, cursor - 1))
     else if (key.downArrow) setIndex(Math.min(Math.max(0, shown.length - 1), cursor + 1))
     else if (key.pageUp) setIndex(Math.max(0, cursor - VISIBLE))

@@ -609,6 +609,32 @@ test('SGR mouse click toggles live Thinking without inserting control bytes into
   unmount()
 }, 20000)
 
+test('non-TTY stdout keeps live assistant text whole instead of capping it to terminal rows', async () => {
+  const rt = makeRuntime([])
+  const long = Array.from({ length: 40 }, (_, i) => `BARIS_${i}`).join('\n')
+  let release: (() => void) | undefined
+  rt.agent.provider = {
+    async chat(req: { onText?: (text: string) => void }) {
+      req.onText?.(long)
+      await new Promise<void>((resolve) => { release = resolve })
+      return { text: long, toolCalls: [] }
+    },
+    async listModels() { return [] },
+  }
+  const { stdin, lastFrame, unmount } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('panjang')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => (lastFrame() ?? '').includes('BARIS_39'))
+  await wait(50)
+  // A piped stdout has no rows to respect: the live block must not be cut to the last rows.
+  expect(lastFrame()).toContain('BARIS_0')
+  expect(lastFrame()).not.toContain('lines above')
+  release?.()
+  unmount()
+}, 20000)
+
 test('/reasoning direct command persists preference and status bar reflects it', async () => {
   const rt = makeRuntime([])
   const { stdin, frames, lastFrame } = render(<App runtime={rt} version="test" />)

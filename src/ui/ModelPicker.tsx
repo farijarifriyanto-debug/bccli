@@ -2,6 +2,7 @@ import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 import type { ModelGroup } from '../models'
 import { color } from './theme'
+import { isControlReportFragment } from './thinkingMouse'
 import { t } from '../i18n'
 
 type Row = { kind: 'header'; text: string } | { kind: 'model'; ref: string; label: string }
@@ -25,6 +26,7 @@ export function ModelPicker({ groups, current, onPick }: { groups: ModelGroup[];
   const cursor = selectable[clampedIndex] ?? -1
 
   useInput((input, key) => {
+    if (isControlReportFragment(input)) return
     if (key.upArrow) setIndex(Math.max(0, clampedIndex - 1))
     else if (key.downArrow) setIndex(Math.min(Math.max(0, selectable.length - 1), clampedIndex + 1))
     else if (key.pageUp) setIndex(Math.max(0, clampedIndex - VISIBLE))
