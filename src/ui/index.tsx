@@ -1,6 +1,7 @@
 import { render } from 'ink'
 import type { Runtime } from '../setup'
 import { App } from './App'
+import { installLegacyMouseFilter } from './stdinFilter'
 import { locale, t } from '../i18n'
 
 export async function startInteractive(rt: Runtime, opts: { initialPrompt?: string; resume: boolean; version: string; updateMessage?: string }): Promise<number> {
@@ -41,8 +42,13 @@ export async function startInteractive(rt: Runtime, opts: { initialPrompt?: stri
   void rt.startMcp(plan.start).catch((error: unknown) => {
     console.error(t('Could not start MCP servers: {error}', { error: error instanceof Error ? error.message : String(error) }))
   })
+  // Legacy X10 mouse reports (terminals without SGR) would otherwise reach useInput as stray punctuation, because
+  // Ink 8 drops only their `ESC [ M` prefix. Ink reads stdin with `read()`, so filter that method in place; the
+  // stream object itself (raw mode, TTY flags, event handlers) stays untouched.
+  const disposeMouseFilter = process.stdin.isTTY ? installLegacyMouseFilter(process.stdin) : undefined
   const instance = render(<App runtime={rt} initialPrompt={opts.initialPrompt} version={opts.version} updateMessage={opts.updateMessage} />, { exitOnCtrlC: true })
   await instance.waitUntilExit()
+  disposeMouseFilter?.()
   await rt.mcp.stop()
   return 0
 }

@@ -603,12 +603,17 @@ test('SGR mouse click toggles live Thinking without inserting control bytes into
   }
   expect(closed).toBe(true)
   expect(lastFrame()).not.toContain('Model:')
+  const userMessages = rt.agent.messages.filter((message) => message.role === 'user')
+  expect(userMessages).toHaveLength(1)
+  expect(userMessages[0]?.content).toBe('mouse canary')
+  // Nothing the reporter sent may end up as typed text: no SGR/cursor digits, and the prompt box stays empty.
+  expect(lastFrame()).not.toContain('[<')
+  expect(lastFrame()).not.toMatch(/\d+;\d+[RM]/)
   release?.()
   await waitFor(() => rt.agent.messages.some((m) => typeof m.content === 'string' && m.content.includes('MOCK_OK')))
   expect(rt.agent.messages.filter((message) => message.role === 'user')).toHaveLength(1)
   unmount()
 }, 20000)
-
 test('non-TTY stdout keeps live assistant text whole instead of capping it to terminal rows', async () => {
   const rt = makeRuntime([])
   const long = Array.from({ length: 40 }, (_, i) => `BARIS_${i}`).join('\n')
