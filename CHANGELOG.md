@@ -3,6 +3,23 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## 0.4.15 - 2026-10-25
+
+Perbaikan dua regresi dari migrasi Ink 8 di 0.4.14, ditemukan lewat review independen.
+
+### Fixed
+- **Teks assistant yang masih live terpotong walau stdout bukan TTY (`src/ui/App.tsx`, `src/ui/liveCap.ts`)**: `capLiveMarkdown` masih memakai `if (!isRealTty)` padahal `isRealTty` sudah menjadi fungsi impor, sehingga kondisinya selalu `false` dan pemotongan ke budget baris tetap berjalan saat output dipipa (`bccli | tee log`, harness CI). Logika dipindah ke `capLiveMarkdown(raw, { isRealTty, maxLines })` supaya kedua cabang teruji; non-TTY kini menampilkan teks utuh seperti 0.4.13.
+- **Fragmen laporan mouse/cursor bisa terketik ke prompt (`src/ui/thinkingMouse.ts`, `PromptInput`, `LinePrompt`, `ListPicker`, `ModelPicker`)**: Ink 8 membuang sequence terminal **lengkap**, tetapi escape yang tidak lengkap tetap di-flush sebagai teks literal setelah ~20 ms. `isControlReportFragment()` dikembalikan dan dipasang di handler yang menyisipkan teks, jadi potongan seperti `[<0;12` atau `[22;1` tidak lagi masuk prompt/filter. Sequence lengkap tetap diabaikan Ink 8.
+
+### Changed
+- **`useWindowSize()` dibuang dari `App`**: Ink 8 sudah memegang listener `resize` sendiri dan me-render ulang tree, jadi tinggi terminal dibaca dengan `streamRows(stdout)`. Menghilangkan listener resize kedua dan efek samping fallback `terminalSize()` yang membuat budget baris bergantung lingkungan.
+- **Koreksi klaim 0.4.14**: cabang wheel yang benar-benar hidup di 0.4.13 adalah navigasi saran `/` dan `@file` di `PromptInput` (PromptInput bukan modal, jadi mouse reporting bisa aktif saat mode klik-Thinking menyala). Wheel di picker/modal tetap tidak pernah menerima input sejak 0.4.8, sesuai catatan 0.4.14.
+
+### Verification
+- `typecheck` bersih, `lint` exit 0, **1010 tes lulus** (1 skip), coverage 88,29 / 79,65 / 87,75 / 90,71 (gate 85/77/85/87), `build` sukses, CI 3 OS hijau.
+- Tes baru: `test/ui/liveCap.test.ts`, `streamRows`, `isControlReportFragment`, fragmen prompt, dan satu tes App non-TTY.
+- Uji terminal nyata (ConPTY): mount, `ctrl+l`, `/help`, `/model`, panah, wheel inert, filter, bracketed paste, resize, `ctrl+c`; startup `?1000l`/`?2004h`; `bccli serve` `/health` 200 + 401 tanpa token; tanpa `MaxListenersExceededWarning`.
+
 ## 0.4.14 - 2026-10-25
 
 Migrasi ke **Ink 8.0.0** (dari 7.1.1), menggantikan PR dependabot #68 yang CI-nya merah.
