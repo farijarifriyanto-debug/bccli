@@ -191,8 +191,8 @@ export class Agent {
 
   /** Publish context-only estimates after prompt/history changes, without changing session usage totals. */
   private publishEstimatedContext(): void {
-    if (this.messages.length === 0) return
     this.seedEstimatedContext()
+    if (this.messages.length === 0) return
     this.onEvent({
       type: 'usage',
       ...this.totalUsage,
@@ -209,7 +209,7 @@ export class Agent {
     this.webBudget.reset()
     // Seed the estimate so a resumed history that is already over the window compacts
     // before its first real request instead of failing with a provider 400.
-    this.seedEstimatedContext()
+    this.publishEstimatedContext()
   }
 
   clear(): void {

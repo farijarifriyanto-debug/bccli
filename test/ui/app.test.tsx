@@ -923,8 +923,8 @@ test('after a turn with Thinking finishes, clicking Thinking (when opted in) sti
 
 test('/rewind removes the rewound turn from the visible transcript and /resume after a longer session still renders the shorter session', async () => {
   const rt = makeRuntime([
-    { text: 'JAWAB_TURN_1', toolCalls: [] },
-    { text: 'JAWAB_TURN_2', toolCalls: [] },
+    { text: 'JAWAB_TURN_1', toolCalls: [], usage: { inputTokens: 6000, outputTokens: 10, cachedInputTokens: 5500 } },
+    { text: 'JAWAB_TURN_2', toolCalls: [], usage: { inputTokens: 9000, outputTokens: 20, cachedInputTokens: 8500 } },
   ])
   const { stdin, lastFrame, frames, unmount } = render(<App runtime={rt} version="test" />)
   await wait()
@@ -938,6 +938,7 @@ test('/rewind removes the rewound turn from the visible transcript and /resume a
   await waitFor(() => frames.some((f) => f.includes('JAWAB_TURN_2')))
   expect(lastFrame()).toContain('TANYA_TURN_2')
   expect(lastFrame()).toContain('JAWAB_TURN_2')
+  const previousContext = rt.agent.lastInputTokens
 
   await slash(stdin, '/rewind 1')
   await waitFor(() => frames.some((f) => f.includes('1 giliran di-rewind')))
@@ -945,6 +946,10 @@ test('/rewind removes the rewound turn from the visible transcript and /resume a
   expect(lastFrame()).toContain('JAWAB_TURN_1')
   expect(lastFrame()).not.toContain('TANYA_TURN_2')
   expect(lastFrame()).not.toContain('JAWAB_TURN_2')
+  expect(rt.agent.lastInputTokens).toBeLessThan(previousContext)
+  expect(rt.agent.lastInputEstimated).toBe(true)
+  const shownContext = rt.agent.lastInputTokens >= 1000 ? `${Math.round(rt.agent.lastInputTokens / 1000)}k` : `${rt.agent.lastInputTokens}`
+  expect((lastFrame() ?? '').replace(/\s+/g, ' ')).toContain(`~${shownContext} token`)
   unmount()
 })
 
