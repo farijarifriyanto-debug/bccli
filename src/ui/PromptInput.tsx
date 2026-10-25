@@ -3,8 +3,6 @@ import { useEffect, useRef, useState } from 'react'
 import { SLASH_COMMANDS } from '../commands'
 import { applyFileSuggestion, completeFile, listFileSuggestions } from './complete'
 import { EditableText } from './EditableText'
-import { isFocusReport } from './focusReport'
-import { isMouseControlInput, parseMouseWheel } from './thinkingMouse'
 import { applyEditKey, insert, type LineState, moveLine } from './lineEdit'
 import { applyVim, type VimMode } from './vim'
 import { color } from './theme'
@@ -65,14 +63,6 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
 
   useInput(
     (input, key) => {
-      const wheel = parseMouseWheel(input)
-      if (wheel) {
-        if (activeCount > 0) {
-          setSelected(( current ) => (wheel === 'up' ? Math.max(0, Math.min(current, activeCount - 1) - 1) : Math.min(activeCount - 1, Math.min(current, activeCount - 1) + 1)))
-        }
-        return
-      }
-      if (isMouseControlInput(input)) return
       // While slash suggestions are open, arrows pick one, Enter runs it, Tab completes it, Esc closes it.
       if (suggestions.length) {
         if (key.escape) {
@@ -190,7 +180,7 @@ export function PromptInput({ disabled, history, cwd, onSubmit, extraCommands, i
         if (completed !== before) edit({ value: completed + value.slice(line.cursor), cursor: completed.length })
         return
       }
-      if (key.ctrl || key.meta || key.escape || key.tab || isFocusReport(input)) return
+      if (key.ctrl || key.meta || key.escape || key.tab) return
       const text = input.replace(/\r\n?/g, '\n')
       if (text) edit((current) => insert(current, text))
     },

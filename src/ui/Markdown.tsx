@@ -2,6 +2,7 @@ import { Box, Text, useStdout } from 'ink'
 import type { ReactNode } from 'react'
 import { displayWidth, layoutTable, parseInline, parseTable, type Seg } from './table'
 import { ACCENT, color } from './theme'
+import { streamColumns } from './tty'
 
 function segment(seg: Seg, key: number): ReactNode {
   switch (seg.style) {
@@ -84,7 +85,7 @@ function hanging(key: string | number, marker: string, body: ReactNode, width: n
  */
 export function Markdown({ text, indent = 2 }: { text: string; indent?: number }) {
   const { stdout } = useStdout()
-  const width = Math.max(20, (stdout?.columns ?? 80) - indent - 1)
+  const width = Math.max(20, streamColumns(stdout) - indent - 1)
   const lines = text.split('\n')
   const rows: ReactNode[] = []
   let inCode = false

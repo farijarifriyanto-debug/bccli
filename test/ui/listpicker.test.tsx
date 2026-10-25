@@ -33,18 +33,14 @@ test('picks with arrows and enter, filters by typing, esc cancels', async () => 
   expect(other).toHaveBeenCalledWith(undefined)
 })
 
-test('ListPicker scrolls with 2-finger touchpad wheel and PageDown/PageUp', async () => {
+test('ListPicker scrolls with PageDown/PageUp and leaves mouse wheel reports to the terminal', async () => {
   const many = Array.from({ length: 20 }, (_, i) => ({ id: `id-${i}`, label: `Item ${i}` }))
   const onPick = vi.fn()
   const { stdin, lastFrame } = render(<ListPicker title="Pilih" items={many} onPick={onPick} />)
   await tick()
   expect(lastFrame()).toContain('› Item 0')
-  // Touchpad wheel down
+  // Ink 8 drops mouse sequences before useInput; mouse reporting stays off so the wheel scrolls terminal scrollback.
   stdin.write('\x1b[<65;10;10M')
-  await tick()
-  expect(lastFrame()).toContain('› Item 1')
-  // Touchpad wheel up
-  stdin.write('\x1b[<64;10;10M')
   await tick()
   expect(lastFrame()).toContain('› Item 0')
   // PageDown jumps down

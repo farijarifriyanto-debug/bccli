@@ -1,7 +1,5 @@
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
-import { isFocusReport } from './focusReport'
-import { isMouseControlInput, parseMouseWheel } from './thinkingMouse'
 import { color } from './theme'
 import { t } from '../i18n'
 
@@ -15,17 +13,7 @@ export interface ProviderEntry {
 export function ProviderMenu({ entries, onPick }: { entries: ProviderEntry[]; onPick(id: string | 'custom' | undefined): void }) {
   const rows = [...entries.map((e) => e.id), 'custom']
   const [index, setIndex] = useState(0)
-  useInput((input, key) => {
-    const wheel = parseMouseWheel(input)
-    if (wheel === 'up') {
-      setIndex((i) => Math.max(0, i - 1))
-      return
-    }
-    if (wheel === 'down') {
-      setIndex((i) => Math.min(rows.length - 1, i + 1))
-      return
-    }
-    if (isMouseControlInput(input) || isFocusReport(input)) return
+  useInput((_input, key) => {
     if (key.upArrow) setIndex((i) => Math.max(0, i - 1))
     else if (key.downArrow) setIndex((i) => Math.min(rows.length - 1, i + 1))
     else if (key.pageUp) setIndex((i) => Math.max(0, i - 10))

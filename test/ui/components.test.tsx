@@ -108,7 +108,7 @@ test('[s] yes-to-all is always offered, even when [a] is not', async () => {
   expect(onAnswer).toHaveBeenCalledWith('all')
 })
 
-test('PermissionPrompt windows long diffs (> 16 lines) and scrolls with arrows or 2-finger touchpad wheel', async () => {
+test('PermissionPrompt windows long diffs (> 16 lines) and scrolls with arrows; mouse wheel stays with the terminal', async () => {
   const longDiff = Array.from({ length: 30 }, (_, i) => `    ${i + 1} + DIFF_LINE_${i}`).join('\n')
   const { stdin, lastFrame } = render(
     <PermissionPrompt request={{ tool: 'edit', kind: 'edit', target: 'a.ts', preview: longDiff }} onAnswer={() => {}} />,
@@ -116,8 +116,12 @@ test('PermissionPrompt windows long diffs (> 16 lines) and scrolls with arrows o
   await tick()
   expect(lastFrame()).toContain('DIFF_LINE_0')
   expect(lastFrame()).not.toContain('DIFF_LINE_25')
-  // Scroll down with touchpad wheel
-  for (let i = 0; i < 5; i++) stdin.write('\x1b[<65;10;10M')
+  // Ink 8 drops mouse sequences before useInput, so the wheel must not scroll the window.
+  stdin.write('\x1b[<65;10;10M')
+  await tick()
+  expect(lastFrame()).toContain('DIFF_LINE_0')
+  // Scroll down with the keyboard
+  for (let i = 0; i < 5; i++) stdin.write('\x1b[B')
   await tick()
   expect(lastFrame()).not.toContain('DIFF_LINE_0')
   expect(lastFrame()).toContain('DIFF_LINE_18')

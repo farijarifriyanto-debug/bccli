@@ -213,7 +213,7 @@ test('Shift+Enter, Ctrl+J, and bracketed multi-line paste insert newlines withou
   expect(onSubmit).toHaveBeenCalledWith('baris1\nbaris2\nbaris3\nbaris4')
 })
 
-test('@file prefix shows live file suggestions, arrows/touchpad wheel select, and Tab completes the chosen file', async () => {
+test('@file prefix shows live file suggestions, arrows select, and Tab completes the chosen file', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'bccli-at-'))
   mkdirSync(join(cwd, 'src'))
   writeFileSync(join(cwd, 'src', 'alpha.ts'), '1')
@@ -225,8 +225,8 @@ test('@file prefix shows live file suggestions, arrows/touchpad wheel select, an
   await tick()
   expect(lastFrame()).toContain('› @src/alpha.ts')
   expect(lastFrame()).toContain('  @src/beta.ts')
-  // 2-finger touchpad scroll down moves highlight to beta.ts
-  stdin.write('\x1b[<65;10;10M')
+  // Arrow down moves highlight to beta.ts (Ink 8 no longer forwards the mouse wheel to useInput)
+  stdin.write('\x1b[B')
   await tick()
   expect(lastFrame()).toContain('› @src/beta.ts')
   stdin.write('\t')

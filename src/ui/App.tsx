@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
-import { Box, Static, Text, measureElement, useApp, useInput, useStdin, useStdout, type DOMElement } from 'ink'
+import { Box, Static, Text, measureElement, useApp, useInput, useStdin, useStdout, useWindowSize, type DOMElement } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentEvent, PermissionAnswer, PermissionAsk } from '../agent'
 import { BUILTIN_AGENTS } from '../agents'
@@ -39,6 +39,7 @@ import { Spinner } from './Spinner'
 import { clickedThinking, hasMouseWheelSequence, parseThinkingReports } from './thinkingMouse'
 import { StatusBar } from './StatusBar'
 import { ACCENT, color } from './theme'
+import { isRealTty, isTtyStream } from './tty'
 import { CATALOG, fillTemplate } from '../mcp/catalog'
 import { addGlobalServer, globalMcpPath, readMcpFile, removeGlobalServer } from '../mcp/config'
 import { McpMenu, type McpMenuItem } from './McpMenu'
@@ -113,18 +114,20 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   const lastUserIdx = transcript.done.findLastIndex((e) => e.kind === 'user')
   const { stdin } = useStdin()
   const { stdout } = useStdout()
-  const isRealTty = Boolean(stdout?.isTTY && 'fd' in stdout)
-  const maxLiveLines = Math.max(8, (stdout?.rows ?? 24) - 10)
+  // Ink 8 no longer types `isTTY`/`rows` on the stream it hands out; ask the guards and the window hook instead.
+  const realStdout = isRealTty(stdout)
+  const { rows: windowRows } = useWindowSize()
+  const maxLiveLines = Math.max(8, windowRows - 10)
   const maxSplitIdxRef = useRef(0)
   const refreshStatic = useCallback(() => {
-    if (stdout?.isTTY && 'fd' in stdout) {
+    if (realStdout) {
       stdout.write('\x1b[2J\x1b[3J\x1b[H')
     }
     maxSplitIdxRef.current = 0
     setStaticKey((k) => k + 1)
-  }, [stdout])
+  }, [stdout, realStdout])
   let splitIdx = Math.max(maxSplitIdxRef.current, lastUserIdx > 0 ? lastUserIdx : 0)
-  if (isRealTty) {
+  if (realStdout) {
     const entryLines = (e: Entry): number => {
       if (e.kind === 'thinking') return showThinking ? Math.min(maxLiveLines, e.text.split('\n').length + 2) : 2
       if (e.kind === 'tool') return showToolOutput ? Math.min(maxLiveLines, (e.output ?? e.display ?? '').split('\n').length + 2) : 5
@@ -864,7 +867,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   // Ensure real TTY starts with mouse tracking off (so native mouse wheel,
   // 2-finger touchpad scroll, and drag-to-copy work) and bracketed paste on.
   useEffect(() => {
-    if (!stdout?.isTTY || !('fd' in stdout)) return
+    if (!isRealTty(stdout)) return
     stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004h')
     return () => {
       stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l')
@@ -877,7 +880,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   // scrolls its native scrollback buffer, then re-enable after scroll idle.
   useEffect(() => {
     const modalOpen = !!(pending || planAsk || picker || listPicker || mcpMenu || providerMenu || prompt)
-    if (!runtime.config.thinkingClickCollapse || (!busy && !hasThinking) || modalOpen || !stdin.isTTY || !stdout.isTTY) return
+    if (!runtime.config.thinkingClickCollapse || (!busy && !hasThinking) || modalOpen || !isTtyStream(stdin) || !isTtyStream(stdout)) return
     let click: { x: number; y: number } | undefined
     let mouseBuffer = ''
     let wheelTimer: ReturnType<typeof setTimeout> | undefined
@@ -1077,7 +1080,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
         if (!text) return null
         const allLines = text.split('\n')
         const lines = allLines.length
-        const shownText = isLive && isRealTty && allLines.length > maxLiveLines
+        const shownText = isLive && realStdout && allLines.length > maxLiveLines
           ? `… (${allLines.length - maxLiveLines} lines above) …\n${allLines.slice(-maxLiveLines).join('\n')}`
           : text
         const isTarget = e.id === lastThinkingEntryId

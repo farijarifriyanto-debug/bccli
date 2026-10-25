@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { clickedThinking, isMouseControlInput, parseCursorPosition, parseMousePress, parseMouseWheel, parseThinkingReports } from '../../src/ui/thinkingMouse'
+import { clickedThinking, parseCursorPosition, parseMousePress, parseThinkingReports } from '../../src/ui/thinkingMouse'
 
 test('SGR accepts only left press and ignores release, wheel and modified clicks', () => {
   expect(parseMousePress('\x1b[<0;12;17M')).toEqual({ x: 12, y: 17 })
@@ -19,37 +19,6 @@ test('cursor report locates live region; only target row and columns toggle', ()
   expect(clickedThinking({ x: 82, y: 18 }, 22, 8, rect)).toBe(false)
   expect(clickedThinking({ x: 7, y: 17 }, 22, 0, rect)).toBe(false)
 })
-test('mouse and cursor reports cannot be injected into prompt text', () => {
-  expect(isMouseControlInput('[<0;12;17M')).toBe(true)
-  expect(isMouseControlInput('[<0;12;17m')).toBe(true)
-  expect(isMouseControlInput('[<64;12;17M')).toBe(true)
-  expect(isMouseControlInput('[<65;12;17M')).toBe(true)
-  expect(isMouseControlInput('[<66;12;17M')).toBe(true)
-  expect(isMouseControlInput('[<67;12;17M')).toBe(true)
-  expect(isMouseControlInput('[64;12;17M')).toBe(true)
-  expect(isMouseControlInput('[<64;12;')).toBe(true)
-  expect(isMouseControlInput('[M #!')).toBe(true)
-  expect(isMouseControlInput('[<64;1;1M\x1b[<64;1;1M')).toBe(true)
-  expect(isMouseControlInput('[22;1R')).toBe(true)
-  expect(isMouseControlInput('hello')).toBe(false)
-  expect(isMouseControlInput('/thinking')).toBe(false)
-  expect(isMouseControlInput('[')).toBe(false)
-})
-
-test('parseMouseWheel detects touchpad 2-finger and mouse wheel up/down events', () => {
-  expect(parseMouseWheel('[<64;12;17M')).toBe('up')
-  expect(parseMouseWheel('[<68;12;17M')).toBe('up')
-  expect(parseMouseWheel('[64;12;17M')).toBe('up')
-  expect(parseMouseWheel('[<65;12;17M')).toBe('down')
-  expect(parseMouseWheel('[<69;12;17M')).toBe('down')
-  expect(parseMouseWheel('[65;12;17M')).toBe('down')
-  expect(parseMouseWheel('[<66;12;17M')).toBeUndefined()
-  expect(parseMouseWheel('[<67;12;17M')).toBeUndefined()
-  expect(parseMouseWheel('[<0;12;17M')).toBeUndefined()
-  expect(parseMouseWheel('hello')).toBeUndefined()
-})
-
-
 test('coalesced mouse and cursor reports both reach the live disclosure', () => {
   const parsed = parseThinkingReports('\x1b[<0;7;18M\x1b[22;1R')
   expect(parsed.rest).toBe('')
