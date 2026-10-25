@@ -24,6 +24,8 @@ Tiga perbaikan dari audit keamanan: dua jalur yang berjalan tanpa prompt dan sat
 - **`gh-bot` tidak menulis sesi per komentar (`src/setup.ts`, `src/session.ts`)**: draft satu-kali tidak lagi membuat `~/.bccli/sessions/<slug>/*.jsonl` (dan folder kosong) untuk setiap komentar GitHub.
 - **Kode otorisasi OpenRouter terlihat saat diketik/di-paste (`src/login.ts`)**: raw mode mematikan echo dan tidak ada yang menulis balik, jadi input tidak terlihat; backspace kini juga menghapus di layar.
 - **Tidak ada lagi peringatan kunci ganda React di UI (`src/ui/App.tsx`)**: elemen `<Static>` memakai kunci angka yang dimulai dari 0, sama seperti id entri transkrip, dan keduanya bersaudara di Box yang sama — React memperingatkan "two children with the same key, 0" dan bisa menghilangkan/menggandakan satu baris transkrip. Kunci `<Static>` kini diberi prefiks `static-`.
+- **`bccli stats` tidak lagi menghitung token cache dua kali (`src/statsCli.ts`)**: `prompt_tokens` sudah termasuk cache, jadi Avg/Median Token per Sesi kini memakai input + output; Cache Read/Cache Write tetap tampil di baris sendiri. Angka sesi ber-cache turun ke nilai sebenarnya.
+- **Plugin tidak lagi di-`activate()` ulang per job `gh-bot` (`src/setup.ts`)**: hasil pemuatan plugin di-cache per proses per proyek, sehingga efek samping `activate()` tidak berulang untuk setiap komentar GitHub.
 
 ## 0.4.10 - 2026-10-24
 
