@@ -18,6 +18,11 @@ Tiga perbaikan dari audit keamanan: dua jalur yang berjalan tanpa prompt dan sat
 - **`connect hermes` tidak menghapus kunci lain di blok `model` (`src/integrationCli.ts`)**: hanya `default` dan `provider` yang di-set, jadi `temperature` dan opsi lain milik user tetap ada.
 - **`config.json` yang rusak gagal dengan pesan yang menunjuk file (`src/config.ts`)**: perintah tulis kini memakai reader yang sama dengan startup (`ConfigError` berisi path), bukan `SyntaxError` mentah. File tidak di-reset maupun dikarantina diam-diam.
 - **Mode rencana bisa disetujui dari editor ACP (`src/acp.ts`)**: `exit_plan` kini dikirim lewat `session/request_permission`; sebelumnya selalu dijawab "tidak", sehingga semua tulis ditolak tanpa jalan keluar.
+- **`read` memberi tahu saat `offset` melewati akhir file (`src/tools/read.ts`)**: dulu jawabannya kosong, sehingga model membacanya sebagai "file kosong".
+- **Daftar tugas background dibatasi (`src/tools/bash.ts`)**: maksimum 50 tugas selesai disimpan (yang paling tua dibuang); tugas yang masih berjalan tidak pernah dibuang. Sebelumnya setiap perintah tersimpan selamanya beserta outputnya.
+- **Turn yang dibatalkan berhenti mengunduh (`src/provider.ts`)**: jalur Responses native (Luna) kini memakai sinyal pembatalan seperti jalur chat-completions; sebelumnya Esc hanya menyembunyikan output sementara socket terus membaca respons.
+- **`gh-bot` tidak menulis sesi per komentar (`src/setup.ts`, `src/session.ts`)**: draft satu-kali tidak lagi membuat `~/.bccli/sessions/<slug>/*.jsonl` (dan folder kosong) untuk setiap komentar GitHub.
+- **Kode otorisasi OpenRouter terlihat saat diketik/di-paste (`src/login.ts`)**: raw mode mematikan echo dan tidak ada yang menulis balik, jadi input tidak terlihat; backspace kini juga menghapus di layar.
 
 ## 0.4.10 - 2026-10-24
 
