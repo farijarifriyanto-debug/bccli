@@ -186,6 +186,7 @@ Opsi:
   'usageCap.usd must be a number greater than 0.': 'usageCap.usd harus angka lebih dari 0.',
   'usageCap.usd requires usageCap.prices (USD per 1M tokens).': 'usageCap.usd memerlukan usageCap.prices (USD per 1 juta token).',
   'usageCap.prices["{key}"] must have numeric input and output (USD per 1M tokens).': 'usageCap.prices["{key}"] harus punya input dan output numerik (USD per 1 juta token).',
+  'usageCap.prices["{key}"].cachedInput must be a number >= 0 (USD per 1M tokens).': 'usageCap.prices["{key}"].cachedInput harus angka >= 0 (USD per 1 juta token).',
   'usageCap needs at least one of: tokens, usd.': 'usageCap memerlukan setidaknya salah satu dari: tokens, usd.',
   'updateCheck must be "on" or "off".': 'updateCheck harus "on" atau "off".',
   'repoMap must be true or false.': 'repoMap harus true atau false.',

@@ -13,6 +13,11 @@ Tiga perbaikan dari audit keamanan: dua jalur yang berjalan tanpa prompt dan sat
 
 ### Fixed
 - **`bccli disconnect` tidak menimpa config yang kamu ubah setelah connect (`src/integrationCli.ts`)**: state integrasi kini menyimpan sha256 isi file yang ditulis saat connect, dan `disconnect` hanya me-restore backup selama file itu masih sama. Bila berubah, file dibiarkan utuh dan pesan menyebut path + cara melepas bagian BCCLI secara manual. State dari versi lama (tanpa hash) tetap memakai perilaku lama.
+- **`write` menolak file yang berubah setelah dibaca (`src/tools/write.ts`)**: aturan yang sudah dipakai `edit` kini berlaku juga untuk `write`, sehingga formatter/`git checkout`/agen lain yang menulis file di antara read dan write tidak lagi tertimpa isi basi.
+- **Token cache tidak lagi ditagih dua kali (`src/budget.ts`)**: `prices` menerima `cachedInput` opsional. Sebelumnya `inputTokens` (yang sudah termasuk cache) dikalikan tarif input penuh, sehingga cap USD habis jauh lebih cepat dari biaya nyata; tanpa `cachedInput` perilakunya tetap sama.
+- **`connect hermes` tidak menghapus kunci lain di blok `model` (`src/integrationCli.ts`)**: hanya `default` dan `provider` yang di-set, jadi `temperature` dan opsi lain milik user tetap ada.
+- **`config.json` yang rusak gagal dengan pesan yang menunjuk file (`src/config.ts`)**: perintah tulis kini memakai reader yang sama dengan startup (`ConfigError` berisi path), bukan `SyntaxError` mentah. File tidak di-reset maupun dikarantina diam-diam.
+- **Mode rencana bisa disetujui dari editor ACP (`src/acp.ts`)**: `exit_plan` kini dikirim lewat `session/request_permission`; sebelumnya selalu dijawab "tidak", sehingga semua tulis ditolak tanpa jalan keluar.
 
 ## 0.4.10 - 2026-10-24
 

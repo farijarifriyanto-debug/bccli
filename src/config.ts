@@ -180,6 +180,9 @@ function resolvedUsageCap(global: Partial<Config>): UsageCap | undefined {
       if (!price || !nonNegative(price.input) || !nonNegative(price.output)) {
         throw new ConfigError(t('usageCap.prices["{key}"] must have numeric input and output (USD per 1M tokens).', { key }))
       }
+      if (price.cachedInput !== undefined && !nonNegative(price.cachedInput)) {
+        throw new ConfigError(t('usageCap.prices["{key}"].cachedInput must be a number >= 0 (USD per 1M tokens).', { key }))
+      }
     }
   }
   if (tokens === undefined && usd === undefined) throw new ConfigError(t('usageCap needs at least one of: tokens, usd.'))
@@ -372,10 +375,10 @@ export function quarantineCorruptFile(path: string, error: unknown): string | un
  */
 export function updateGlobalConfig(env: NodeJS.ProcessEnv, mutate: (cfg: Record<string, unknown>) => void): void {
   const path = globalConfigPath(env)
-  let cfg: Record<string, unknown> = {}
-  if (existsSync(path)) {
-    cfg = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
-  }
+  // Reuse the reader so a corrupt file fails with the same actionable ConfigError as startup.
+  // It is never reset or moved aside here: config.json belongs to the user, so a write command
+  // stops before changing anything and says which file to fix.
+  const cfg: Record<string, unknown> = existsSync(path) ? (readJsonConfig(path) as Record<string, unknown>) : {}
   mutate(cfg)
   mkdirSync(dirname(path), { recursive: true })
   writeFileAtomic(path, `${JSON.stringify(cfg, null, 2)}\n`)
