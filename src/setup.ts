@@ -79,7 +79,27 @@ export interface RewindResult {
   failed: string[]
 }
 
+// Maps a tool name to the permission kind it is granted by (`--allowed-tools`, config `allow`).
 const TOOL_RULES: Record<string, string> = { bash: 'bash', edit: 'edit', write: 'edit', fetch: 'fetch' }
+
+// Plugins are activated once per process for a given project. `gh-bot` builds a runtime per
+// webhook comment, and re-running a plugin's activate() on every comment would repeat its side
+// effects; a plugin fix still needs a restart (docs: plugins load at boot). The entry captures
+// the config it was activated with, so a changed plugin list creates a new entry.
+const pluginCache = new Map<string, LoadedPlugins>()
+
+function loadPluginsOnce(
+  specs: string[],
+  opts: { home: string; cwd: string; env: NodeJS.ProcessEnv; config: Config; builtinNames: string[] },
+): LoadedPlugins {
+  const key = JSON.stringify({ specs, home: opts.home, cwd: opts.cwd })
+  const cached = pluginCache.get(key)
+  if (cached) return cached
+  const loaded = loadPlugins(specs, opts)
+  pluginCache.set(key, loaded)
+  return loaded
+}
+
 
 /** PTC is automatic for Luna. This env var is only an emergency/internal kill switch. */
 export function lunaPtcAutoEnabled(env: NodeJS.ProcessEnv): boolean {
@@ -202,7 +222,7 @@ export function createRuntime(opts: {
   if (config.lsp?.servers.length) baseTools.push(createDiagnosticsTool(config.lsp.servers))
   // Plugins are global-config only (project config never executes code); loaded at boot,
   // so a broken plugin fails fast and a fix needs a restart.
-  const plugins: LoadedPlugins = loadPlugins(config.plugins ?? [], {
+  const plugins: LoadedPlugins = loadPluginsOnce(config.plugins ?? [], {
     home,
     cwd: opts.cwd,
     env,
