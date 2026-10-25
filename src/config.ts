@@ -283,7 +283,9 @@ export function loadConfig(cwd: string, env: NodeJS.ProcessEnv = process.env): C
   const project = readJsonConfig(join(cwd, '.bccli', 'config.json'))
   const known = { ...DEFAULT_CONFIG.providers, ...global.providers }
   const fromProject = untrustedProviders(project, known)
-  const rawFallbacks = project.fallbackModels ?? global.fallbackModels
+  // Fallbacks move a whole conversation to another endpoint, so (like maxSteps, hooks and
+  // plugins) they are global-config only: the project file is untrusted (docs/config.md).
+  const rawFallbacks = global.fallbackModels
   const fallbackModels = Array.isArray(rawFallbacks)
     ? rawFallbacks.filter((m): m is string => typeof m === 'string' && m.includes('/'))
     : undefined
