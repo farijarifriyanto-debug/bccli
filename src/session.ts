@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { contentText, type ChatMessage, type Usage } from './provider'
 
 type SessionRecord =
@@ -37,8 +37,9 @@ export class Session {
   }
 
   static create(home: string, cwd: string, now = new Date()): Session {
+    // No directory is created here: a session that never records anything (a one-shot
+    // draft, gh-bot) must not leave an empty project folder behind. write() makes it.
     const dir = projectDir(home, cwd)
-    mkdirSync(dir, { recursive: true })
     const stamp = now.toISOString().replace(/[:.]/g, '-')
     return new Session(join(dir, `${stamp}-${randomBytes(3).toString('hex')}.jsonl`))
   }
@@ -61,6 +62,7 @@ export class Session {
   }
 
   private write(record: SessionRecord): void {
+    mkdirSync(dirname(this.file), { recursive: true })
     appendFileSync(this.file, `${JSON.stringify(record)}\n`)
   }
 

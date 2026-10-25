@@ -97,9 +97,15 @@ export function createRuntime(opts: {
   userHome?: string
   /** Override langkah agent (mis. githubBot.stepLimit) — menang atas config.maxSteps. */
   maxSteps?: number | null
+  /**
+   * Write the conversation to ~/.bccli/sessions (default true). One-shot hosts such as
+   * `gh-bot` turn it off: a session log per webhook comment is never resumed.
+   */
+  persistSession?: boolean
 }): Runtime {
   const env = opts.env ?? process.env
   const home = bccliHome(env)
+  const persistSession = opts.persistSession !== false
   let config = loadConfig(opts.cwd, env)
   let modelRef = opts.args.model ?? config.model
   let reasoning: ReasoningLevel = opts.args.reasoning ?? config.reasoning
@@ -234,9 +240,15 @@ export function createRuntime(opts: {
     usageCap: config.usageCap,
     budgetModel: modelRef,
     contextWindow: contextWindowFor(modelRef, env),
-    onMessage: (m) => session.append(m),
-    onUsage: (u) => session.appendUsage({ ...u, model: modelRef }),
-    onReset: () => session.reset(),
+    onMessage: (m) => {
+      if (persistSession) session.append(m)
+    },
+    onUsage: (u) => {
+      if (persistSession) session.appendUsage({ ...u, model: modelRef })
+    },
+    onReset: () => {
+      if (persistSession) session.reset()
+    },
     onTurnStart: () => {
       for (let i = turnMarks.length - 1; i >= 0 && turnMarks[i] > agent.messages.length; i--) {
         turnMarks.splice(i, 1)

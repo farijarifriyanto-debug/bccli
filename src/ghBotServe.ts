@@ -83,6 +83,8 @@ function makeRunJob(
             provider: o.provider,
             fetch: o.fetch ?? globalThis.fetch, // injectable (review #3)
             maxSteps: cfg.stepLimit, // the knob the Agent actually uses
+            // A draft is one-shot: no session log (and no file per webhook comment).
+            persistSession: false,
           })
           rt.agent.setSystemPrompt(ghSystemPrompt()) // via API agent
           rt.agent.setTools([]) // MCP never starts — zero tool sources
