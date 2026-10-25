@@ -39,8 +39,9 @@ import { Spinner } from './Spinner'
 import { clickedThinking, hasMouseWheelSequence, parseThinkingReports } from './thinkingMouse'
 import { StatusBar } from './StatusBar'
 import { ACCENT, color } from './theme'
-import { isRealTty, isTtyStream, streamRows } from './tty'
-import { capLiveMarkdown } from './liveCap'
+import { isRealTty, isTtyStream, streamColumns, streamRows } from './tty'
+import { capLiveMarkdown, capLiveText, liveRowCaps } from './liveCap'
+import { markdownRowCount, wrappedRows } from './markdownLayout'
 import { CATALOG, fillTemplate } from '../mcp/catalog'
 import { addGlobalServer, globalMcpPath, readMcpFile, removeGlobalServer } from '../mcp/config'
 import { McpMenu, type McpMenuItem } from './McpMenu'
@@ -118,7 +119,11 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   // Ink 8 no longer types `isTTY`/`rows` on the stream it hands out; ask the guards instead. Ink already re-renders
   // the tree on resize, so reading the height here is enough (no extra resize listener per app).
   const realStdout = isRealTty(stdout)
-  const maxLiveLines = Math.max(8, streamRows(stdout) - 10)
+  // Budget the frame in terminal rows, not markdown lines: text wraps, so a "30 line" live tail can be 90 rows on a
+  // narrow terminal, and a frame taller than the terminal makes Ink rewrite the whole screen on every render (each
+  // rewrite pushes another copy of the answer into the scrollback).
+  const liveWidth = Math.max(20, streamColumns(stdout) - 3)
+  const liveRowBudget = Math.max(8, streamRows(stdout) - 10)
   const maxSplitIdxRef = useRef(0)
   const refreshStatic = useCallback(() => {
     if (realStdout) {
@@ -128,23 +133,38 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
     setStaticKey((k) => k + 1)
   }, [stdout, realStdout])
   let splitIdx = Math.max(maxSplitIdxRef.current, lastUserIdx > 0 ? lastUserIdx : 0)
-  if (realStdout) {
-    const entryLines = (e: Entry): number => {
-      if (e.kind === 'thinking') return showThinking ? Math.min(maxLiveLines, e.text.split('\n').length + 2) : 2
-      if (e.kind === 'tool') return showToolOutput ? Math.min(maxLiveLines, (e.output ?? e.display ?? '').split('\n').length + 2) : 5
-      if (e.kind === 'assistant' || e.kind === 'notice' || e.kind === 'user') return e.text.split('\n').length + 1
-      return 2
+  const entryRows = (e: Entry): number => {
+    if (e.kind === 'thinking') {
+      return showThinking ? Math.min(liveRowBudget, wrappedRows(e.text, liveWidth) + 3) : 2
     }
-    const liveLines = transcript.live.reduce((acc, e) => acc + entryLines(e), 0)
-    let doneLines = transcript.done.slice(splitIdx).reduce((acc, e) => acc + entryLines(e), 0)
-    while (splitIdx < transcript.done.length - 1 && doneLines + liveLines > maxLiveLines) {
-      doneLines -= entryLines(transcript.done[splitIdx])
+    if (e.kind === 'tool') {
+      return showToolOutput ? Math.min(liveRowBudget, wrappedRows(e.output ?? e.display ?? '', liveWidth) + 2) : 5
+    }
+    if (e.kind === 'assistant') return markdownRowCount(e.text, liveWidth) + 1
+    if (e.kind === 'notice' || e.kind === 'user') return wrappedRows(e.text, Math.max(20, liveWidth - 2)) + 1
+    return 2
+  }
+  if (realStdout) {
+    const liveLines = transcript.live.reduce((acc, e) => acc + entryRows(e), 0)
+    let doneLines = transcript.done.slice(splitIdx).reduce((acc, e) => acc + entryRows(e), 0)
+    // Every finished entry may go to <Static> when the turn does not fit: printing it once is safe, keeping it in a
+    // frame taller than the terminal is not.
+    while (splitIdx < transcript.done.length && doneLines + liveLines > liveRowBudget) {
+      doneLines -= entryRows(transcript.done[splitIdx])
       splitIdx++
     }
     maxSplitIdxRef.current = splitIdx
   }
   const staticDone = transcript.done.slice(0, splitIdx)
   const activeTurnDone = transcript.done.slice(splitIdx)
+  // What the finished entries of this turn leave for the live tail; the newest live entry is served first, so the
+  // streaming answer is never the one that gets trimmed away. A piped stdout has no rows to respect, so nothing is
+  // trimmed there.
+  const doneRows = realStdout ? activeTurnDone.reduce((acc, e) => acc + entryRows(e), 0) : 0
+  const liveCaps = transcript.live.map(() => Number.POSITIVE_INFINITY)
+  if (realStdout) {
+    for (const [i, cap] of liveRowCaps(transcript.live.map(entryRows), liveRowBudget - doneRows).entries()) liveCaps[i] = cap
+  }
   const activeTurnEntries = [...activeTurnDone, ...transcript.live]
   const lastThinkingEntryId = activeTurnEntries.findLast((e) => e.kind === 'thinking' && !!e.text.trim())?.id
   const hasThinking = lastThinkingEntryId !== undefined || transcript.done.some((e) => e.kind === 'thinking' && !!e.text.trim())
@@ -1027,11 +1047,13 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
     setAsks((q) => q.slice(1))
   }
 
-  const capLive = (raw: string): string => capLiveMarkdown(raw, { isRealTty: realStdout, maxLines: maxLiveLines })
+  const capLive = (raw: string, rows: number): string => capLiveMarkdown(raw, { isRealTty: realStdout, maxRows: rows, width: liveWidth })
 
   const cwd = runtime.cwd.startsWith(homedir()) ? `~${runtime.cwd.slice(homedir().length)}` : runtime.cwd
-  const renderEntry = (e: Entry) => {
+  /** `liveRows` is the slice of the frame budget this entry may use, set only for entries still in the live tail. */
+  const renderEntry = (e: Entry, liveRows?: number) => {
     const isLive = transcript.live.some((le) => le.id === e.id)
+    if (isLive && liveRows === 0) return null
     switch (e.kind) {
       case 'header':
         return (
@@ -1052,7 +1074,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           </Box>
         )
       case 'assistant': {
-        const displayText = isLive ? capLive(e.text) : e.text
+        const displayText = isLive ? capLive(e.text, liveRows ?? liveRowBudget) : e.text
         if (e.cont) {
           return displayText ? (
             <Box key={e.id} paddingLeft={2}>
@@ -1073,9 +1095,10 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
         if (!text) return null
         const allLines = text.split('\n')
         const lines = allLines.length
-        const shownText = isLive && realStdout && allLines.length > maxLiveLines
-          ? `… (${allLines.length - maxLiveLines} lines above) …\n${allLines.slice(-maxLiveLines).join('\n')}`
-          : text
+        const shownText =
+          isLive && showThinking
+            ? capLiveText(text, { isRealTty: realStdout, maxRows: (liveRows ?? liveRowBudget) - 3, width: liveWidth })
+            : text
         const isTarget = e.id === lastThinkingEntryId
         return (
           <Box
@@ -1130,9 +1153,11 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
     <Box ref={liveRootRef} flexDirection="column">
       {/* Namespaced key: entry ids start at 0 too and are siblings of this element in the same
           Box, so a bare numeric `staticKey` collides with the header entry on early renders. */}
-      <Static key={`static-${staticKey}`} items={staticDone}>{renderEntry}</Static>
-      {activeTurnDone.map(renderEntry)}
-      {transcript.live.map(renderEntry)}
+      <Static key={`static-${staticKey}`} items={staticDone}>
+        {(e) => renderEntry(e)}
+      </Static>
+      {activeTurnDone.map((e) => renderEntry(e))}
+      {transcript.live.map((e, i) => renderEntry(e, liveCaps[i]))}
       {busy && !pending && !planAsk ? (
         <Box
           ref={(el) => {
@@ -1204,3 +1229,4 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
     </Box>
   )
 }
+

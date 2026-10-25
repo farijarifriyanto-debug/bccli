@@ -1,5 +1,6 @@
 import { Box, Text, useStdout } from 'ink'
 import type { ReactNode } from 'react'
+import { BULLET, bulletFor, HEADING, NUMBERED, QUOTE, RULE } from './markdownLayout'
 import { displayWidth, layoutTable, parseInline, parseTable, type Seg } from './table'
 import { ACCENT, color } from './theme'
 import { streamColumns } from './tty'
@@ -48,18 +49,6 @@ function segment(seg: Seg, key: number): ReactNode {
 }
 
 const inline = (line: string): ReactNode[] => parseInline(line).map(segment)
-
-const HEADING = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/
-const RULE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/
-const QUOTE = /^\s{0,3}((?:>\s?)+)(.*)$/
-const BULLET = /^(\s*)[-*+]\s+(.*)$/
-const NUMBERED = /^(\s*)(\d{1,9})[.)]\s+(.*)$/
-const BULLETS = ['•', '◦', '▪']
-/**
- * The glyph depends on the item's own indentation only. A finished answer is printed line by line while it streams,
- * so each line is drawn on its own and cannot know which items came before it.
- */
-const bulletFor = (spaces: number): string => BULLETS[spaces === 0 ? 0 : spaces <= 4 ? 1 : 2]
 
 /**
  * A marker in its own column and the text beside it, so long items wrap under the text, not under the marker.
