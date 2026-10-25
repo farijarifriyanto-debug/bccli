@@ -3,6 +3,19 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## 0.4.16 - 2026-10-25
+
+Tiga minor dari review 0.4.15.
+
+### Fixed
+- **Laporan mouse legacy X10 bocor ke prompt (`src/ui/stdinFilter.ts` baru, `src/ui/index.tsx`)**: Ink 8 hanya membuang prefix `ESC [ M` laporan X10 (terminal tanpa SGR), sedangkan tiga byte payload-nya sampai ke `useInput` dan terketik sebagai tanda baca — dibuktikan dulu dengan menulis `\x1b[M #!` ke prompt. Filter sekarang dipasang pada **`read()` stdin** (cara Ink 8 membaca input) sehingga objek stream tetap asli: raw mode, flag TTY, dan event handler tidak berubah; laporan yang terpotong antar-chunk ditahan lewat carry, SGR/panah/paste diteruskan byte per byte. Catatan: pendekatan membungkus stdin dengan `PassThrough` lalu `render({stdin})` **merusak raw mode** (Ctrl+C tidak keluar, ketikan hanya echo) dan sudah dibuang.
+- **Tes klik Thinking diperkuat (`test/ui/app.test.tsx`)**: kini memeriksa isi pesan user (`mouse canary`) dan tidak adanya digit SGR/cursor di frame, bukan hanya jumlah pesan user.
+
+### Verification
+- `typecheck` bersih, `lint` exit 0, **1015 tes lulus** (1 skip), coverage 88,33 / 79,68 / 87,78 / 90,74 (gate 85/77/85/87), `build` sukses, CI 3 OS hijau.
+- ConPTY nyata: X10 `\x1b[M #!` tidak diketik, ketikan masuk, panah+backspace benar (`halo` → `hao`), `ctrl+c` exit 0; probe regresi 11/11 (mount, Ctrl+L, /help, /model, panah, wheel inert, filter, paste, resize), 5/5 (startup, non-TTY, serve), tanpa `MaxListenersExceededWarning`.
+- Komentar `hasMouseWheelSequence` diverifikasi sudah hanya menyebut SGR sejak 0.4.15 (tidak ada "Urxvt" lagi).
+
 ## 0.4.15 - 2026-10-25
 
 Perbaikan dua regresi dari migrasi Ink 8 di 0.4.14, ditemukan lewat review independen.
