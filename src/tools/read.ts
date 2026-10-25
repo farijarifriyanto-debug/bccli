@@ -65,6 +65,14 @@ async function readTextResult(input: ReadInput, buffer: Buffer): Promise<ToolRes
   const lines = buffer.toString('utf8').split(/\r?\n/)
   const start = (input.offset ?? 1) - 1
   const limit = input.limit ?? 2000
+  // Without this, an offset past the end returns an empty answer and the model reads it
+  // as "the file is empty" instead of "you are past the end".
+  if (start >= lines.length) {
+    return {
+      output: `offset ${input.offset} is past the end of ${input.path} (${lines.length} line(s)); start at 1.`,
+      isError: true,
+    }
+  }
   const requested = lines.slice(start, start + limit)
   const shown: string[] = []
   let size = 0
