@@ -129,15 +129,12 @@ export class Agent {
     this.budgetModel = opts.budgetModel ?? ''
     this.systemPrompt = opts.systemPrompt
     this.reasoning = opts.reasoning ?? 'auto'
-    if (this.messages.length > 0) {
-      this.lastInputTokens = estimateMessages(this.messages) + estimateTokens(this.systemPrompt)
-      this.lastInputEstimated = true
-    }
+    this.seedEstimatedContext()
   }
 
   setSystemPrompt(text: string): void {
     this.systemPrompt = text
-    if (this.lastInputEstimated) this.lastInputTokens = estimateMessages(this.messages) + estimateTokens(text)
+    this.publishEstimatedContext()
   }
 
   setContextWindow(window: number): void {
@@ -159,6 +156,7 @@ export class Agent {
   setTools(tools: Tool[]): void {
     this.tools = tools
     this.definitions = toolDefinitions(tools)
+    this.publishEstimatedContext()
   }
 
   private isParallelSafe(call: ToolCall): boolean {
@@ -177,6 +175,33 @@ export class Agent {
     this.opts.onMessage?.(message)
   }
 
+  private estimateCurrentInputTokens(): number {
+    return estimateMessages(this.messages) + estimateTokens(this.systemPrompt) + estimateTokens(JSON.stringify(this.definitions))
+  }
+
+  private seedEstimatedContext(): void {
+    if (this.messages.length === 0) {
+      this.lastInputTokens = 0
+      this.lastInputEstimated = false
+      return
+    }
+    this.lastInputTokens = this.estimateCurrentInputTokens()
+    this.lastInputEstimated = true
+  }
+
+  /** Publish context-only estimates after prompt/history changes, without changing session usage totals. */
+  private publishEstimatedContext(): void {
+    if (this.messages.length === 0) return
+    this.seedEstimatedContext()
+    this.onEvent({
+      type: 'usage',
+      ...this.totalUsage,
+      lastInputTokens: this.lastInputTokens,
+      lastCachedInputTokens: 0,
+      estimated: true,
+    })
+  }
+
   /** Swaps in another conversation (resume, new session) without writing to the session log. */
   load(messages: ChatMessage[]): void {
     this.messages = messages
@@ -184,8 +209,7 @@ export class Agent {
     this.webBudget.reset()
     // Seed the estimate so a resumed history that is already over the window compacts
     // before its first real request instead of failing with a provider 400.
-    this.lastInputTokens = estimateMessages(messages) + estimateTokens(this.systemPrompt)
-    this.lastInputEstimated = messages.length > 0
+    this.seedEstimatedContext()
   }
 
   clear(): void {
@@ -222,6 +246,7 @@ export class Agent {
     this.push({ role: 'assistant', content: 'OK, I will continue from this summary.' })
     // Re-attach the recent turns so the model still sees fresh context beside the summary.
     for (const m of keep) this.push(m)
+    this.publishEstimatedContext()
     this.onEvent({ type: 'compacted' })
   }
 

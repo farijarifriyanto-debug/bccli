@@ -757,3 +757,23 @@ test('initial history seeds an approximate context estimate', () => {
   expect(agent.lastInputTokens).toBeGreaterThan(0)
   expect(agent.lastInputEstimated).toBe(true)
 })
+
+test('an estimated context change emits fresh metadata for the UI', () => {
+  const { events, agent } = setup([])
+  agent.load([{ role: 'user', content: 'existing history' }])
+  events.length = 0
+  agent.setSystemPrompt('A longer system prompt')
+  const usage = events.filter((event) => event.type === 'usage').at(-1)
+  expect(usage).toMatchObject({ lastInputTokens: agent.lastInputTokens, lastCachedInputTokens: 0, estimated: true })
+})
+
+test('manual compaction seeds and emits an approximate summary context', async () => {
+  const { events, agent } = setup([reply('short summary')])
+  agent.load([{ role: 'user', content: 'older work'.repeat(500) }])
+  events.length = 0
+  await agent.compact(new AbortController().signal)
+  const usage = events.filter((event) => event.type === 'usage').at(-1)
+  expect(agent.lastInputTokens).toBeGreaterThan(0)
+  expect(agent.lastInputEstimated).toBe(true)
+  expect(usage).toMatchObject({ lastInputTokens: agent.lastInputTokens, estimated: true })
+})
