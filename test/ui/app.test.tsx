@@ -923,8 +923,8 @@ test('after a turn with Thinking finishes, clicking Thinking (when opted in) sti
 
 test('/rewind removes the rewound turn from the visible transcript and /resume after a longer session still renders the shorter session', async () => {
   const rt = makeRuntime([
-    { text: 'JAWAB_TURN_1', toolCalls: [] },
-    { text: 'JAWAB_TURN_2', toolCalls: [] },
+    { text: 'JAWAB_TURN_1', toolCalls: [], usage: { inputTokens: 6000, outputTokens: 10, cachedInputTokens: 5500 } },
+    { text: 'JAWAB_TURN_2', toolCalls: [], usage: { inputTokens: 9000, outputTokens: 20, cachedInputTokens: 8500 } },
   ])
   const { stdin, lastFrame, frames, unmount } = render(<App runtime={rt} version="test" />)
   await wait()
@@ -938,6 +938,7 @@ test('/rewind removes the rewound turn from the visible transcript and /resume a
   await waitFor(() => frames.some((f) => f.includes('JAWAB_TURN_2')))
   expect(lastFrame()).toContain('TANYA_TURN_2')
   expect(lastFrame()).toContain('JAWAB_TURN_2')
+  const previousContext = rt.agent.lastInputTokens
 
   await slash(stdin, '/rewind 1')
   await waitFor(() => frames.some((f) => f.includes('1 giliran di-rewind')))
@@ -945,6 +946,31 @@ test('/rewind removes the rewound turn from the visible transcript and /resume a
   expect(lastFrame()).toContain('JAWAB_TURN_1')
   expect(lastFrame()).not.toContain('TANYA_TURN_2')
   expect(lastFrame()).not.toContain('JAWAB_TURN_2')
+  expect(rt.agent.lastInputTokens).toBeLessThan(previousContext)
+  expect(rt.agent.lastInputEstimated).toBe(true)
+  const shownContext = rt.agent.lastInputTokens >= 1000 ? `${Math.round(rt.agent.lastInputTokens / 1000)}k` : `${rt.agent.lastInputTokens}`
+  expect((lastFrame() ?? '').replace(/\s+/g, ' ')).toContain(`~${shownContext} token`)
+  unmount()
+})
+
+test('/rewind to an empty history clears context and cache indicators', async () => {
+  const rt = makeRuntime([
+    { text: 'ONE_TURN_ANSWER', toolCalls: [], usage: { inputTokens: 9000, outputTokens: 10, cachedInputTokens: 8000 } },
+  ])
+  const { stdin, lastFrame, frames, unmount } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('ONE_TURN_QUESTION')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((frame) => frame.includes('ONE_TURN_ANSWER')))
+  expect(lastFrame()).toMatch(/8k\s+(cached|dari cache)/)
+
+  await slash(stdin, '/rewind 1')
+  await waitFor(() => frames.some((frame) => frame.includes('1 giliran di-rewind')))
+  expect(rt.agent.messages).toHaveLength(0)
+  const rewindFrame = (lastFrame() ?? '').replace(/\s+/g, ' ')
+  expect(rewindFrame).toMatch(/0 tokens? (in context|dalam konteks)/)
+  expect(rewindFrame).not.toMatch(/8k\s+(cached|dari cache)/)
   unmount()
 })
 
@@ -1043,4 +1069,19 @@ test('2-finger touchpad wheel during active mouse reporting immediately releases
   releaseTurn?.()
   await waitFor(() => rt.agent.messages.some((m) => typeof m.content === 'string' && m.content.includes('selesai')))
   unmount()
+})
+
+test('status bar shows the context of the last call, not the session total', async () => {
+  const rt = makeRuntime([
+    { text: '', toolCalls: [{ id: '1', name: 'read', arguments: '{"path":"a.txt"}' }], usage: { inputTokens: 90_000, outputTokens: 2000 } },
+    { text: 'ok', toolCalls: [], usage: { inputTokens: 42_000, outputTokens: 100, cachedInputTokens: 40_000 } },
+  ])
+  const { stdin, frames } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('baca a.txt')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => /42k\s+token/.test(frames.join('\n')))
+  expect(frames.join('\n')).not.toContain('132k')
+  expect(frames.join('\n')).toMatch(/40k\s+(cached|dari cache)/)
 })

@@ -17,7 +17,19 @@ export type AgentEvent =
   | { type: 'textReplace'; text: string }
   | { type: 'toolStart'; id: string; tool: string; target: string }
   | { type: 'toolEnd'; id: string; tool: string; output: string; display?: string; isError: boolean }
-  | { type: 'usage'; inputTokens: number; outputTokens: number; cachedInputTokens?: number; cacheWriteTokens?: number }
+  | {
+      type: 'usage'
+      inputTokens: number
+      outputTokens: number
+      cachedInputTokens?: number
+      cacheWriteTokens?: number
+      /** Prompt tokens of the most recent model call: the size of the context, not the session total. */
+      lastInputTokens?: number
+      /** Cache reads for the most recent model call, rather than the session total. */
+      lastCachedInputTokens?: number
+      /** True when the provider omitted usage and token counts use the local chars/4 estimate. */
+      estimated?: boolean
+    }
   | { type: 'compacted' }
   | { type: 'stepLimit'; maxSteps: number }
   | { type: 'budgetExceeded'; kind: 'tokens' | 'usd'; used: number; limit: number }
@@ -83,6 +95,7 @@ export class Agent {
   messages: ChatMessage[]
   totalUsage: Usage = { inputTokens: 0, outputTokens: 0 }
   lastInputTokens = 0
+  lastInputEstimated = false
   onEvent: (event: AgentEvent) => void = () => {}
   reasoning: ReasoningLevel
   askPermission: AskPermission = async () => 'no'
@@ -116,10 +129,12 @@ export class Agent {
     this.budgetModel = opts.budgetModel ?? ''
     this.systemPrompt = opts.systemPrompt
     this.reasoning = opts.reasoning ?? 'auto'
+    this.seedEstimatedContext()
   }
 
   setSystemPrompt(text: string): void {
     this.systemPrompt = text
+    this.publishContextMetadata()
   }
 
   setContextWindow(window: number): void {
@@ -141,6 +156,7 @@ export class Agent {
   setTools(tools: Tool[]): void {
     this.tools = tools
     this.definitions = toolDefinitions(tools)
+    this.publishContextMetadata()
   }
 
   private isParallelSafe(call: ToolCall): boolean {
@@ -159,6 +175,32 @@ export class Agent {
     this.opts.onMessage?.(message)
   }
 
+  private estimateCurrentInputTokens(): number {
+    return estimateMessages(this.messages) + estimateTokens(this.systemPrompt) + estimateTokens(JSON.stringify(this.definitions))
+  }
+
+  private seedEstimatedContext(): void {
+    if (this.messages.length === 0) {
+      this.lastInputTokens = 0
+      this.lastInputEstimated = false
+      return
+    }
+    this.lastInputTokens = this.estimateCurrentInputTokens()
+    this.lastInputEstimated = true
+  }
+
+  /** Publish the latest context after prompt/history changes, without changing session usage totals. */
+  private publishContextMetadata(): void {
+    this.seedEstimatedContext()
+    this.onEvent({
+      type: 'usage',
+      ...this.totalUsage,
+      lastInputTokens: this.lastInputTokens,
+      lastCachedInputTokens: 0,
+      estimated: this.lastInputEstimated,
+    })
+  }
+
   /** Swaps in another conversation (resume, new session) without writing to the session log. */
   load(messages: ChatMessage[]): void {
     this.messages = messages
@@ -166,7 +208,7 @@ export class Agent {
     this.webBudget.reset()
     // Seed the estimate so a resumed history that is already over the window compacts
     // before its first real request instead of failing with a provider 400.
-    this.lastInputTokens = estimateMessages(messages) + estimateTokens(this.systemPrompt)
+    this.publishContextMetadata()
   }
 
   clear(): void {
@@ -174,6 +216,7 @@ export class Agent {
     this.readFiles.clear()
     this.webBudget.reset()
     this.lastInputTokens = 0
+    this.lastInputEstimated = false
     this.opts.onReset?.()
   }
 
@@ -202,6 +245,7 @@ export class Agent {
     this.push({ role: 'assistant', content: 'OK, I will continue from this summary.' })
     // Re-attach the recent turns so the model still sees fresh context beside the summary.
     for (const m of keep) this.push(m)
+    this.publishContextMetadata()
     this.onEvent({ type: 'compacted' })
   }
 
@@ -265,9 +309,14 @@ export class Agent {
             this.onEvent({ type: 'textReplace', text: recovered.text })
           }
         }
-        // Some gateways (incl. BotConnector) omit usage; estimate ~4 chars/token so /cost and compaction still work.
+        // Some gateways (incl. BotConnector) omit usage from the stream; estimate ~4 chars/token so /cost and
+        // compaction still work. The tool schema is part of every prompt, so leaving it out undercounts the turn.
+        const estimated = completion.usage === undefined
         const usage = completion.usage ?? {
-          inputTokens: estimateTokens(this.systemPrompt) + estimateTokens(JSON.stringify(this.messages)),
+          inputTokens:
+            estimateTokens(this.systemPrompt) +
+            estimateTokens(JSON.stringify(this.messages)) +
+            estimateTokens(JSON.stringify(this.turnDefinitions)),
           outputTokens:
             estimateTokens(completion.text) + (completion.toolCalls.length ? estimateTokens(JSON.stringify(completion.toolCalls)) : 0),
         }
@@ -276,7 +325,14 @@ export class Agent {
         this.totalUsage.cachedInputTokens = (this.totalUsage.cachedInputTokens ?? 0) + (usage.cachedInputTokens ?? 0)
         this.totalUsage.cacheWriteTokens = (this.totalUsage.cacheWriteTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
         this.lastInputTokens = usage.inputTokens
-        this.onEvent({ type: 'usage', ...this.totalUsage })
+        this.lastInputEstimated = estimated
+        this.onEvent({
+          type: 'usage',
+          ...this.totalUsage,
+          lastInputTokens: usage.inputTokens,
+          lastCachedInputTokens: usage.cachedInputTokens ?? 0,
+          estimated,
+        })
         this.opts.onUsage?.(usage)
         this.push(completionAssistantMessage(completion))
         if (completion.finishReason === 'repetition') {

@@ -89,7 +89,9 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
   const [startedAt, setStartedAt] = useState(0)
   const [mode, setMode] = useState<PermissionMode>(runtime.agent.permissions.mode)
   const [reasoning, setReasoning] = useState<ReasoningLevel>(runtime.reasoning)
-  const [tokens, setTokens] = useState(runtime.agent.totalUsage.inputTokens + runtime.agent.totalUsage.outputTokens)
+  const [tokens, setTokens] = useState(runtime.agent.lastInputTokens)
+  const [cachedTokens, setCachedTokens] = useState(runtime.agent.totalUsage.cachedInputTokens ?? 0)
+  const [tokensEstimated, setTokensEstimated] = useState(runtime.agent.lastInputEstimated)
   // Parallel tools (e.g. two subagents) can ask at the same time: queue them, show one at a time.
   const [asks, setAsks] = useState<{ id: number; request: PermissionAsk; resolve(a: PermissionAnswer): void }[]>([])
   const pending = asks[0] ?? null
@@ -177,7 +179,15 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
       lastTool.current = { tool: event.tool, target: toolTargets.current.get(event.id) ?? '', output: event.output }
       if ((event.tool === 'edit' || event.tool === 'write') && !event.isError) editedInTurn.current = true
     }
-    if (event.type === 'usage') setTokens(event.inputTokens + event.outputTokens)
+    if (event.type === 'usage') {
+      // Context size of the latest call, not the session total: a long session re-sends history every turn,
+      // so the sum grows without bound and says nothing about how full the window is.
+      if (event.lastInputTokens !== undefined) {
+        setTokens(event.lastInputTokens)
+        setCachedTokens(event.lastCachedInputTokens ?? 0)
+        setTokensEstimated(event.estimated ?? false)
+      }
+    }
     if (event.type === 'budgetExceeded') {
       notice(
         t('Budget exceeded ({kind}): {used} of {limit}. Further model calls are blocked; raise usageCap in ~/.bccli/config.json.', {
@@ -296,6 +306,8 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           setCancelling(false)
           runtime.agent.clear()
           setTokens(0)
+          setCachedTokens(0)
+          setTokensEstimated(false)
           setShowToolOutput(false)
           setTranscript({ done: [entry({ kind: 'header' })], live: [] })
           refreshStatic()
@@ -303,7 +315,12 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           return
         case 'cost': {
           const u = runtime.agent.totalUsage
-          notice(t('{input} tokens in · {output} tokens out', { input: u.inputTokens.toLocaleString(locale()), output: u.outputTokens.toLocaleString(locale()) }))
+          const cache = u.cachedInputTokens ?? 0
+          notice(
+            t('{input} tokens in · {output} tokens out', { input: u.inputTokens.toLocaleString(locale()), output: u.outputTokens.toLocaleString(locale()) }) +
+              (cache > 0 ? ` · ${t('{n} cached', { n: cache.toLocaleString(locale()) })}` : '') +
+              ` · ${tokensEstimated ? '~' : ''}${t('{n} tokens in context', { n: runtime.agent.lastInputTokens.toLocaleString(locale()) })}`,
+          )
           return
         }
         case 'tasks':
@@ -400,6 +417,8 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           setCancelling(false)
           runtime.newSession()
           setTokens(0)
+          setCachedTokens(0)
+          setTokensEstimated(false)
           setShowToolOutput(false)
           setTranscript({ done: [entry({ kind: 'header' })], live: [] })
           refreshStatic()
@@ -435,7 +454,9 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
               if (!chosen) return
               runtime.resume(chosen.session)
               setModelLabel(labelFor(runtime, runtime.modelRef))
-              setTokens(0)
+              setTokens(runtime.agent.lastInputTokens)
+              setCachedTokens(0)
+              setTokensEstimated(runtime.agent.lastInputEstimated)
               setShowToolOutput(false)
               setTranscript({ done: [entry({ kind: 'header' }), ...replayEntries(chosen.session.loadHistory())], live: [] })
               refreshStatic()
@@ -755,7 +776,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
           notice(t('Unknown command: /{name}. Type /help.', { name }), 'warn')
       }
     },
-    [runtime, notice, exit, version, runTurn, ask, refreshStatic, toggleThinking],
+    [runtime, notice, exit, version, runTurn, ask, refreshStatic, toggleThinking, tokensEstimated],
   )
   // A failing command (locked file, unwritable folder) must not take the whole app down.
   const runSlash = useCallback(
@@ -1200,7 +1221,7 @@ export function App({ runtime, initialPrompt, version, updateMessage }: { runtim
         <Text key={`${i}-${q}`} dimColor>{t('  ⏳ queued: {q}', { q })}</Text>
       ))}
       <PromptInput disabled={!!pending || !!picker || !!providerMenu || !!prompt || !!planAsk || !!mcpMenu || !!listPicker} history={history} cwd={runtime.cwd} onSubmit={onPrompt} onEmptyTab={toggleThinking} extraCommands={extraCommands} injected={injected} vim={runtime.config.editor === 'vim'} />
-      <StatusBar mode={mode} tokens={tokens} busy={busy} model={modelLabel} reasoning={reasoning} />
+      <StatusBar mode={mode} tokens={tokens} cached={cachedTokens} estimated={tokensEstimated} busy={busy} model={modelLabel} reasoning={reasoning} />
     </Box>
   )
 }

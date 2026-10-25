@@ -687,3 +687,94 @@ test('compaction stubs old tool outputs in the summary request but keeps recent 
   // …and the recent turn's tool output is kept verbatim beside the summary (not only in the summary request).
   expect(agent.messages.some((m) => m.role === 'tool' && m.tool_call_id === 'c2' && m.content.startsWith('c'.repeat(60_000)))).toBe(true)
 })
+
+test('usage event reports the context size of the last turn, not the session total', async () => {
+  const { cwd, events, agent } = setup([
+    { text: '', toolCalls: [call('read', { path: 'a.txt' })], usage: { inputTokens: 1000, outputTokens: 10, cachedInputTokens: 800 } },
+    { text: 'done', toolCalls: [], usage: { inputTokens: 1200, outputTokens: 5, cachedInputTokens: 900 } },
+  ])
+  writeFileSync(join(cwd, 'a.txt'), 'hello')
+  await agent.run('baca a.txt', new AbortController().signal)
+  const usage = events.filter((e) => e.type === 'usage').at(-1)
+  expect(usage).toMatchObject({
+    inputTokens: 2200,
+    outputTokens: 15,
+    lastInputTokens: 1200,
+    lastCachedInputTokens: 900,
+    cachedInputTokens: 1700,
+    estimated: false,
+  })
+})
+
+test('usage fallback counts the tool schema the provider receives', async () => {
+  const { provider, events, agent } = setup([reply('done')])
+  await agent.run('hi', new AbortController().signal)
+  const usage = events.filter((e) => e.type === 'usage').at(-1) as { inputTokens: number }
+  const schemaTokens = Math.ceil(JSON.stringify(provider.requests[0].tools).length / 4)
+  expect(schemaTokens).toBeGreaterThan(500)
+  expect(usage.inputTokens).toBeGreaterThanOrEqual(schemaTokens)
+  expect(usage).toMatchObject({ estimated: true })
+})
+
+test('aggregate child usage does not replace latest-call context metadata', async () => {
+  const { events, agent } = setup([
+    { text: '', toolCalls: [call('child_usage', {}, 'child_1')], usage: { inputTokens: 100, outputTokens: 2, cachedInputTokens: 80 } },
+    { text: 'done', toolCalls: [], usage: { inputTokens: 120, outputTokens: 3, cachedInputTokens: 90 } },
+  ])
+  agent.setTools([
+    ...ALL_TOOLS,
+    {
+      name: 'child_usage',
+      description: 'Add child usage to session totals',
+      schema: z.object({}),
+      kind: 'read',
+      target: () => 'child',
+      async run(_input, ctx) {
+        ctx.addUsage?.({ inputTokens: 500, outputTokens: 10, cachedInputTokens: 400 })
+        return { output: 'child done' }
+      },
+    },
+  ])
+  events.length = 0
+  await agent.run('delegate a task', new AbortController().signal)
+  const usageEvents = events.filter((event) => event.type === 'usage')
+  expect(usageEvents).toHaveLength(3)
+  expect(usageEvents[1]).not.toHaveProperty('lastInputTokens')
+  expect(usageEvents[1]).not.toHaveProperty('lastCachedInputTokens')
+  expect(usageEvents[1]).not.toHaveProperty('estimated')
+  expect(usageEvents[2]).toMatchObject({ lastInputTokens: 120, lastCachedInputTokens: 90, estimated: false })
+})
+
+test('initial history seeds an approximate context estimate', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'bccli-history-context-'))
+  const agent = new Agent({
+    provider: scripted([]),
+    tools: ALL_TOOLS,
+    permissions: new Permissions('default', [], cwd),
+    systemPrompt: 'SYS',
+    cwd,
+    history: [{ role: 'user', content: 'previous conversation' }],
+  })
+  expect(agent.lastInputTokens).toBeGreaterThan(0)
+  expect(agent.lastInputEstimated).toBe(true)
+})
+
+test('an estimated context change emits fresh metadata for the UI', () => {
+  const { events, agent } = setup([])
+  agent.load([{ role: 'user', content: 'existing history' }])
+  events.length = 0
+  agent.setSystemPrompt('A longer system prompt')
+  const usage = events.filter((event) => event.type === 'usage').at(-1)
+  expect(usage).toMatchObject({ lastInputTokens: agent.lastInputTokens, lastCachedInputTokens: 0, estimated: true })
+})
+
+test('manual compaction seeds and emits an approximate summary context', async () => {
+  const { events, agent } = setup([reply('short summary')])
+  agent.load([{ role: 'user', content: 'older work'.repeat(500) }])
+  events.length = 0
+  await agent.compact(new AbortController().signal)
+  const usage = events.filter((event) => event.type === 'usage').at(-1)
+  expect(agent.lastInputTokens).toBeGreaterThan(0)
+  expect(agent.lastInputEstimated).toBe(true)
+  expect(usage).toMatchObject({ lastInputTokens: agent.lastInputTokens, estimated: true })
+})

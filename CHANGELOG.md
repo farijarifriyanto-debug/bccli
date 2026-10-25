@@ -3,6 +3,11 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+## Unreleased
+
+### Fixed
+- **Token usage now distinguishes context from session totals**: the status bar shows the latest prompt size (and that call's cache reads when reported), while `/cost` retains session totals. Missing provider usage is marked approximate; estimates include tool schemas and existing conversation history and refresh after prompt changes, load/rewind, and compaction. Aggregate child usage no longer overwrites latest-call context metadata. The `task` tool warns against delegating shell/network/edit work to a read-only agent without assuming every project agent named `explore` is read-only.
+
 ## 0.4.16 - 2026-10-25
 
 Tiga minor dari review 0.4.15.
