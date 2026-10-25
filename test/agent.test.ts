@@ -735,6 +735,7 @@ test('aggregate child usage does not replace latest-call context metadata', asyn
       },
     },
   ])
+  events.length = 0
   await agent.run('delegate a task', new AbortController().signal)
   const usageEvents = events.filter((event) => event.type === 'usage')
   expect(usageEvents).toHaveLength(3)

@@ -134,7 +134,7 @@ export class Agent {
 
   setSystemPrompt(text: string): void {
     this.systemPrompt = text
-    this.publishEstimatedContext()
+    this.publishContextMetadata()
   }
 
   setContextWindow(window: number): void {
@@ -156,7 +156,7 @@ export class Agent {
   setTools(tools: Tool[]): void {
     this.tools = tools
     this.definitions = toolDefinitions(tools)
-    this.publishEstimatedContext()
+    this.publishContextMetadata()
   }
 
   private isParallelSafe(call: ToolCall): boolean {
@@ -189,16 +189,15 @@ export class Agent {
     this.lastInputEstimated = true
   }
 
-  /** Publish context-only estimates after prompt/history changes, without changing session usage totals. */
-  private publishEstimatedContext(): void {
+  /** Publish the latest context after prompt/history changes, without changing session usage totals. */
+  private publishContextMetadata(): void {
     this.seedEstimatedContext()
-    if (this.messages.length === 0) return
     this.onEvent({
       type: 'usage',
       ...this.totalUsage,
       lastInputTokens: this.lastInputTokens,
       lastCachedInputTokens: 0,
-      estimated: true,
+      estimated: this.lastInputEstimated,
     })
   }
 
@@ -209,7 +208,7 @@ export class Agent {
     this.webBudget.reset()
     // Seed the estimate so a resumed history that is already over the window compacts
     // before its first real request instead of failing with a provider 400.
-    this.publishEstimatedContext()
+    this.publishContextMetadata()
   }
 
   clear(): void {
@@ -246,7 +245,7 @@ export class Agent {
     this.push({ role: 'assistant', content: 'OK, I will continue from this summary.' })
     // Re-attach the recent turns so the model still sees fresh context beside the summary.
     for (const m of keep) this.push(m)
-    this.publishEstimatedContext()
+    this.publishContextMetadata()
     this.onEvent({ type: 'compacted' })
   }
 

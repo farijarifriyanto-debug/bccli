@@ -953,6 +953,27 @@ test('/rewind removes the rewound turn from the visible transcript and /resume a
   unmount()
 })
 
+test('/rewind to an empty history clears context and cache indicators', async () => {
+  const rt = makeRuntime([
+    { text: 'ONE_TURN_ANSWER', toolCalls: [], usage: { inputTokens: 9000, outputTokens: 10, cachedInputTokens: 8000 } },
+  ])
+  const { stdin, lastFrame, frames, unmount } = render(<App runtime={rt} version="test" />)
+  await wait()
+  stdin.write('ONE_TURN_QUESTION')
+  await wait()
+  stdin.write('\r')
+  await waitFor(() => frames.some((frame) => frame.includes('ONE_TURN_ANSWER')))
+  expect(lastFrame()).toMatch(/8k\s+(cached|dari cache)/)
+
+  await slash(stdin, '/rewind 1')
+  await waitFor(() => frames.some((frame) => frame.includes('1 giliran di-rewind')))
+  expect(rt.agent.messages).toHaveLength(0)
+  const rewindFrame = (lastFrame() ?? '').replace(/\s+/g, ' ')
+  expect(rewindFrame).toMatch(/0 tokens? (in context|dalam konteks)/)
+  expect(rewindFrame).not.toMatch(/8k\s+(cached|dari cache)/)
+  unmount()
+})
+
 test('menu slash commands (/help, /model, /thinking) execute immediately while AI is thinking instead of being queued, and Esc closes menu without aborting turn', async () => {
   const rt = makeRuntime([])
   let releaseTurn: (() => void) | undefined
