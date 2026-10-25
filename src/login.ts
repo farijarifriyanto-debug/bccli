@@ -32,6 +32,13 @@ export function readSecret(prompt: string): Promise<string> {
   })
 }
 
+/** What readLine writes back to the terminal: printable input is visible, control keys are not. */
+export function echoFor(ch: string): string | undefined {
+  const code = ch.codePointAt(0) ?? 0
+  if (code < 32 || code === 127) return undefined
+  return ch
+}
+
 /** Prompt TANPA masking (kode otorisasi harus terlihat saat di-paste). Ctrl+C -> exit 130. */
 export function readLine(prompt: string): Promise<string> {
   return new Promise((resolve) => {
@@ -60,8 +67,18 @@ export function readLine(prompt: string): Promise<string> {
           return
         }
         if (code === 3) process.exit(130) // Ctrl+C
-        if (code === 127 || code === 8) value = value.slice(0, -1)
-        else value += ch
+        if (code === 127 || code === 8) {
+          // Erase the character on screen too, or the visible line stops matching the value.
+          if (value) {
+            value = value.slice(0, -1)
+            process.stdout.write('\b \b')
+          }
+          continue
+        }
+        // Raw mode never echoes: without this the pasted code stays invisible.
+        const echo = echoFor(ch)
+        if (echo) process.stdout.write(echo)
+        value += ch
       }
     }
     stdin.on('data', onData)
