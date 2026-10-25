@@ -3,9 +3,9 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
-## Unreleased
+## 0.4.11 - 2026-10-25
 
-Tiga perbaikan dari audit keamanan: dua jalur yang berjalan tanpa prompt dan satu yang bisa menghapus config user.
+Rilis dari audit menyeluruh: keamanan (dua jalur yang berjalan tanpa prompt dan satu yang bisa menghapus config integrasi), kebenaran hasil (`write`, config integrasi, stats, biaya cache), dan kebersihan (`read`, tugas background, stream Responses, sesi `gh-bot`, echo login, kunci UI) — ditutup dengan dua keputusan pemilik (statistik token cache dan aktivasi plugin).
 
 ### Security
 - **Fallback model hanya dari config global (`src/config.ts`)**: `.bccli/config.json` milik repo hasil clone tidak lagi bisa menambahkan `fallbackModels`. Sebelumnya satu repo berisi config jahat dapat membuat percakapan penuh (system prompt + isi file) dikirim ke `baseURL` miliknya pada 429/5xx pertama, tanpa kunci dan tanpa prompt; `-m` pun tidak melindungi karena fallback selalu ditambahkan.
