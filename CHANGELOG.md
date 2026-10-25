@@ -3,7 +3,9 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
-## Unreleased
+## 0.4.13 - 2026-10-25
+
+Rilis perbaikan cepat untuk 0.4.12.
 
 ### Fixed
 - **`connect crush` / `connect kilo` memetakan katalog live (`src/integrationCli.ts`)**: `GET /models` mengirim kapabilitas sebagai flag — `botconnector_capabilities: { tools, reasoning }` dan `botconnector_reasoning: { supported }` — bukan array `capabilities`. 0.4.12 hanya mengenal bentuk array, sehingga entri model tertulis tanpa `tool_call`/`reasoning`/`--can-reason`. Sekarang kedua bentuk dipetakan (bentuk array lama tetap didukung); field yang tidak dikirim API (context window, max tokens, vision) tetap tidak dikarang. Ditemukan lewat uji E2E nyata memakai katalog BotConnector asli.
