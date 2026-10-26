@@ -3,10 +3,16 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
-## Unreleased
+## 0.4.17 - 2026-10-26
 
 ### Fixed
 - **Token usage now distinguishes context from session totals**: the status bar shows the latest prompt size (and that call's cache reads when reported), while `/cost` retains session totals. Missing provider usage is marked approximate; estimates include tool schemas and existing conversation history and refresh after prompt changes, load/rewind, and compaction. Aggregate child usage no longer overwrites latest-call context metadata. The `task` tool warns against delegating shell/network/edit work to a read-only agent without assuming every project agent named `explore` is read-only.
+- **Long streaming replies no longer duplicate in terminal scrollback**: live content is budgeted by wrapped terminal rows across active entries, while piped non-TTY output remains complete.
+
+### Verification
+- Local Windows Node 24: `npm test` (1035 passed, 2 skipped), `npm run typecheck`, `npm run lint`, and `npm run build` passed.
+- Coverage: 1036 passed, 1 skipped; statements 88.45%, branches 79.79%, functions 87.90%, lines 90.87% (all coverage gates passed).
+- Source fixes are PRs #94 and #93, merged to `main` as `01683d4` and `5fb2f47`; required CI checks passed.
 
 ## 0.4.16 - 2026-10-25
 
