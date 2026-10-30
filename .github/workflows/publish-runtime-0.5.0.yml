@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   publish:
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.confirm_version == '0.5.0') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(bccli): publish vetted 0.5.0 to npm')) }}
+    if: "${{ (github.event_name == 'workflow_dispatch' && inputs.confirm_version == '0.5.0') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(bccli): publish vetted 0.5.0 to npm')) }}"
     runs-on: ubuntu-latest
     environment: npm-production
     timeout-minutes: 20
