@@ -7,6 +7,11 @@ on:
         description: "Type 0.5.0 to approve publishing the immutable verified runtime"
         required: true
         type: string
+  push:
+    branches:
+      - "main"
+    paths:
+      - ".github/workflows/publish-runtime-0.5.0.yml"
 
 permissions:
   contents: read
@@ -14,7 +19,7 @@ permissions:
 
 jobs:
   publish:
-    if: inputs.confirm_version == '0.5.0'
+    if: "${{ (github.event_name == 'workflow_dispatch' && inputs.confirm_version == '0.5.0') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(bccli): publish vetted 0.5.0 to npm')) }}"
     runs-on: ubuntu-latest
     environment: npm-production
     timeout-minutes: 20
