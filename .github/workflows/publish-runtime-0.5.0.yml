@@ -65,31 +65,26 @@ jobs:
       - name: Enable npm 11 for trusted publisher fallback
         shell: bash
         run: npm install -g npm@latest
-      - name: Publish identical vetted tarball to npm latest
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_BBCLI }}
+      - name: Publish identical vetted tarball using only Trusted Publisher OIDC
         shell: bash
+        env:
+          NODE_AUTH_TOKEN: ""
         run: |
           set -euo pipefail
-          TAR="$RUNNER_TEMP/bccli-publish/botconnector-bccli-0.5.0.tgz"
-          if test -n "${NODE_AUTH_TOKEN:-}"; then
-            echo "Checking token identity (never printing token)"
-            npm whoami || true
-            if npm publish "$TAR" --access public --tag latest --ignore-scripts; then
-              echo 'PASS: npm latest published with protected publisher token'
-              exit 0
-            fi
-            echo 'Token publication failed; checking immutable registry state.'
-          fi
-          if npm view @botconnector/bccli@0.5.0 version --json >/dev/null 2>&1; then
-            echo 'Version 0.5.0 exists; do not republish or overwrite.'
-            exit 1
-          fi
-          # OIDC requires an npm Trusted Publisher for this exact repo/workflow.
-          # Never try user/password or paste secrets to logs.
+          # npm's setup-node-generated .npmrc still references an expired old
+          # token. Force an empty config so npm obtains a fresh short-lived
+          # token from GitHub's OIDC identity instead of using that credential.
+          CLEAN_NPMRC="$RUNNER_TEMP/bccli-oidc-only.npmrc"
+          printf 'registry=https://registry.npmjs.org/\n' > "$CLEAN_NPMRC"
+          export NPM_CONFIG_USERCONFIG="$CLEAN_NPMRC"
           unset NODE_AUTH_TOKEN
-          echo 'Trying npm Trusted Publisher OIDC (if configured in npm package settings).'
-          npm publish "$TAR" --access public --tag latest --ignore-scripts --provenance
+          unset NPM_TOKEN
+          npm publish "$RUNNER_TEMP/bccli-publish/botconnector-bccli-0.5.0.tgz" \
+            --registry=https://registry.npmjs.org/ \
+            --access public \
+            --tag latest \
+            --ignore-scripts \
+            --provenance
       - name: Verify registry latest
         shell: bash
         run: |
