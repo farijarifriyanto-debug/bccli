@@ -65,7 +65,7 @@ jobs:
       - name: Enable npm 11 for trusted publisher fallback
         shell: bash
         run: npm install -g npm@latest
-      - name: Publish identical vetted tarball using only Trusted Publisher OIDC
+      - name: Publish vetted tarball with OIDC (provenance disabled for legacy repository metadata)
         shell: bash
         env:
           NODE_AUTH_TOKEN: ""
@@ -84,13 +84,13 @@ jobs:
             echo 'GitHub OIDC environment unavailable; job must have id-token: write permission.'
             exit 1
           fi
-          echo 'GitHub OIDC request capability present; diagnosing npm exchange (no tokens printed).'
+          echo 'GitHub OIDC available; publisher repository differs from packaged repository metadata. Explicitly disable provenance for this immutable 0.5.0 tarball.'
           npm --loglevel=verbose publish "$RUNNER_TEMP/bccli-publish/botconnector-bccli-0.5.0.tgz" \
             --registry=https://registry.npmjs.org/ \
             --access public \
             --tag latest \
             --ignore-scripts \
-            --provenance
+            --no-provenance
       - name: Verify registry latest
         shell: bash
         run: |
