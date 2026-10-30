@@ -1,107 +1,144 @@
-name: Publish verified BCCLI 0.5.0 to npm latest
+name: Publish native BCCLI 0.5.1 to npm latest
 
 on:
   workflow_dispatch:
     inputs:
       confirm_version:
-        description: "Type 0.5.0 to approve publishing the immutable verified runtime"
+        description: "Type 0.5.1 to publish native BCCLI"
         required: true
         type: string
   push:
-    branches:
-      - "main"
+    branches: ["main"]
     paths:
       - ".github/workflows/publish-runtime-0.5.0.yml"
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
+
+concurrency:
+  group: bccli-native-051-production
+  cancel-in-progress: false
 
 jobs:
   publish:
-    if: "${{ (github.event_name == 'workflow_dispatch' && inputs.confirm_version == '0.5.0') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(bccli): publish vetted 0.5.0 to npm')) }}"
+    if: "${{ (github.event_name == 'workflow_dispatch' && inputs.confirm_version == '0.5.1') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release(bccli): publish native 0.5.1 to npm')) }}"
     runs-on: ubuntu-latest
     environment: npm-production
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           registry-url: https://registry.npmjs.org
-      - name: Download verified GitHub stable artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
+          cache: npm
+      - name: Native source gates
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/bccli-publish"
-          gh release download 'bccli-v0.5.0' \
-            --repo farijarifriyanto-debug/bccli-runtime \
-            --pattern 'botconnector-bccli-0.5.0.tgz' \
-            --pattern 'SHA256SUMS.txt' \
-            --dir "$RUNNER_TEMP/bccli-publish"
-          cd "$RUNNER_TEMP/bccli-publish"
+          npm ci --no-fund
+          npm run typecheck
+          npm run lint
+          npm audit --omit=dev --audit-level=high
+          npm run build
+          npm test
+      - name: Verify clean first-party dependency graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          const pkg=JSON.parse(readFileSync('package.json','utf8'));
+          const lock=JSON.parse(readFileSync('package-lock.json','utf8'));
+          if(pkg.name !== '@botconnector/bccli' || pkg.version !== '0.5.1') throw Error('Unexpected package version');
+          if(!String(pkg.repository?.url || '').includes('farijarifriyanto-debug/bccli.git')) throw Error('Provenance repository must match trusted publisher');
+          const names=[...Object.keys(pkg.dependencies || {}),...Object.keys(pkg.optionalDependencies || {}),...Object.keys(lock.packages || {})];
+          const qwen=names.filter(name => name.includes('@qwen-code/'));
+          if(qwen.length) throw Error('Forbidden Qwen dependency: ' + qwen.join(', '));
+          if(pkg.bin?.bccli !== 'dist/cli.js') throw Error('Unexpected native CLI executable');
+          if(pkg.exports?.['.']?.default !== './dist/sdk.js') throw Error('Public SDK missing');
+          console.log('PASS: BCCLI native dependencies, CLI and SDK; no Qwen packages');
+          JS
+      - name: Create immutable production tarball and SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bccli-051-publish"
+          npm pack --json --ignore-scripts --pack-destination "$RUNNER_TEMP/bccli-051-publish" > "$RUNNER_TEMP/bccli-pack.json"
+          node -e "const p=require(process.argv[1])[0]; if(p.name!=='@botconnector/bccli'||p.version!=='0.5.1')process.exit(1)" "$RUNNER_TEMP/bccli-pack.json"
+          cd "$RUNNER_TEMP/bccli-051-publish"
+          sha256sum botconnector-bccli-0.5.1.tgz > SHA256SUMS.txt
           sha256sum -c SHA256SUMS.txt
-          tar -xzOf botconnector-bccli-0.5.0.tgz package/package.json > verified-package.json
-          node -e "const p=require('./verified-package.json'); if(p.name!=='@botconnector/bccli'||p.version!=='0.5.0'||!p.exports?.['.']?.default?.includes('legacy/dist/sdk.js')||!p.dependencies?.['@qwen-code/qwen-code'])process.exit(1)"
-      - name: Refuse existing registry version (immutable)
+      - name: Fresh install and SDK acceptance, without Qwen dependency
         shell: bash
         run: |
           set -euo pipefail
-          if npm view @botconnector/bccli@0.5.0 version --json >/dev/null 2>&1; then
-            echo 'Package 0.5.0 already exists; refusing to publish or retag without verifying provenance.'
+          DEST="$RUNNER_TEMP/bccli-051-install"
+          mkdir -p "$DEST"
+          npm install --prefix "$DEST" --omit=dev --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP/bccli-051-publish/botconnector-bccli-0.5.1.tgz"
+          cd "$DEST"
+          test "$(./node_modules/.bin/bccli --version)" = '0.5.1'
+          node --input-type=module -e "import('@botconnector/bccli').then(m=>{if(typeof m.runTask!=='function'||typeof m.streamTask!=='function')process.exit(1)})"
+          test ! -d node_modules/@qwen-code
+          ./node_modules/.bin/bccli --help | grep -F 'BCCLI'
+          ./node_modules/.bin/bccli provider list | grep -F 'bc-cloud'
+          echo 'PASS: fresh installation, model/provider command, SDK, no Qwen modules'
+      - name: Refuse to overwrite an existing immutable npm version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if npm view @botconnector/bccli@0.5.1 version --json >/dev/null 2>&1; then
+            echo 'Version 0.5.1 already exists; refusing to republish.'
             exit 1
           fi
-      - name: Install package and import SDK in clean workspace
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/bccli-install-test"
-          npm install --prefix "$RUNNER_TEMP/bccli-install-test" --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP/bccli-publish/botconnector-bccli-0.5.0.tgz"
-          cd "$RUNNER_TEMP/bccli-install-test"
-          test "$(./node_modules/.bin/bccli --version)" = '0.5.0'
-          node --input-type=module -e "import('@botconnector/bccli').then(m => {if(typeof m.runTask!=='function'||typeof m.streamTask!=='function') process.exit(2)})"
-      - name: Enable npm 11 for trusted publisher fallback
-        shell: bash
-        run: npm install -g npm@latest
-      - name: Publish vetted tarball with OIDC (provenance disabled for legacy repository metadata)
+      - name: Publish native BCCLI with GitHub OIDC and matching provenance
         shell: bash
         env:
           NODE_AUTH_TOKEN: ""
         run: |
           set -euo pipefail
-          # npm's setup-node-generated .npmrc still references an expired old
-          # token. Force an empty config so npm obtains a fresh short-lived
-          # token from GitHub's OIDC identity instead of using that credential.
+          npm install -g npm@latest
           CLEAN_NPMRC="$RUNNER_TEMP/bccli-oidc-only.npmrc"
           printf 'registry=https://registry.npmjs.org/\n' > "$CLEAN_NPMRC"
           export NPM_CONFIG_USERCONFIG="$CLEAN_NPMRC"
           unset NODE_AUTH_TOKEN
           unset NPM_TOKEN
-          echo "npm version: $(npm --version)"
-          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-            echo 'GitHub OIDC environment unavailable; job must have id-token: write permission.'
+          if test -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"; then
+            echo 'GitHub OIDC identity missing; refusing to publish'
             exit 1
           fi
-          echo 'GitHub OIDC available; publisher repository differs from packaged repository metadata. Explicitly disable provenance for this immutable 0.5.0 tarball.'
-          npm --loglevel=verbose publish "$RUNNER_TEMP/bccli-publish/botconnector-bccli-0.5.0.tgz" \
-            --registry=https://registry.npmjs.org/ \
-            --access public \
-            --tag latest \
-            --ignore-scripts \
-            --no-provenance
-      - name: Verify registry latest
+          npm publish "$RUNNER_TEMP/bccli-051-publish/botconnector-bccli-0.5.1.tgz" \
+            --registry=https://registry.npmjs.org/ --access public --tag latest --ignore-scripts --provenance
+      - name: Verify registry latest (allow propagation)
         shell: bash
         run: |
           set -euo pipefail
-          for n in 1 2 3 4 5; do
-            installed="$(npm view @botconnector/bccli dist-tags.latest 2>/dev/null || true)"
-            if test "$installed" = '0.5.0'; then
-              echo 'PASS: npm @botconnector/bccli@latest is 0.5.0'
+          for n in $(seq 1 24); do
+            latest="$(npm view @botconnector/bccli dist-tags.latest --prefer-online 2>/dev/null || true)"
+            version="$(npm view @botconnector/bccli@0.5.1 version --prefer-online 2>/dev/null || true)"
+            if test "$latest" = "0.5.1" && test "$version" = "0.5.1"; then
+              echo 'PASS: @botconnector/bccli@latest and @0.5.1 registered'
               exit 0
             fi
-            sleep 3
+            echo "Waiting for npm registry to expose 0.5.1 ($n/24)"
+            sleep 5
           done
-          echo 'Registry did not expose expected dist-tag 0.5.0'
+          echo 'Registry did not converge on latest=0.5.1'
           exit 1
+      - name: Publish GitHub release from the same immutable archive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG='bccli-v0.5.1'
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo 'Stable GitHub tag exists, refusing to overwrite'
+            exit 1
+          fi
+          gh release create "$TAG" \
+            "$RUNNER_TEMP/bccli-051-publish/botconnector-bccli-0.5.1.tgz" \
+            "$RUNNER_TEMP/bccli-051-publish/SHA256SUMS.txt" \
+            --target "$GITHUB_SHA" --title 'BCCLI 0.5.1 Native — clean engine' \
+            --notes-file docs/release-bccli-0.5.1.md --latest
