@@ -1,0 +1,80 @@
+name: Publish verified BCCLI 0.5.0 to npm latest
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_version:
+        description: "Type 0.5.0 to approve publishing the immutable verified runtime"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: inputs.confirm_version == '0.5.0'
+    runs-on: ubuntu-latest
+    environment: npm-production
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+      - name: Download verified GitHub stable artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bccli-publish"
+          gh release download 'v0.5.0' \
+            --repo farijarifriyanto-debug/bccli-runtime \
+            --pattern 'botconnector-bccli-0.5.0.tgz' \
+            --pattern 'SHA256SUMS.txt' \
+            --dir "$RUNNER_TEMP/bccli-publish"
+          cd "$RUNNER_TEMP/bccli-publish"
+          sha256sum -c SHA256SUMS.txt
+          tar -xzOf botconnector-bccli-0.5.0.tgz package/package.json > verified-package.json
+          node -e "const p=require('./verified-package.json'); if(p.name!=='@botconnector/bccli'||p.version!=='0.5.0'||!p.exports?.['.']?.default?.includes('legacy/dist/sdk.js')||!p.dependencies?.['@qwen-code/qwen-code'])process.exit(1)"
+      - name: Refuse existing registry version (immutable)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if npm view @botconnector/bccli@0.5.0 version --json >/dev/null 2>&1; then
+            echo 'Package 0.5.0 already exists; refusing to publish or retag without verifying provenance.'
+            exit 1
+          fi
+      - name: Install package and import SDK in clean workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bccli-install-test"
+          npm install --prefix "$RUNNER_TEMP/bccli-install-test" --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP/bccli-publish/botconnector-bccli-0.5.0.tgz"
+          cd "$RUNNER_TEMP/bccli-install-test"
+          test "$(./node_modules/.bin/bccli --version)" = '0.5.0'
+          node --input-type=module -e "import('@botconnector/bccli').then(m => {if(typeof m.runTask!=='function'||typeof m.streamTask!=='function') process.exit(2)})"
+      - name: Publish identical vetted tarball to npm latest
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BBCLI }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${NODE_AUTH_TOKEN:-}" || { echo 'NPM_BBCLI publisher secret unavailable'; exit 1; }
+          npm publish "$RUNNER_TEMP/bccli-publish/botconnector-bccli-0.5.0.tgz" --access public --tag latest --ignore-scripts
+      - name: Verify registry latest
+        shell: bash
+        run: |
+          set -euo pipefail
+          for n in 1 2 3 4 5; do
+            installed="$(npm view @botconnector/bccli dist-tags.latest 2>/dev/null || true)"
+            if test "$installed" = '0.5.0'; then
+              echo 'PASS: npm @botconnector/bccli@latest is 0.5.0'
+              exit 0
+            fi
+            sleep 3
+          done
+          echo 'Registry did not expose expected dist-tag 0.5.0'
+          exit 1
