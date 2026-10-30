@@ -1,7 +1,8 @@
 import { helpText, parseCliArgs } from './args'
-import { ConfigError } from './config'
+import { ConfigError, loadConfig } from './config'
 import { settleExit } from './exit'
 import { defaultLoginDeps, runLogin } from './login'
+import { firstRunKeyProvider } from './onboarding'
 import { resolvePrintPrompt, runPrint } from './print'
 import { readGlobalConfigFile } from './providers'
 import { pruneSessions } from './session'
@@ -135,6 +136,15 @@ async function main(): Promise<number> {
       },
       { out: (s) => console.log(s), err: (s) => console.error(s) },
     )
+  }
+  // First boot is self-contained: never require a separate installer or legacy CLI.
+  // Only interactive runs may prompt; scripting and CI stay non-interactive.
+  const missingProvider = firstRunKeyProvider(args, loadConfig(cwd, process.env), process.env, !!process.stdin.isTTY)
+  if (missingProvider) {
+    console.log(`BCCLI setup: ${missingProvider} needs an API key. Enter it here (input is hidden).`)
+    console.log('For a different provider, use: bccli provider add <id> or bccli -m provider/model')
+    const result = await runLogin(missingProvider, cwd, { ...args, key: true }, defaultLoginDeps())
+    if (result !== 0) return result
   }
   const rt = createRuntime({ cwd, args })
   setTheme(rt.config.theme)
