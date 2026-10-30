@@ -79,7 +79,13 @@ jobs:
           export NPM_CONFIG_USERCONFIG="$CLEAN_NPMRC"
           unset NODE_AUTH_TOKEN
           unset NPM_TOKEN
-          npm publish "$RUNNER_TEMP/bccli-publish/botconnector-bccli-0.5.0.tgz" \
+          echo "npm version: $(npm --version)"
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo 'GitHub OIDC environment unavailable; job must have id-token: write permission.'
+            exit 1
+          fi
+          echo 'GitHub OIDC request capability present; diagnosing npm exchange (no tokens printed).'
+          npm --loglevel=verbose publish "$RUNNER_TEMP/bccli-publish/botconnector-bccli-0.5.0.tgz" \
             --registry=https://registry.npmjs.org/ \
             --access public \
             --tag latest \
