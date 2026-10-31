@@ -1,4 +1,4 @@
-import { type Config } from './config'
+import type { Config } from './config'
 import { PRESETS } from './presets'
 import { createProvider, ProviderError } from './provider'
 import { hasKey, providerName, savedCredential } from './providers'
