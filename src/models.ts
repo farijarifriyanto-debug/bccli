@@ -1,7 +1,7 @@
-import { type Config, readCredentials } from './config'
+import type { Config } from './config'
 import { PRESETS } from './presets'
 import { createProvider, ProviderError } from './provider'
-import { hasKey, providerName } from './providers'
+import { hasKey, providerName, savedCredential } from './providers'
 import { t } from './i18n'
 
 export interface ModelGroup {
@@ -33,7 +33,7 @@ export async function listAllModels(
       const provider = config.providers[id]
       const apiKey =
         (opts.keyOverride && id === opts.only ? opts.keyOverride : undefined) ||
-        readCredentials(env)[id] ||
+        savedCredential(id, env) ||
         (provider.apiKeyEnv ? env[provider.apiKeyEnv] : undefined) ||
         undefined
       const local = !provider.apiKeyEnv
