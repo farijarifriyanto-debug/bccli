@@ -2,6 +2,11 @@
 
 **Status: NO-GO untuk publish dari repo `bccli`. Tidak ada perubahan yang dikirim ke npm.**
 
+> Lanjutan: jalur yang direkomendasikan di bawah sudah dipilih owner dan dikerjakan
+> sebagai picker BCCLI di lapisan `candidate` (`bccli-runtime` PR #27), lalu disiapkan
+> rilisnya sebagai PR #28. Langkah rilis yang tersisa ada di
+> [`handoff-bccli-055-release-20261031.md`](handoff-bccli-055-release-20261031.md).
+
 Permintaan owner: "lakukan tambahan menu search di pemilihan model", lalu "publish".
 Perbaikan UI-nya sudah selesai dan di-merge (`PR #118`), tetapi ia berada di repo yang
 **tidak lagi menghasilkan paket npm `latest`**. Dokumen ini mencatat bukti dan jalur rilis
