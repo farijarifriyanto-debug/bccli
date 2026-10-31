@@ -11,6 +11,9 @@ import { t } from './i18n'
 // BotConnector policy (not an OpenAI-mandated value): compact before the 272k Luna request cap.
 const LUNA_AUTO_COMPACT_THRESHOLD = 240_000
 
+/** Gateway Responses yang kontraknya tertinggal menolak parameter `reasoning` dengan 400 ini. */
+const REASONING_PARAM_REJECTED = /unknown parameter:?\s*['"]?reasoning['"]?/i
+
 export interface ResponsesProgramCaller {
   type: 'program'
   caller_id: string
@@ -1248,6 +1251,29 @@ export function createProvider(options: ProviderOptions): Provider {
     throw lastError ?? new ProviderError(t('Request failed'))
   }
 
+  /**
+   * Gateway Responses yang belum mengenal parameter `reasoning` menolaknya dengan
+   * 400 "Unknown parameter: 'reasoning'". Kirim ulang sekali tanpa parameter itu: pengguna
+   * kehilangan ringkasan reasoning, tetapi permintaan tetap berhasil alih-alih gagal total.
+   * Tanpa ini, model Luna tidak bisa dipakai sama sekali pada gateway yang kontraknya
+   * tertinggal (kejadian nyata 31 Okt 2026 terhadap api.botconnector.id).
+   */
+  async function postResponsesToleratingReasoning(
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    try {
+      return await post('/responses', body, signal)
+    } catch (error) {
+      const rejected =
+        error instanceof ProviderError && error.status === 400 && REASONING_PARAM_REJECTED.test(error.message)
+      if (!rejected || !('reasoning' in body)) throw error
+      const withoutReasoning = { ...body }
+      delete withoutReasoning.reasoning
+      return post('/responses', withoutReasoning, signal)
+    }
+  }
+
   return {
     async chat({ messages, tools, programmaticToolNames = [], signal, onText, onThinking, reasoning = 'auto' }) {
       let reasoningOverride: Record<string, unknown>
@@ -1270,19 +1296,16 @@ export function createProvider(options: ProviderOptions): Provider {
         const ptcEnabled = shouldEnableLunaPtc(messages, enableProgrammaticToolCalling, programmaticToolNames)
         const forcePtc = shouldForceLunaPtc(messages, ptcEnabled)
         const nativeTools = responseTools(tools, ptcEnabled, programmaticToolNames, forcePtc)
-        const res = await post(
-          '/responses',
-          {
-            model,
-            input: responseInputFromMessages(messages),
-            stream: true,
-            store: false,
-            ...(nativeTools.length ? { tools: nativeTools } : {}),
-            context_management: [{ type: 'compaction', compact_threshold: LUNA_AUTO_COMPACT_THRESHOLD }],
-            ...responseReasoning(reasoning),
-          },
-          signal,
-        )
+        const responsesBody: Record<string, unknown> = {
+          model,
+          input: responseInputFromMessages(messages),
+          stream: true,
+          store: false,
+          ...(nativeTools.length ? { tools: nativeTools } : {}),
+          context_management: [{ type: 'compaction', compact_threshold: LUNA_AUTO_COMPACT_THRESHOLD }],
+          ...responseReasoning(reasoning),
+        }
+        const res = await postResponsesToleratingReasoning(responsesBody, signal)
         if ((res.headers.get('content-type') ?? '').includes('application/json')) return readResponsesJson(res, onThinking)
         if (!res.body) throw new ProviderError(t('Empty response from the provider'))
         // Only provider-supplied summary deltas are surfaced, never hidden raw reasoning.
