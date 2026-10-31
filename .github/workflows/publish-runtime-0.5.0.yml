@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm_version:
-        description: "Type 0.5.1 to publish native BCCLI"
+        description: "Type 0.5.1 (legacy) or 0.5.2 (verified full-engine archive)"
         required: true
         type: string
   push:
@@ -142,3 +142,87 @@ jobs:
             "$RUNNER_TEMP/bccli-051-publish/SHA256SUMS.txt" \
             --target "$GITHUB_SHA" --title 'BCCLI 0.5.1 Native — clean engine' \
             --notes-file docs/release-bccli-0.5.1.md --latest
+
+  publish_052:
+    name: Publish verified 0.5.2 archive via existing npm OIDC
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_version == '0.5.2' }}
+    runs-on: ubuntu-latest
+    environment: npm-production
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Retrieve immutable archive from verified source release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bccli-052-publish"
+          gh release download bccli-v0.5.2 --repo farijarifriyanto-debug/bccli-runtime --dir "$RUNNER_TEMP/bccli-052-publish" --pattern 'botconnector-bccli-0.5.2.tgz' --pattern 'SHA256SUMS.txt'
+          test "$(gh release view bccli-v0.5.2 --repo farijarifriyanto-debug/bccli-runtime --json targetCommitish --jq .targetCommitish)" = 'bc4924b0613a759bbd46da414b506b68a2f444ff'
+          cd "$RUNNER_TEMP/bccli-052-publish"
+          sha256sum -c SHA256SUMS.txt
+          actual="$(sha256sum botconnector-bccli-0.5.2.tgz | cut -d ' ' -f 1)"
+          test "$actual" = 'a801ea65e710dd5825d2867c0df9ed6e172417214bb64d77a9960e7dae1a3c5e'
+          echo "PASS: byte-identical package from bccli-runtime commit bc4924b"
+      - name: Verify clean install, SDK, engine, and no separate Qwen dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          file="$RUNNER_TEMP/bccli-052-publish/botconnector-bccli-0.5.2.tgz"
+          dest="$RUNNER_TEMP/bccli-052-installed"
+          mkdir -p "$dest"
+          npm install --prefix "$dest" --ignore-scripts --no-audit --no-fund "$file"
+          pkg="$dest/node_modules/@botconnector/bccli"
+          test -f "$pkg/engine/cli-entry.js"
+          test -f "$pkg/web-search-backend.mjs"
+          test -f "$pkg/web-search-tool.mjs"
+          test -f "$pkg/legacy/dist/sdk.js"
+          test ! -d "$dest/node_modules/@qwen-code"
+          test "$(node "$pkg/cli.mjs" --version)" = '0.5.2'
+          (cd "$dest" && node --input-type=module -e "import('@botconnector/bccli').then(m=>{if(typeof m.runTask!=='function'||typeof m.streamTask!=='function')process.exit(1)})")
+          echo "PASS: 0.5.2 clean install and SDK"
+      - name: Refuse republish of an existing immutable npm version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if npm view @botconnector/bccli@0.5.2 version --prefer-online >/dev/null 2>&1; then
+            echo "Version 0.5.2 already exists. Never overwrite immutable npm versions."
+            exit 1
+          fi
+      - name: Publish 0.5.2 through npm trusted publisher (no secret token)
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ""
+        run: |
+          set -euo pipefail
+          npm install -g npm@latest
+          printf 'registry=https://registry.npmjs.org/\n' > "$RUNNER_TEMP/npm-oidc-only.npmrc"
+          export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npm-oidc-only.npmrc"
+          unset NODE_AUTH_TOKEN
+          unset NPM_TOKEN
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          npm publish "$RUNNER_TEMP/bccli-052-publish/botconnector-bccli-0.5.2.tgz" --access public --tag latest --ignore-scripts --provenance --registry=https://registry.npmjs.org/
+      - name: Verify public npm latest and published integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(sha512sum "$RUNNER_TEMP/bccli-052-publish/botconnector-bccli-0.5.2.tgz" | cut -d ' ' -f 1)"
+          for n in $(seq 1 24); do
+            latest="$(npm view @botconnector/bccli dist-tags.latest --prefer-online 2>/dev/null || true)"
+            version="$(npm view @botconnector/bccli@0.5.2 version --prefer-online 2>/dev/null || true)"
+            if test "$latest" = '0.5.2' && test "$version" = '0.5.2'; then
+              echo "PASS: @botconnector/bccli@latest -> 0.5.2"
+              npm view @botconnector/bccli@0.5.2 dist.integrity --json --prefer-online
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'npm registry has not converged to 0.5.2'
+          exit 1
