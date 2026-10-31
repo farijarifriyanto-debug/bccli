@@ -3,10 +3,21 @@ on:
   push:
     branches: ['**']
   pull_request:
+# Nothing cancelled superseded runs before this: two pushes to the same branch
+# queued two full matrices, and the macOS leg bills ~10x the Linux rate. Cancel
+# replaced PR runs; serialise the rest so a main run is never killed mid-flight.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:
+    # Job-level cap. The default is 360 minutes, so a wedged step (npm ci, a hung
+    # browser download) could hold three OS runners for hours. Measured runs sit at
+    # 1.0-1.9 minutes, so 15 still leaves generous headroom for a cold install.
+    timeout-minutes: 15
     strategy:
-      fail-fast: false
+      # Drop the sibling OS legs once one fails on PRs; keep all three on main.
+      fail-fast: ${{ github.event_name == 'pull_request' }}
       matrix:
         os: ${{ (github.event_name == 'pull_request' || github.ref == 'refs/heads/main') && fromJSON('["ubuntu-latest","macos-latest","windows-latest"]') || fromJSON('["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
