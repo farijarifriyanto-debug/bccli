@@ -120,8 +120,9 @@ don't distort the reply language.
 Any other OpenAI-compatible provider: pick **Custom…** in `/provider`, or
 `bccli provider add corp --url https://corp.example/v1 --name "Corp"`.
 
-`/model` lists models from **every** provider that has a key, grouped by provider;
-type to filter. Your choice is saved as the default.
+`/model` lists models from **every** provider that has a key, grouped by provider, with a search
+field at the top: it matches the model name **or** the provider name ("gemini-3.5", "openrouter"),
+shows how many of the models match, and highlights the matched part. Your choice is saved as the default.
 
 Reasoning can be set via `bccli --reasoning <auto|off|low|medium|high|max>` or `/reasoning`.
 **Auto** uses the model/provider default and BCCLI sends no reasoning override. BCCLI never

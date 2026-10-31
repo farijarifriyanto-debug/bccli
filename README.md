@@ -120,7 +120,9 @@ Provider lain yang OpenAI-compatible: pilih **Custom…** di `/provider`, atau
 `bccli provider add corp --url https://corp.example/v1 --name "Corp"`.
 
 `/model` menampilkan model dari **semua** provider yang sudah punya key, dikelompokkan
-per provider; ketik untuk menyaring. Pilihan tersimpan sebagai default.
+per provider, dengan kolom cari di atas daftar: cocok dengan nama model **atau** nama provider
+("gemini-3.5", "openrouter"), menampilkan berapa model yang cocok, dan menebalkan bagian yang cocok.
+Pilihan tersimpan sebagai default.
 
 Reasoning dapat dipilih lewat `bccli --reasoning <auto|off|low|medium|high|max>` atau `/reasoning`.
 **Auto** memakai default model/provider dan BCCLI tidak mengirim override reasoning apa pun. BCCLI tidak
