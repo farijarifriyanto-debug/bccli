@@ -254,7 +254,9 @@ jobs:
         run: |
           set -euo pipefail
           expected="sha512-$(openssl dgst -sha512 -binary "$RUNNER_TEMP/bccli-052-publish/botconnector-bccli-0.5.2-oidc.tgz" | openssl base64 -A)"
-          for n in $(seq 1 24); do
+          # npm accepted the 2026-10-31 publish but its public metadata propagated
+          # only after ~13 minutes. Do not republish an immutable version.
+          for n in $(seq 1 80); do
             latest="$(npm view @botconnector/bccli dist-tags.latest --prefer-online 2>/dev/null || true)"
             version="$(npm view @botconnector/bccli@0.5.2 version --prefer-online 2>/dev/null || true)"
             if test "$latest" = '0.5.2' && test "$version" = '0.5.2'; then
@@ -264,7 +266,8 @@ jobs:
               echo 'PASS: registry tarball integrity matches the verified provenance-aligned payload'
               exit 0
             fi
-            sleep 5
+            echo "Waiting for npm 0.5.2 metadata propagation ($n/80; 15-second interval)"
+            sleep 15
           done
-          echo 'npm registry has not converged to 0.5.2'
+          echo 'npm registry has not converged to 0.5.2 within 20 minutes; do not publish again'
           exit 1
