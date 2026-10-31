@@ -101,4 +101,29 @@ Kalau environment `npm-production` meminta approval manusia, laporkan sebagai bl
 
 - **Uji TUI interaktif di terminal asli** (mesin Windows ini tidak punya TTY): langkahnya di `bccli-runtime/.qwen/e2e-tests/2026-10-31-model-picker-search.md`.
 - Klaim `NOTES-0.5.4.md` bahwa picker upstream punya "type-to-filter" **tidak benar**; dikoreksi di `NOTES-0.5.5.md`.
-- Publikasi npm itu sendiri (langkah 4–5) belum dijalankan.
+- Publikasi npm itu sendiri (langkah 5) belum dijalankan.
+
+## Status lanjutan — 2026-10-31 (sesi berikutnya)
+
+Langkah 1–4 sudah dijalankan dan diverifikasi:
+
+- PR #28 di-squash-merge ke `product` → `5caed31a1a12a6d6257b815b3f5073f077b12716`
+  (dua gate TUI pass: OpenTUI 13m8s, parity 19m31s); branch rilis dihapus.
+- Build ulang dari `5caed31` **PASS**: `version 0.5.5`, 1579 berkas,
+  sha256 `1fab7322f7e201aac20371c372828cfcea73acefdb2ad187d3b3143b885384a9`
+  — **sama persis** dengan artefak yang diuji.
+- Release **`bccli-v0.5.5`** dibuat: target commitish `5caed31`, tag ref `5caed31`,
+  aset `botconnector-bccli-0.5.5.tgz` (43.114.502 byte, digest GitHub
+  `sha256:1fab7322…`) + `SHA256SUMS.txt`, catatan dari `NOTES-0.5.5.md`.
+  https://github.com/farijarifriyanto-debug/bccli-runtime/releases/tag/bccli-v0.5.5
+- Job `publish_055` masuk `main` lewat PR #120 (`2a2df5b`, check macOS/Ubuntu/Windows
+  pass) dengan semua pagar langkah 4, plus cek `model-dialog.mjs`, `BccliModelPicker`,
+  dan string `Search model: `. Workflow di `main` sudah memuat job itu dan run push
+  di `2a2df5b` **skipped** (tidak ada publish tak sengaja).
+
+Yang belum dan tidak boleh diklaim:
+
+- Dispatch `confirm_version=0.5.5` belum dijalankan — menunggu izin owner; environment
+  `npm-production` kemungkinan juga meminta approval manusia.
+- `npm view @botconnector/bccli dist-tags.latest` masih `0.5.4`.
+- Uji TUI interaktif di terminal asli tetap manual (lihat berkas E2E di atas).
