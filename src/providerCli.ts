@@ -22,7 +22,14 @@ export async function addProviderKey(
   const config = loadConfig(deps.cwd, deps.env)
   // Verify the candidate key itself, not whatever is already stored or in the environment.
   const [group] = await listAllModels(config, deps.env, { only: providerId, fetch: deps.fetch, keyOverride: key || undefined })
-  if (!group || group.error) return { ok: false, error: t('The API key was rejected or {provider} could not be reached.', { provider: providerName(config, providerId) }) }
+  if (!group || group.error) {
+    // Sebabnya ikut ditampilkan: "401" berarti kunci ditolak, "404" berarti baseURL salah, dan
+    // "429" berarti kuota habis. Tanpa detail ini ketiganya terlihat sama bagi pengguna.
+    const generic = t('The API key was rejected or {provider} could not be reached.', {
+      provider: providerName(config, providerId),
+    })
+    return { ok: false, error: group?.error ? `${generic} (${group.error})` : generic }
+  }
   if (key) saveCredential(providerId, key, deps.env)
   return { ok: true, models: group.models.length }
 }
