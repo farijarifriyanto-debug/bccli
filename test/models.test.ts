@@ -55,6 +55,14 @@ test('a slow or failing remote provider becomes an error group instead of blocki
   expect(groups[1]).toMatchObject({ providerId: 'openrouter', models: [], error: 'tidak bisa dihubungi' })
 })
 
+test('kegagalan HTTP dilaporkan dengan statusnya, bukan "tidak bisa dihubungi"', async () => {
+  const groups = await listAllModels(config, env, {
+    only: 'openai',
+    fetch: fakeFetch({ 'https://api.openai.com/v1/models': async () => new Response('{}', { status: 401 }) }),
+  })
+  expect(groups[0]).toMatchObject({ providerId: 'openai', models: [], error: '401 saat mengambil daftar model' })
+})
+
 test('only= limits to one provider', async () => {
   const groups = await listAllModels(config, env, { only: 'openrouter', fetch: fakeFetch({ 'https://openrouter.ai': models('x') }) })
   expect(groups.map((g) => g.providerId)).toEqual(['openrouter'])

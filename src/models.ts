@@ -1,6 +1,6 @@
 import { type Config, readCredentials } from './config'
 import { PRESETS } from './presets'
-import { createProvider } from './provider'
+import { createProvider, ProviderError } from './provider'
 import { hasKey, providerName } from './providers'
 import { t } from './i18n'
 
@@ -47,14 +47,28 @@ export async function listAllModels(
       try {
         const models = await Promise.race([list, timeout])
         return { providerId: id, providerName: providerName(config, id), models }
-      } catch {
+      } catch (error) {
         // Local servers that are not running are simply not shown.
         if (local && !opts.only) return undefined
-        return { providerId: id, providerName: providerName(config, id), models: [], error: t('could not be reached') }
+        return { providerId: id, providerName: providerName(config, id), models: [], error: failureDetail(error) }
       } finally {
         clearTimeout(timer)
       }
     }),
   )
   return results.filter((g): g is ModelGroup => !!g)
+}
+
+/**
+ * Sebab kegagalan yang bisa ditindaklanjuti. Sebelumnya setiap kegagalan dilaporkan sebagai
+ * "tidak bisa dihubungi", sehingga kunci yang ditolak (401), kuota habis (429), atau endpoint
+ * salah (404) tampak sama saja dan pengguna tidak tahu apa yang harus diperbaiki.
+ * Status HTTP diambil dari ProviderError; kegagalan jaringan/timeout tetap generik karena
+ * tidak ada status yang bisa dilaporkan.
+ */
+function failureDetail(error: unknown): string {
+  if (error instanceof ProviderError && typeof error.status === 'number') {
+    return t('{status} while fetching the model list', { status: error.status })
+  }
+  return t('could not be reached')
 }

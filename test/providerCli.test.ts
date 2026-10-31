@@ -45,6 +45,12 @@ test('a rejected key is not saved', async () => {
   expect(readCredentials(d.env)).toEqual({})
 })
 
+test('pesan penolakan menyertakan status HTTP agar penyebabnya jelas', async () => {
+  const d = deps('sk-bad', 401)
+  expect(await run(['add', 'groq'], d)).toBe(1)
+  expect(d.errors.join('\n')).toMatch(/\(401 saat mengambil daftar model\)/)
+})
+
 test('add <custom> needs --url; writes config and key', async () => {
   const d = deps('')
   expect(await run(['add', 'corp'], d)).toBe(1)
