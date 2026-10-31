@@ -1,8 +1,14 @@
 name: ci
 on:
   push:
-    branches: ['**']
+    # Branch work is covered by pull_request. Pushing every branch also fired a
+    # second run alongside the PR run: 180 of the 265 push runs in the sampled 400
+    # came from 139 non-main branches. There is no `dev` branch in this repo.
+    branches: [main]
   pull_request:
+  # Added so a release/dependabot branch without a PR can still be validated on
+  # demand; it was not present before, and it is what replaces `push: '**'`.
+  workflow_dispatch:
 # Nothing cancelled superseded runs before this: two pushes to the same branch
 # queued two full matrices, and the macOS leg bills ~10x the Linux rate. Cancel
 # replaced PR runs; serialise the rest so a main run is never killed mid-flight.
