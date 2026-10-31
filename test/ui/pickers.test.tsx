@@ -18,6 +18,62 @@ test('model picker groups by provider and marks unreachable ones', () => {
   expect(frame).toContain('Groq — tidak bisa dihubungi')
 })
 
+test('model picker opens on a search field with the visible/total count', () => {
+  const frame = render(<ModelPicker groups={groups} current="bc-cloud/glm-5.3-flash" onPick={() => {}} />).lastFrame()!
+  expect(frame).toContain('Pilih model')
+  expect(frame).toMatch(/cari: ?▌/)
+  expect(frame).toMatch(/ketik nama model atau provider/)
+  // 2 from BotConnector Cloud + 301 from OpenRouter; the provider that failed to answer has no models to count.
+  expect(frame).toContain('303/303 model')
+})
+
+test('search matches the provider name, so typing a provider lists just its models', async () => {
+  const { stdin, lastFrame } = render(<ModelPicker groups={groups} current="bc-cloud/glm-5.3-flash" onPick={() => {}} />)
+  await tick()
+  stdin.write('openrouter')
+  await tick()
+  expect(lastFrame()).toMatch(/── OpenRouter/)
+  expect(lastFrame()).toContain('vendor/model-0')
+  expect(lastFrame()).not.toContain('glm-5.3-flash')
+  expect(lastFrame()).toContain('301/303 model')
+})
+
+test('a search with no hits says so, counts zero, and backspace restores the list', async () => {
+  const { stdin, lastFrame } = render(<ModelPicker groups={groups} current="bc-cloud/glm-5.3-flash" onPick={() => {}} />)
+  await tick()
+  stdin.write('zzz')
+  await tick()
+  expect(lastFrame()).toMatch(/Tidak ada model yang cocok|No matching models/)
+  expect(lastFrame()).toContain('0/303 model')
+  for (let i = 0; i < 3; i++) {
+    stdin.write('\u007F')
+    await tick()
+  }
+  expect(lastFrame()).toContain('303/303 model')
+  expect(lastFrame()).not.toMatch(/Tidak ada model yang cocok|No matching models/)
+})
+
+test('enter picks the first match of a search', async () => {
+  const onPick = vi.fn()
+  const { stdin } = render(<ModelPicker groups={groups} current="" onPick={onPick} />)
+  await tick()
+  stdin.write('deepseek')
+  await tick()
+  stdin.write('\r')
+  await tick()
+  expect(onPick).toHaveBeenCalledWith('bc-cloud/deepseek-v4-flash')
+})
+
+test('providers that share a display name are told apart by their id', () => {
+  const twins = [
+    { providerId: 'gmi', providerName: 'GMI Cloud', models: ['google/gemini-3.5-flash'] },
+    { providerId: 'gmicloud', providerName: 'GMI Cloud', models: ['google/gemini-3.5-flash'] },
+  ]
+  const frame = render(<ModelPicker groups={twins} current="" onPick={() => {}} />).lastFrame()!
+  expect(frame).toContain('── GMI Cloud (gmi)')
+  expect(frame).toContain('── GMI Cloud (gmicloud)')
+})
+
 test('typing filters across providers; enter picks provider/model', async () => {
   const onPick = vi.fn()
   const { stdin, lastFrame } = render(<ModelPicker groups={groups} current="bc-cloud/glm-5.3-flash" onPick={onPick} />)
