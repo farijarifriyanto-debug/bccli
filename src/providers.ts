@@ -10,7 +10,28 @@ export function hasKey(config: Config, id: string, env: NodeJS.ProcessEnv = proc
   const provider = config.providers[id]
   if (!provider) return false
   if (!provider.apiKeyEnv) return true
-  return !!env[provider.apiKeyEnv] || !!readCredentials(env)[id]
+  return !!env[provider.apiKeyEnv] || !!savedCredential(id, env)
+}
+
+/**
+ * Provider BotConnector Cloud pernah memakai dua id: `bc-cloud` di kode ini dan `botconnector`
+ * di rilis 0.5.2. Keduanya harus saling mengenali, kalau tidak kunci yang tersimpan di bawah
+ * satu nama tidak terbaca saat id yang aktif memakai nama lain (provider tampak "○" tanpa kunci).
+ */
+export function providerIdAliases(id: string): readonly string[] {
+  if (id === 'bc-cloud') return ['botconnector']
+  if (id === 'botconnector') return ['bc-cloud']
+  return []
+}
+
+/** Kunci tersimpan untuk `id`, termasuk yang tersimpan di bawah nama aliasnya. */
+export function savedCredential(id: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const creds = readCredentials(env)
+  for (const candidate of [id, ...providerIdAliases(id)]) {
+    const key = creds[candidate]
+    if (typeof key === 'string' && key.length > 0) return key
+  }
+  return undefined
 }
 
 const globalPath = (env: NodeJS.ProcessEnv) => join(bccliHome(env), 'config.json')

@@ -25,7 +25,10 @@ export function parseReasoningLevel(value: string, label = 'reasoning'): Reasoni
 
 export function reasoningCapability(providerId?: string): ReasoningCapability | undefined {
   switch (providerId) {
+    // Rilis 0.5.2 menamai provider yang sama `botconnector`; kode ini memakai `bc-cloud`.
+    // Keduanya harus punya kapabilitas yang sama, kalau tidak level reasoning manual ditolak.
     case 'bc-cloud':
+    case 'botconnector':
       return { levels: BOTCONNECTOR_LEVELS, parameter: 'reasoning_effort' }
     case 'openai':
     case 'gmi':

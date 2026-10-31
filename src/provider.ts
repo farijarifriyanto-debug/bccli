@@ -1058,7 +1058,10 @@ export function createProvider(options: ProviderOptions): Provider {
     headers['x-botconnector-client'] = 'bccli'
     headers['x-botconnector-client-version'] = '0.4.8'
   }
-  const useNativeResponses = isBotConnectorCloud && providerId === 'bc-cloud' && model === 'gpt-6-luna'
+  // Provider yang sama pernah memakai dua id: `bc-cloud` di kode ini dan `botconnector` di rilis
+  // 0.5.2. Jalur native Responses (Luna) harus aktif untuk keduanya, bukan hanya salah satu.
+  const isBotConnectorProvider = providerId === 'bc-cloud' || providerId === 'botconnector'
+  const useNativeResponses = isBotConnectorCloud && isBotConnectorProvider && model === 'gpt-6-luna'
   const useResponsesWebSocket =
     useNativeResponses && Boolean(apiKey) && (fetchOverride === undefined || responsesWebSocketFactory !== undefined)
 

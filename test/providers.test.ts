@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { beforeEach, expect, test } from 'vitest'
 import { loadConfig, readCredentials, saveCredential } from '../src/config'
 import { PRESETS } from '../src/presets'
-import { hasKey, providerName, removeGlobalProvider, writeGlobalConfig } from '../src/providers'
+import { hasKey, providerName, removeGlobalProvider, savedCredential, writeGlobalConfig } from '../src/providers'
 
 let env: NodeJS.ProcessEnv
 let cwd: string
@@ -19,6 +19,19 @@ test('all presets are available without any config file', () => {
   for (const p of PRESETS) expect(config.providers[p.id].baseURL).toBe(p.baseURL)
   expect(providerName(config, 'gemini')).toBe('Google Gemini')
   expect(providerName(config, 'unknown')).toBe('unknown')
+})
+
+test('kredensial terbaca lintas alias id bc-cloud/botconnector', () => {
+  const config = loadConfig(cwd, env)
+  // Kunci disimpan oleh rilis 0.5.2 di bawah nama `botconnector`; kode ini memakai `bc-cloud`.
+  saveCredential('botconnector', 'k1', env)
+  expect(hasKey(config, 'bc-cloud', env)).toBe(true)
+  expect(savedCredential('bc-cloud', env)).toBe('k1')
+  // dan sebaliknya
+  const env2 = { BCCLI_HOME: mkdtempSync(join(tmpdir(), 'bccli-pv2-')) }
+  saveCredential('bc-cloud', 'k2', env2)
+  expect(savedCredential('botconnector', env2)).toBe('k2')
+  expect(savedCredential('openai', env2)).toBeUndefined()
 })
 
 test('hasKey: env, credentials file, or keyless local provider', () => {

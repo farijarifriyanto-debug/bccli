@@ -18,6 +18,13 @@ function bodyOf(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> {
   return JSON.parse(String(init.body))
 }
 
+test('id lama dan baru BotConnector punya kapabilitas reasoning yang sama', () => {
+  expect(reasoningCapability('botconnector')).toEqual(reasoningCapability('bc-cloud'))
+  expect(reasoningPayload('botconnector', 'high')).toEqual({ reasoning_effort: 'high' })
+  // Provider lain tidak boleh ikut mendapat set level milik BotConnector.
+  expect(reasoningCapability('openai')).not.toEqual(reasoningCapability('bc-cloud'))
+})
+
 test('Auto omits every reasoning override from an OpenAI-compatible request', async () => {
   const f = vi.fn(async () => sse())
   await createProvider({ baseURL: 'http://x', model: 'm', providerId: 'bc-cloud', fetch: f }).chat({
