@@ -121,9 +121,16 @@ Langkah 1–4 sudah dijalankan dan diverifikasi:
   dan string `Search model: `. Workflow di `main` sudah memuat job itu dan run push
   di `2a2df5b` **skipped** (tidak ada publish tak sengaja).
 
-Yang belum dan tidak boleh diklaim:
+- Langkah 5 dijalankan dengan izin owner: run
+  [41216613426](https://github.com/farijarifriyanto-debug/bccli/actions/runs/41216613426)
+  **sukses** tanpa approval tambahan. Semua pagar pass
+  (`PASS: byte-identical package from bccli-runtime commit 5caed31`,
+  `PASS: 0.5.5 clean install, SDK, and searchable model picker`), lalu
+  `npm publish --provenance --tag latest` menandatangani provenance SLSA v1
+  (sigstore `logIndex=3614410022`).
+- Registry terverifikasi: `dist-tags.latest = 0.5.5`,
+  integritas `sha512-pDd7x5ay5IVnfnaXktVWZ7JnaWqltS65AwDqxyIDWHDNy+r/8l1bAGy8fpAJesOhTvMZIUDYlWvjKClDT0DJqA==`
+  cocok dengan payload yang diterbitkan.
 
-- Dispatch `confirm_version=0.5.5` belum dijalankan — menunggu izin owner; environment
-  `npm-production` kemungkinan juga meminta approval manusia.
-- `npm view @botconnector/bccli dist-tags.latest` masih `0.5.4`.
-- Uji TUI interaktif di terminal asli tetap manual (lihat berkas E2E di atas).
+**Rilis 0.5.5 selesai.** Satu-satunya yang masih manual dan belum diklaim: uji TUI
+interaktif di terminal asli (lihat berkas E2E di atas) — mesin ini tidak punya TTY.
