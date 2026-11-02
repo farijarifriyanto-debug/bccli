@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm_version:
-        description: "Type 0.5.1, 0.5.2, 0.5.3, 0.5.4, 0.5.5, or 0.5.6 (manual OIDC publishing)"
+        description: "Type 0.5.1, 0.5.2, 0.5.3, 0.5.4, 0.5.5, 0.5.6, or 0.5.7 (manual OIDC publishing)"
         required: true
         type: string
   push:
@@ -801,4 +801,139 @@ jobs:
             sleep 15
           done
           echo 'npm registry has not converged to 0.5.6 within 20 minutes; do not publish again'
+          exit 1
+  publish_057:
+    name: Publish verified 0.5.7 archive via existing npm OIDC
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_version == '0.5.7' }}
+    runs-on: ubuntu-latest
+    environment: npm-production
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Retrieve immutable archive from verified source release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bccli-057-publish"
+          gh release download bccli-v0.5.7 --repo farijarifriyanto-debug/bccli-runtime --dir "$RUNNER_TEMP/bccli-057-publish" --pattern 'botconnector-bccli-0.5.7.tgz' --pattern 'SHA256SUMS.txt'
+          # The release was created with targetCommitish=product; resolve the
+          # lightweight tag ref so the payload is pinned to one exact commit.
+          test "$(gh api repos/farijarifriyanto-debug/bccli-runtime/git/ref/tags/bccli-v0.5.7 --jq .object.sha)" = 'be6a68fa0fddb44491d6e957af37b8be753a15bb'
+          cd "$RUNNER_TEMP/bccli-057-publish"
+          sha256sum -c SHA256SUMS.txt
+          actual="$(sha256sum botconnector-bccli-0.5.7.tgz | cut -d ' ' -f 1)"
+          test "$actual" = '44a643445f03b286608e5216830e855688f437844d508e099af0bcd4db448fd2'
+          echo "PASS: byte-identical package from bccli-runtime commit be6a68f"
+      - name: Align npm repository provenance metadata with existing trusted publisher
+        shell: bash
+        run: |
+          set -euo pipefail
+          original="$RUNNER_TEMP/bccli-057-publish/botconnector-bccli-0.5.7.tgz"
+          target="$RUNNER_TEMP/bccli-057-publish/botconnector-bccli-0.5.7-oidc.tgz"
+          work="$RUNNER_TEMP/bccli-057-provenance"
+          mkdir -p "$work/source" "$work/check" "$work/reference"
+          tar -xzf "$original" -C "$work/reference"
+          tar -xzf "$original" -C "$work/source"
+          node --input-type=module - "$work/source/package/package.json" <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const path=process.argv[2];
+          const pkg=JSON.parse(readFileSync(path,'utf8'));
+          if(pkg.name!=='@botconnector/bccli'||pkg.version!=='0.5.7')throw Error('Unexpected release');
+          if(!String(pkg.repository?.url||'').includes('farijarifriyanto-debug/bccli-runtime.git'))throw Error('Original source repository differs');
+          pkg.repository={type:'git',url:'git+https://github.com/farijarifriyanto-debug/bccli.git'};
+          pkg.bccliRuntimeSource={
+            repository:'https://github.com/farijarifriyanto-debug/bccli-runtime',
+            commit:'be6a68fa0fddb44491d6e957af37b8be753a15bb',
+            release:'bccli-v0.5.7',
+            originalSha256:'44a643445f03b286608e5216830e855688f437844d508e099af0bcd4db448fd2'
+          };
+          writeFileSync(path,JSON.stringify(pkg,null,2)+'\n');
+          JS
+          tar -czf "$target" -C "$work/source" package
+          tar -xzf "$target" -C "$work/check"
+          diff -qr --exclude=package.json "$work/reference/package" "$work/check/package"
+          node --input-type=module - "$work/reference/package/package.json" "$work/check/package/package.json" <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {deepStrictEqual} from 'node:assert';
+          const original=JSON.parse(readFileSync(process.argv[2],'utf8'));
+          const publish=JSON.parse(readFileSync(process.argv[3],'utf8'));
+          if(publish.repository.url!=='git+https://github.com/farijarifriyanto-debug/bccli.git')throw Error('Unexpected publisher origin');
+          if(publish.bccliRuntimeSource?.originalSha256!=='44a643445f03b286608e5216830e855688f437844d508e099af0bcd4db448fd2')throw Error('Missing original source integrity metadata');
+          delete original.repository;delete publish.repository;delete publish.bccliRuntimeSource;
+          deepStrictEqual(publish,original);
+          JS
+          echo "The only modification versus original GitHub artifact is package.json repository/provenance metadata."
+          sha256sum "$target" | tee "$RUNNER_TEMP/bccli-057-publish/npm-payload-SHA256SUMS.txt"
+      - name: Verify clean install, SDK, engine, model search picker, and no separate Qwen dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          file="$RUNNER_TEMP/bccli-057-publish/botconnector-bccli-0.5.7-oidc.tgz"
+          dest="$RUNNER_TEMP/bccli-057-installed"
+          mkdir -p "$dest"
+          npm install --prefix "$dest" --ignore-scripts --no-audit --no-fund "$file"
+          pkg="$dest/node_modules/@botconnector/bccli"
+          test -f "$pkg/engine/cli-entry.js"
+          test -f "$pkg/dialog-models.mjs"
+          test -f "$pkg/model-dialog.mjs"
+          test -f "$pkg/web-search-backend.mjs"
+          test -f "$pkg/web-search-tool.mjs"
+          test -f "$pkg/openai-responses.mjs"
+          test -f "$pkg/legacy/dist/sdk.js"
+          grep -q 'BccliModelPicker' "$pkg/model-dialog.mjs"
+          grep -q 'Search model: ' "$pkg/model-dialog.mjs"
+          test ! -d "$dest/node_modules/@qwen-code"
+          test "$(node "$pkg/cli.mjs" --version)" = '0.5.7'
+          (cd "$dest" && node --input-type=module -e "import('@botconnector/bccli').then(m=>{if(typeof m.runTask!=='function'||typeof m.streamTask!=='function')process.exit(1)})")
+          echo "PASS: 0.5.7 clean install, SDK, and searchable model picker"
+      - name: Refuse republish of an existing immutable npm version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if npm view @botconnector/bccli@0.5.7 version --prefer-online >/dev/null 2>&1; then
+            echo "Version 0.5.7 already exists. Never overwrite immutable npm versions."
+            exit 1
+          fi
+      - name: Publish 0.5.7 through npm trusted publisher (no secret token)
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ""
+        run: |
+          set -euo pipefail
+          npm install -g npm@latest
+          printf 'registry=https://registry.npmjs.org/\n' > "$RUNNER_TEMP/npm-oidc-only.npmrc"
+          export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npm-oidc-only.npmrc"
+          unset NODE_AUTH_TOKEN
+          unset NPM_TOKEN
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          npm publish "$RUNNER_TEMP/bccli-057-publish/botconnector-bccli-0.5.7-oidc.tgz" --access public --tag latest --ignore-scripts --provenance --registry=https://registry.npmjs.org/
+      - name: Verify public npm latest and published integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="sha512-$(openssl dgst -sha512 -binary "$RUNNER_TEMP/bccli-057-publish/botconnector-bccli-0.5.7-oidc.tgz" | openssl base64 -A)"
+          # npm metadata can lag the accepted publish by many minutes. Retry the
+          # read-only check; never republish an immutable version.
+          for n in $(seq 1 80); do
+            latest="$(npm view @botconnector/bccli dist-tags.latest --prefer-online 2>/dev/null || true)"
+            version="$(npm view @botconnector/bccli@0.5.7 version --prefer-online 2>/dev/null || true)"
+            if test "$latest" = '0.5.7' && test "$version" = '0.5.7'; then
+              echo "PASS: @botconnector/bccli@latest -> 0.5.7"
+              actual="$(npm view @botconnector/bccli@0.5.7 dist.integrity --prefer-online)"
+              test "$actual" = "$expected"
+              echo 'PASS: registry tarball integrity matches the verified provenance-aligned payload'
+              exit 0
+            fi
+            echo "Waiting for npm 0.5.7 metadata propagation ($n/80; 15-second interval)"
+            sleep 15
+          done
+          echo 'npm registry has not converged to 0.5.7 within 20 minutes; do not publish again'
           exit 1
