@@ -25,6 +25,14 @@ on:
         description: 'Version for add, for example 0.4.0 (ignored by rm)'
         required: false
         default: ''
+      auth:
+        description: 'token (uses NPM_BBCLI/NPM_TOKEN) or oidc (trusted publishing)'
+        required: true
+        default: token
+        type: choice
+        options:
+          - 'token'
+          - 'oidc'
 
 permissions:
   contents: read
@@ -43,26 +51,32 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-      # dist-tag over OIDC needs npm >= 11.21 (or >= 12.2); the CLI bundled
-      # with Node 22 is older. Mirror the release workflow, which takes
-      # npm@latest for the same reason.
+      # The two ways to authenticate are mutually exclusive: setup-node's
+      # .npmrc points the registry auth at NODE_AUTH_TOKEN, and a token present
+      # in the environment is used instead of the OIDC exchange, so passing an
+      # expired secret silently defeats trusted publishing. `auth` picks one
+      # deliberately instead of guessing. OIDC also needs npm >= 11.21 for
+      # dist-tag, which is why the CLI is refreshed first.
       - name: Use a current npm CLI
         run: npm install -g npm@latest
       - name: npm dist-tag
         env:
-          # No NODE_AUTH_TOKEN here on purpose. setup-node's .npmrc points the
-          # registry auth at that variable, and a token present in the
-          # environment wins over the OIDC exchange -- the first run after this
-          # change still failed with E401 because the stale NPM_BBCLI secret was
-          # passed through. The release workflow clears the token for the same
-          # reason before it publishes over OIDC.
           ACTION: ${{ inputs.action }}
           TAG: ${{ inputs.tag }}
           VERSION: ${{ inputs.version }}
+          AUTH: ${{ inputs.auth }}
+          TOKEN: ${{ secrets.NPM_BBCLI || secrets.NPM_TOKEN }}
         run: |
           case "$TAG" in
             '' | *[!a-z0-9-]*) echo "::error::tag must match [a-z0-9-]+ (got '$TAG')"; exit 1 ;;
           esac
+          if [ "$AUTH" = token ]; then
+            [ -n "$TOKEN" ] || { echo "::error::auth=token but no NPM_BBCLI/NPM_TOKEN secret is configured"; exit 1; }
+            export NODE_AUTH_TOKEN="$TOKEN"
+          else
+            unset NODE_AUTH_TOKEN NPM_TOKEN
+            echo "Using trusted publishing (OIDC); no token is sent."
+          fi
           if [ "$ACTION" = rm ]; then
             npm dist-tag rm "@botconnector/bccli" "$TAG"
           else
@@ -96,5 +110,5 @@ jobs:
           echo "--- dist-tags as the registry sees them ---"
           npm view @botconnector/bccli dist-tags || true
           echo "::error::dist-tag $TAG did not reach '${EXPECTED:-<removed>}' in 120s"
-          echo "::error::If the step above failed on authentication or permission instead: enable 'Allow npm dist-tag' on the trusted publisher for workflow file $(basename "${GITHUB_WORKFLOW_REF%%@*}")."
+          echo "::error::If the step above failed on authentication or permission instead: with auth=oidc, enable 'Allow npm dist-tag' on the trusted publisher for workflow file $(basename "${GITHUB_WORKFLOW_REF%%@*}"); with auth=token, NPM_BBCLI/NPM_TOKEN must be a valid token."
           exit 1
