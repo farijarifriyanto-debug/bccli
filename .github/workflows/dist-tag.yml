@@ -32,9 +32,7 @@ permissions:
   # short-lived token, so the command no longer depends on a long-lived npm
   # token. Two package-side facts matter and neither is visible from this file:
   # the trusted publisher registered for this workflow must exist, and it must
-  # allow `npm dist-tag`, which is off by default. A rotated NPM_BBCLI /
-  # NPM_TOKEN secret still works as well, because the CLI prefers OIDC when it
-  # is available and falls back to the token otherwise.
+  # allow `npm dist-tag`, which is off by default.
   id-token: write
 
 jobs:
@@ -52,7 +50,12 @@ jobs:
         run: npm install -g npm@latest
       - name: npm dist-tag
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_BBCLI || secrets.NPM_TOKEN }}
+          # No NODE_AUTH_TOKEN here on purpose. setup-node's .npmrc points the
+          # registry auth at that variable, and a token present in the
+          # environment wins over the OIDC exchange -- the first run after this
+          # change still failed with E401 because the stale NPM_BBCLI secret was
+          # passed through. The release workflow clears the token for the same
+          # reason before it publishes over OIDC.
           ACTION: ${{ inputs.action }}
           TAG: ${{ inputs.tag }}
           VERSION: ${{ inputs.version }}
@@ -93,5 +96,5 @@ jobs:
           echo "--- dist-tags as the registry sees them ---"
           npm view @botconnector/bccli dist-tags || true
           echo "::error::dist-tag $TAG did not reach '${EXPECTED:-<removed>}' in 120s"
-          echo "::error::If the step above failed on authentication or permission instead: either set a valid NPM_BBCLI/NPM_TOKEN secret, or enable 'Allow npm dist-tag' on the trusted publisher for workflow file $(basename "${GITHUB_WORKFLOW_REF%%@*}")."
+          echo "::error::If the step above failed on authentication or permission instead: enable 'Allow npm dist-tag' on the trusted publisher for workflow file $(basename "${GITHUB_WORKFLOW_REF%%@*}")."
           exit 1
