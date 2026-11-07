@@ -10,6 +10,12 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: 'chore(deps)'
+    ignore:
+      # Biome 2.6 enables new recommended lint rules (style/useTemplate) that
+      # fail on the legacy 0.4.x codebase; keeping it pinned to 2.5.x avoids a
+      # cosmetic refactor of code that is frozen.
+      - dependency-name: '@biomejs/biome'
+        update-types: ['version-update:semver-minor', 'version-update:semver-major']
     groups:
       dev-dependencies:
         dependency-type: development
