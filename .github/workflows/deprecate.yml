@@ -56,20 +56,29 @@ jobs:
           EOF
           node "$RUNNER_TEMP/read-deprecated.mjs" > "$RUNNER_TEMP/deprecated-before.txt"
           echo "--- before ---"; cat "$RUNNER_TEMP/deprecated-before.txt"
-      - name: Fail usefully when no npm token exists (OIDC cannot deprecate)
+      - name: Fail usefully when the npm token is missing or dead (OIDC cannot deprecate)
         env:
-          TOKEN: ${{ secrets.NPM_BBCLI || secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BBCLI || secrets.NPM_TOKEN }}
           RANGE: ${{ inputs.range }}
         run: |
-          if [ -z "$TOKEN" ]; then
-            {
-              echo "::error::no npm token secret (NPM_BBCLI/NPM_TOKEN) is configured."
-              echo "::error::npm trusted publishing (OIDC) cannot run 'npm deprecate' — it only covers publish/stage/dist-tag: https://docs.npmjs.com/trusted-publishers"
-              echo "::error::Manual path: npmjs.com -> @botconnector/bccli -> Settings -> Deprecate, or locally: npm login && npm deprecate '@botconnector/bccli@$RANGE' '<message>'."
-              echo "::error::To make this workflow work again, add a valid npm access token as the NPM_TOKEN repo secret."
-            }
+          guidance() {
+            echo "::error::npm trusted publishing (OIDC) cannot run 'npm deprecate' — it only covers publish/stage/dist-tag: https://docs.npmjs.com/trusted-publishers"
+            echo "::error::Manual path: npmjs.com -> @botconnector/bccli -> Settings -> Deprecate, or locally: npm login && npm deprecate '@botconnector/bccli@$RANGE' '<message>'."
+            echo "::error::To make this workflow work again, add a valid npm access token as the NPM_TOKEN repo secret."
+          }
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::error::no npm token secret (NPM_BBCLI/NPM_TOKEN) is configured."
+            guidance
             exit 1
           fi
+          # The old NPM_BBCLI token expired in Oct 2026 but the secret still exists, so a
+          # presence check is not enough: validate against the registry before touching it.
+          if ! npm whoami >/dev/null 2>&1; then
+            echo "::error::the configured npm token is rejected by the registry (expired or revoked)."
+            guidance
+            exit 1
+          fi
+          echo "npm token is valid: $(npm whoami)"
       - name: npm deprecate
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_BBCLI || secrets.NPM_TOKEN }}
