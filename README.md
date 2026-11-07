@@ -241,8 +241,13 @@ npm run coverage   # gerbang coverage (juga dijalankan di CI Linux)
 ```
 
 CI (`ci.yml`) menjalankan hal yang sama di Linux, macOS, dan Windows, plus gerbang coverage di Linux.
-Rilis: naikkan `version` di `package.json`, lalu push tag `v<version>` — `release.yml`
-menjalankan test, smoke test ke BotConnector Cloud, dan `npm publish --provenance`.
+Rilis: sejak 0.5.2 paket npm `@botconnector/bccli` dibangun dari repo
+[`bccli-runtime`](https://github.com/farijarifriyanto-debug/bccli-runtime) (branch
+`product`, tag `bccli-v<version>`), lalu dipublish lewat job ter-pin di
+`.github/workflows/publish-runtime-0.5.0.yml` di repo ini (OIDC trusted publishing,
+environment `npm-production`). Alur lama "push tag `v*` → `release.yml`" sudah dihapus:
+repo ini hanya berisi TUI/SDK legacy dan tidak boleh lagi terpublish sebagai `latest`.
+Lihat `docs/release-model-search-gap-20261031.md`.
 
 ## Pelajari lebih lanjut
 

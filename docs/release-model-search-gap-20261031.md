@@ -47,6 +47,11 @@ yang benar sebelum ada yang menjalankan publish.
 Jangan publish repo `bccli` ini sebagai `latest`: bin-nya `dist/cli.js` (TUI ink), sehingga
 semua pengguna turun dari engine native 0.5.4 ke TUI legacy.
 
+> Susulan 2026-11-07: risiko itu sekarang **ditutup di level workflow** — `release.yml`
+> (satu-satunya jalur publish dari tag `v*` di repo ini) dihapus. Satu-satunya workflow yang
+> masih bisa mempublish adalah `publish-runtime-0.5.0.yml`, yang membangun dari arsip
+> `bccli-runtime` ter-pin commit+sha256 dan berjalan di environment `npm-production`.
+
 ## Batas verifikasi
 
 - Sesi TUI 0.5.4 tidak dijalankan interaktif (runner ini bukan TTY); kesimpulan #5–#6 dari

@@ -1,12 +1,18 @@
 name: deprecate
 
 # Maintenance tool: mark (or unmark) a published version range as deprecated, e.g. the
-# legacy 0.1.x launcher line. Uses the same npm credential as the release workflow, so no
-# token ever has to leave GitHub.
+# legacy 0.1.x launcher line.
 #
 #   gh workflow run deprecate.yml -f range='0.1.0-beta.1' -f message='why it is deprecated'
 #   gh workflow run deprecate.yml -f range='0.2.0-beta.1' -f message=''   # un-deprecate
 #   gh workflow run deprecate.yml -f range='0.1.0-beta.1 - 0.1.0-beta.4' -f message='...'
+#
+# Authentication: npm trusted publishing (OIDC) does NOT support `npm deprecate` — per
+# https://docs.npmjs.com/trusted-publishers OIDC covers only `npm publish`,
+# `npm stage publish`, and `npm dist-tag`. So this workflow needs a classic/granular npm
+# token in the NPM_BBCLI or NPM_TOKEN repo secret. The old NPM_BBCLI token expired in
+# Oct 2026; until a new token is added, the preflight step fails with the manual path
+# (npmjs.com package settings, or a local `npm login` + `npm deprecate`).
 #
 # Notes, both learned the hard way:
 # - prefer an explicit range ("0.1.0-beta.1 - 0.1.0-beta.4") over a plain "less than" range;
@@ -23,6 +29,9 @@ on:
         description: 'Deprecation message; leave empty to un-deprecate'
         required: false
         default: ''
+
+permissions:
+  contents: read
 
 jobs:
   deprecate:
@@ -47,6 +56,20 @@ jobs:
           EOF
           node "$RUNNER_TEMP/read-deprecated.mjs" > "$RUNNER_TEMP/deprecated-before.txt"
           echo "--- before ---"; cat "$RUNNER_TEMP/deprecated-before.txt"
+      - name: Fail usefully when no npm token exists (OIDC cannot deprecate)
+        env:
+          TOKEN: ${{ secrets.NPM_BBCLI || secrets.NPM_TOKEN }}
+          RANGE: ${{ inputs.range }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            {
+              echo "::error::no npm token secret (NPM_BBCLI/NPM_TOKEN) is configured."
+              echo "::error::npm trusted publishing (OIDC) cannot run 'npm deprecate' — it only covers publish/stage/dist-tag: https://docs.npmjs.com/trusted-publishers"
+              echo "::error::Manual path: npmjs.com -> @botconnector/bccli -> Settings -> Deprecate, or locally: npm login && npm deprecate '@botconnector/bccli@$RANGE' '<message>'."
+              echo "::error::To make this workflow work again, add a valid npm access token as the NPM_TOKEN repo secret."
+            }
+            exit 1
+          fi
       - name: npm deprecate
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_BBCLI || secrets.NPM_TOKEN }}
