@@ -1,5 +1,10 @@
 name: Publish native BCCLI to npm latest
 
+# The artifacts published here are built in CI by the bccli-runtime workflow
+# .github/workflows/bccli-release-artifact.yml (double build, identical sha256
+# required) and attached to a reviewed draft release bccli-v<version>. Pin the
+# sha256 from that CI run below, never from a local build.
+
 on:
   workflow_dispatch:
     inputs:

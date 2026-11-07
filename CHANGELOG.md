@@ -3,6 +3,42 @@
 Notable changes per release. Versions follow semver; prereleases are published to the
 `next` dist-tag, stable releases to `latest`.
 
+> **Sejak 0.5.2 paket npm `@botconnector/bccli` dibangun dari repo
+> [`bccli-runtime`](https://github.com/farijarifriyanto-debug/bccli-runtime)** (engine
+> Qwen Code 0.26.3 Apache-2.0 yang di-vendor + SDK legacy 0.4.17), dan dipublish lewat
+> `publish-runtime-0.5.0.yml` di repo ini dengan OIDC trusted publishing. Repo ini
+> (TypeScript, TUI ink) adalah sumber SDK legacy dan rumah CI/publish; detail per rilis
+> 0.5.x ada di `integrations/botconnector/release/NOTES-<versi>.md` repo tersebut.
+
+## 0.5.7 - 2026-11-02
+
+- Kompatibilitas model OpenAI: parameter output-limit modern (18 model yang menolak nama lama dengan 400 bekerja lagi), retry reasoning_effort 'none' untuk penolakan tools+reasoning (10/12 model pulih), dan bridge chat.completions <-> /v1/responses untuk model responses-only (gpt-5.x/6.x pro, gpt-5.3-codex, gpt-6-astra, gpt-6.1-sol).
+- Error model-tidak-tersedia kini menyebut provider aktif; 429 kuota mingguan/bulanan fast-fail alih-alih retry 10+ menit.
+
+## 0.5.6 - 2026-10-31
+
+- Perbaikan persistensi picker model 0.5.5: model pilihan kini selamat restart (`settings.model.name` ikut ditulis).
+
+## 0.5.5 - 2026-10-31
+
+- `/model` mendapat kolom cari: baris `Search model:` terlihat, filter live, `/` untuk fokus, `Ctrl+U` hapus, daftar menampilkan `matched/total`. Pemilihan tetap lewat proxy loopback dan dikembalikan bila gateway menolak.
+
+## 0.5.4 - 2026-10-31
+
+- Picker model interaktif upstream kembali, dengan katalog diterbitkan ke `QWEN_HOME` per provider lewat proxy loopback; dialog `/provider` dan `/auth` OpenTUI memakai alur milik gateway; `QWEN_HOME` mengikuti `BCCLI_PREVIEW_HOME` untuk isolasi tes.
+
+## 0.5.3 - 2026-10-31
+
+- Bootstrap Windows: pada Node 24.0-24.22.0 yang rentan crash, launcher memilih Node kompatibel milik pengguna (`BCCLI_NODE_EXECUTABLE` atau `%LOCALAPPDATA%\BotConnector\BCCLI-Preview\runtime\node.exe`) dan gagal tertutup bila tidak ada; `settings.json` sesi hanya dibuat bila belum ada dan menolak symlink; banner membedakan versi engine (0.26.3) dari versi produk.
+
+## 0.5.2 - 2026-10-31
+
+- Rilis utama engine penuh: runtime coding-agent Qwen Code 0.26.3 tanpa flag `--bare` restriktif; tool native, `apply_patch` atomik, MCP, resume sesi, tanpa YOLO otomatis; proxy sesi loopback menjaga API key provider keluar dari engine dan subprocess MCP; `web_fetch` aktif; `web_search` opsional berbasis `BRAVE_SEARCH_API_KEY` (kredensial tetap di proses induk, cap 20/sesi); SDK legacy `runTask`/`streamTask` tetap dikemas.
+
+## 0.5.0 / 0.5.1 - 2026-10-30
+
+- Kemasan satu instalasi `bccli`: runtime coding baru + implementasi kompatibilitas SDK/CLI 0.4.17 dalam satu paket, tanpa executable kedua.
+
 ## 0.4.17 - 2026-10-26
 
 ### Fixed
